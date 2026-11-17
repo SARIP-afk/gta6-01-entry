@@ -201,10 +201,17 @@ export function createHud(cityMap) {
     mapCtx.fillText('DOWNTOWN', px(-32), py(-200));
     mapCtx.fillText('MARINA', px(268), py(90));
     mapCtx.fillText('SUBURB', px(-190), py(230));
-    // Blips: objective, staged cars, then the player (always on top).
+    // Blips: objective, staged cars, live police + traffic (Phase 3), then the
+    // player (always on top). A live cruiser is a blue dot; a traffic car white.
     drawBlip(state.objective.x, state.objective.z, 'objective', 0, state.time);
     for (const extra of state.extras) {
       drawBlip(extra.x, extra.z, extra.kind, extra.heading, state.time);
+    }
+    for (const p of state.police ?? []) {
+      drawBlip(p.x, p.z, 'police', p.heading, state.time);
+    }
+    for (const t of state.traffic ?? []) {
+      drawBlip(t.x, t.z, 'traffic', t.heading, state.time);
     }
     if (state.mode === 'foot') {
       drawBlip(state.car.x, state.car.z, 'car', state.car.heading, state.time);

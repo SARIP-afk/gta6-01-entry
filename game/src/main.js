@@ -9,14 +9,14 @@
 // scene and a few diagnostics (render info, city visibility, flat materials) used to
 // hunt the headless frame-rate bottleneck in Phase 1 — the shipped game never calls them.
 //
-// Phase 2: the HUD (hud.js) owns the readouts, the minimap and the title/pause
-// screens; the START and CONTINUE buttons start the same loop Enter does, and the
-// best-run record (cash banked between runs) is saved when the tab closes or hides.
+// Phase 3: the world takes the same seed, so its traffic and police replay
+// identically; window.__solmarina also exposes the world itself (live counts,
+// police modes, test hooks) for automated play tests.
 import * as THREE from 'three';
 import { DEFAULT_SEED, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { buildCity } from './city.js';
-import { createWorld, EVENT_HIT } from './world.js';
+import { createWorld, EVENT_BUST, EVENT_HIT } from './world.js';
 import { ACTION_CONFIRM, ACTION_ENTER, ACTION_PAUSE, createInput } from './input.js';
 import { createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { createHud, loadBest, saveBest } from './hud.js';
@@ -34,7 +34,7 @@ const canvas = document.getElementById('game');
 const status = document.getElementById('status');
 
 const city = buildCity(THREE, createRandom(seed));
-const world = createWorld(city);
+const world = createWorld(city, seed);
 const hud = createHud(city.map);
 const renderer = createRenderer(canvas, hud);
 renderer.scene.add(city.group);
@@ -60,6 +60,21 @@ window.__solmarina = {
       extras: world.state.extras.length,
       buildings: city.buildingCount,
       palms: city.palmCount,
+      // Phase 3: the live city — counts, police modes, nearest cruiser, busts.
+      trafficCount: world.state.traffic.length,
+      pedCount: world.state.peds.length,
+      policeCount: world.state.police.length,
+      policeModes: world.state.police.map((p) => p.mode),
+      nearestPolice: (() => {
+        let best = null;
+        for (const p of world.state.police) {
+          const d = Math.hypot(p.x - world.state.car.x, p.z - world.state.car.z);
+          if (!best || d < best.distance) best = { distance: d, mode: p.mode, hasLos: p.hasLos };
+        }
+        return best;
+      })(),
+      busted: world.state.busted,
+      crimes: world.state.crimes,
     };
   },
   /** Distance driven and time played this session, for the pause screen and saves. */
@@ -68,6 +83,8 @@ window.__solmarina = {
   },
   /** The live three.js scene, for automated play tests. */
   scene: renderer.scene,
+  /** The world (state, step, debug hooks) for automated play tests. */
+  world,
   /** Draw calls and triangles of the last rendered frame. */
   get renderInfo() {
     return renderer.info();
@@ -174,6 +191,7 @@ function runGame() {
         const events = world.step(STEP, held, renderer.cameraYaw());
         if (world.state.mode === 'car') distanceDriven += Math.abs(world.state.car.speed) * STEP;
         if (events & EVENT_HIT) announce('Hit.');
+        if (events & EVENT_BUST) announce('Busted. Cash lost.');
         accumulator -= STEP;
       }
     }

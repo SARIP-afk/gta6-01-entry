@@ -90,10 +90,11 @@ export const CAMERA = {
 };
 
 /**
- * HUD + minimap (Phase 2). The wanted level is display-only until Phase 3 builds
- * the wanted/police systems: live play starts at 0 stars, the cover shot stages 3.
- * The objective is the story thread the banner and the minimap waypoint point at;
- * missions (Phase 4) will replace it with per-mission objectives.
+ * HUD + minimap (Phase 2). Phase 3: the wanted level is LIVE — the HUD stars
+ * follow world.state.wanted, which the police system raises on crimes and lowers
+ * when the player stays clean and unseen. The objective is the story thread the
+ * banner and the minimap waypoint point at; missions (Phase 4) will replace it
+ * with per-mission objectives.
  */
 export const HUD = {
   wantedMax: 5,
@@ -134,6 +135,80 @@ export const MINIMAP = {
   maxZ: 340,
 };
 
+/**
+ * Traffic + pedestrians (Phase 3). Cars follow the road grid, keep their lane,
+ * brake for the car ahead, and turn at intersections; pedestrians walk the
+ * sidewalks and flee danger. Everything is seeded, so the same seed gives the
+ * same city traffic.
+ */
+export const TRAFFIC = {
+  count: 8,
+  pedCount: 14,
+  // Cruise speeds of traffic cars (m/s): slower than Rio's 34, so the player
+  // can overtake — and so a chase can outrun them.
+  speedMin: 8,
+  speedMax: 14,
+  // Lane offset from the road centre: right-hand side for the direction of travel.
+  lane: 3,
+  // A car ahead closer than this makes a traffic car brake.
+  brakeDistance: 14,
+  // A car that wants to move but sits still this long is stuck: respawn it.
+  stuckSeconds: 8,
+  // Pedestrians walk the sidewalk strip just outside the asphalt (road half-width
+  // 6 m); they run at this speed when they flee danger.
+  sidewalkOffset: 7.5,
+  pedWalkMin: 1.2,
+  pedWalkMax: 2,
+  pedFleeSpeed: 4.5,
+  // A pedestrian this close to a moving car runs away from it.
+  pedFleeDistance: 9,
+  pedFleeSeconds: 2,
+};
+
+/**
+ * Wanted + police (Phase 3). Crimes raise the wanted level; staying clean and
+ * unseen lowers it. The police chase on the road grid, ram the player's car,
+ * and can LOSE the player: out of sight long enough and they search, then give
+ * up — and only then does the wanted level start to decay. Escaping is always
+ * possible: police top speed (30 m/s) is below Rio's (34 m/s).
+ *
+ * Crimes (each +1 star, per-kind cooldown so one incident is one star):
+ * - hit-ped: the player's car hits a pedestrian.
+ * - hit-traffic: the player's car hits a traffic car.
+ * - hit-police: the player's car hits a police cruiser at over 15 m/s.
+ * Stealing a car is not a crime here: Rio's red car is his own.
+ */
+export const POLICE = {
+  // Police on the road per wanted level (index = stars): 1 star brings 1 cruiser.
+  capByWanted: [0, 1, 2, 2, 3, 3],
+  maxSpeed: 30,
+  accel: 14,
+  // A cruiser sees the player this far, and only with a clear line of sight
+  // (buildings block it — hiding behind a block is real).
+  sightRange: 90,
+  // Out of every cruiser's sight this long: they switch to searching.
+  loseSeconds: 6,
+  // Searching this long without regaining sight: they give up and leave.
+  searchSeconds: 12,
+  // How often each cruiser re-checks line of sight (seconds of game time).
+  losCheckSeconds: 0.25,
+  // A ram lands this close; each cruiser waits this long between rams.
+  ramDistance: 3.6,
+  ramCooldown: 1.5,
+  ramDamage: 5,
+  // Busted: the player (car or on foot) sits still this long with a cruiser
+  // this close — cash is lost and Rio respawns at the start.
+  bustDistance: 8,
+  bustSeconds: 3,
+  // Clean time (no crime, unseen) that burns one star.
+  decaySeconds: 15,
+  // One incident of one kind is one star: a kind cannot fire again this soon.
+  crimeCooldown: 3,
+  // Cruisers spawn in this distance band from the player (metres).
+  spawnMinDistance: 60,
+  spawnMaxDistance: 100,
+};
+
 export const PALETTE = {
   skyTop: '#6ea8dd',
   skyHorizon: '#ffd9a0',
@@ -156,6 +231,8 @@ export const PALETTE = {
   palmLeaf: '#3f7a3a',
   lampPole: '#3a3f46',
   lampGlow: '#ffd27a',
+  // Pedestrian shirts: a few muted colours so walkers read as different people.
+  pedShirts: [0xc96a5a, 0x5a7a9a, 0x7a9a5a, 0x9a7ab8, 0xd8c9a8, 0x8a6a4a],
 };
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';

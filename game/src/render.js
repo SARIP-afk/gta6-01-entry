@@ -11,6 +11,10 @@
 // renderer also draws `state.extras` — visual-only police cruisers and traffic cars
 // staged for the cover shot, with flashing light bars. Extras have no AI (Phase 3);
 // they are placed by the shot stager and painted like any other mesh.
+// Phase 3: the renderer also draws the LIVE city — police cruisers (state.police),
+// traffic cars (state.traffic) and pedestrians (state.peds) — from their own mesh
+// pools. The staged extras keep dedicated pools of their own, so a live cruiser
+// never steals a staged one's slot in the cover shot.
 import * as THREE from 'three';
 import { CAMERA, CAR, EXTRA_CAR, GAME, PALETTE, PLAYER } from './config.js';
 
@@ -105,6 +109,53 @@ function buildExtraCarMesh(kind, colorIndex) {
   return { group: car, redLamp, blueLamp };
 }
 
+/** A live traffic car: the same silhouette, fewer meshes (no lamps, no light bar). */
+function buildTrafficCarMesh(kind, colorIndex) {
+  const car = new THREE.Group();
+  car.name = `traffic-${kind}`;
+  const bodyColor = kind === 'taxi'
+    ? 0xf2c94c
+    : EXTRA_CAR.trafficColors[colorIndex % EXTRA_CAR.trafficColors.length];
+  const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const glassMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.cabinColor });
+  const wheelMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.wheelColor });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
+  body.position.y = 0.55;
+  car.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), glassMat);
+  cabin.position.set(0, 1.05, -0.2);
+  car.add(cabin);
+  for (const [x, z] of [[-0.85, 1.45], [0.85, 1.45], [-0.85, -1.45], [0.85, -1.45]]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12), wheelMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(x, 0.36, z);
+    car.add(wheel);
+  }
+  // The pool mesh is repainted every frame from the live car's kind/colour, so
+  // a slot never shows the wrong paint job when cars respawn into other slots.
+  return { group: car, bodyMat };
+}
+
+/** A pedestrian: torso + head, shirt colour varies (index into PALETTE.pedShirts). */
+function buildPedMesh(shirtColor) {
+  const ped = new THREE.Group();
+  ped.name = 'pedestrian';
+  const shirt = new THREE.MeshLambertMaterial({ color: shirtColor });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xe8b98a });
+  const pants = new THREE.MeshLambertMaterial({ color: 0x33302a });
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.7, 0.26), pants);
+  legs.position.y = 0.35;
+  ped.add(legs);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.68, 0.3), shirt);
+  torso.position.y = 1.04;
+  ped.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.32), skin);
+  head.position.y = 1.56;
+  ped.add(head);
+  // Repainted every frame from the live pedestrian's shirt, like traffic cars.
+  return { group: ped, shirtMat: shirt };
+}
+
 function buildPlayerMesh() {
   const rio = new THREE.Group();
   rio.name = 'rio';
@@ -170,18 +221,43 @@ export function createRenderer(canvas, hud) {
   const rio = buildPlayerMesh();
   scene.add(rio.group);
 
-  // Extra-car pool: 3 police cruisers + 3 traffic cars, hidden until a shot stages them.
+  // Live pools (Phase 3): 3 cruisers, 8 traffic cars, 16 pedestrians.
   const policePool = [];
   const trafficPool = [];
+  const pedPool = [];
   for (let i = 0; i < 3; i += 1) {
     const p = buildExtraCarMesh('police', i);
     p.group.visible = false;
     scene.add(p.group);
     policePool.push(p);
-    const t = buildExtraCarMesh('traffic', i);
+  }
+  for (let i = 0; i < 8; i += 1) {
+    const t = buildTrafficCarMesh('sedan', i);
     t.group.visible = false;
     scene.add(t.group);
     trafficPool.push(t);
+  }
+  for (let i = 0; i < 16; i += 1) {
+    const p = buildPedMesh(PALETTE.pedShirts[i % PALETTE.pedShirts.length]);
+    p.group.visible = false;
+    scene.add(p.group);
+    pedPool.push(p);
+  }
+  // Staged extras (cover shot): their own pools, so they never fight the live
+  // cars for a slot. 2 police cruisers + 3 traffic cars, as the cover stages.
+  const extraPolicePool = [];
+  const extraTrafficPool = [];
+  for (let i = 0; i < 2; i += 1) {
+    const p = buildExtraCarMesh('police', i);
+    p.group.visible = false;
+    scene.add(p.group);
+    extraPolicePool.push(p);
+  }
+  for (let i = 0; i < 3; i += 1) {
+    const t = buildExtraCarMesh('traffic', i);
+    t.group.visible = false;
+    scene.add(t.group);
+    extraTrafficPool.push(t);
   }
 
   const titleScreen = document.getElementById('title-screen');
@@ -276,28 +352,69 @@ export function createRenderer(canvas, hud) {
       rio.legs[1].rotation.x = 0;
     }
 
-    // Extras: place the staged cars, flash the police light bars. The flash phase
-    // follows game time, so a staged shot (fixed time) shows one steady phase.
-    let policeSeen = 0;
-    let trafficSeen = 0;
+    // Police light bars flash on game time, so a staged shot (fixed time) shows
+    // one steady phase. The same phase drives live cruisers and staged ones.
     const flashRed = Math.floor(state.time * 4) % 2 === 0;
-    for (const extra of state.extras) {
-      const pool = extra.kind === 'police' ? policePool : trafficPool;
-      const slot = extra.kind === 'police' ? policeSeen : trafficSeen;
-      if (slot >= pool.length) continue;
-      if (extra.kind === 'police') policeSeen += 1;
-      else trafficSeen += 1;
-      const mesh = pool[slot];
-      mesh.group.visible = true;
-      mesh.group.position.set(extra.x, 0, extra.z);
-      mesh.group.rotation.y = extra.heading;
+    const flash = (mesh) => {
       if (mesh.redLamp && mesh.blueLamp) {
         mesh.redLamp.material.emissiveIntensity = flashRed ? 1.6 : 0.15;
         mesh.blueLamp.material.emissiveIntensity = flashRed ? 0.15 : 1.6;
       }
+    };
+    // Live cruisers (Phase 3): chase, ram, search — from state.police.
+    const livePolice = state.police || [];
+    for (let i = 0; i < policePool.length; i += 1) {
+      const mesh = policePool[i];
+      const p = livePolice[i];
+      if (!p) { mesh.group.visible = false; continue; }
+      mesh.group.visible = true;
+      mesh.group.position.set(p.x, 0, p.z);
+      mesh.group.rotation.y = p.heading;
+      flash(mesh);
     }
-    for (let i = policeSeen; i < policePool.length; i += 1) policePool[i].group.visible = false;
-    for (let i = trafficSeen; i < trafficPool.length; i += 1) trafficPool[i].group.visible = false;
+    // Live traffic (Phase 3): from state.traffic. The pool mesh is a plain
+    // sedan silhouette; a taxi reads by its yellow paint, a van by its colour.
+    const liveTraffic = state.traffic || [];
+    for (let i = 0; i < trafficPool.length; i += 1) {
+      const mesh = trafficPool[i];
+      const t = liveTraffic[i];
+      if (!t) { mesh.group.visible = false; continue; }
+      mesh.group.visible = true;
+      mesh.group.position.set(t.x, 0, t.z);
+      mesh.group.rotation.y = t.heading;
+      mesh.bodyMat.color.setHex(t.kind === 'taxi'
+        ? 0xf2c94c
+        : EXTRA_CAR.trafficColors[t.colorIndex % EXTRA_CAR.trafficColors.length]);
+    }
+    // Pedestrians (Phase 3): from state.peds. A knocked-down pedestrian is
+    // hidden until it walks again elsewhere (it respawns after 2 seconds).
+    const livePeds = state.peds || [];
+    for (let i = 0; i < pedPool.length; i += 1) {
+      const mesh = pedPool[i];
+      const p = livePeds[i];
+      if (!p || p.state === 'down') { mesh.group.visible = false; continue; }
+      mesh.group.visible = true;
+      mesh.group.position.set(p.x, 0, p.z);
+      mesh.group.rotation.y = p.heading;
+      mesh.shirtMat.color.setHex(PALETTE.pedShirts[p.shirt % PALETTE.pedShirts.length]);
+    }
+    // Staged extras (cover shot): their own pools, placed by the shot stager.
+    let extraPoliceSeen = 0;
+    let extraTrafficSeen = 0;
+    for (const extra of state.extras) {
+      const pool = extra.kind === 'police' ? extraPolicePool : extraTrafficPool;
+      const slot = extra.kind === 'police' ? extraPoliceSeen : extraTrafficSeen;
+      if (slot >= pool.length) continue;
+      if (extra.kind === 'police') extraPoliceSeen += 1;
+      else extraTrafficSeen += 1;
+      const mesh = pool[slot];
+      mesh.group.visible = true;
+      mesh.group.position.set(extra.x, 0, extra.z);
+      mesh.group.rotation.y = extra.heading;
+      flash(mesh);
+    }
+    for (let i = extraPoliceSeen; i < extraPolicePool.length; i += 1) extraPolicePool[i].group.visible = false;
+    for (let i = extraTrafficSeen; i < extraTrafficPool.length; i += 1) extraTrafficPool[i].group.visible = false;
 
     setSun(active);
     placeCamera(state, screen, false, dt);

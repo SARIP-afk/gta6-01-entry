@@ -17,9 +17,11 @@
 // Phase 2 (v2-cover-reads): the HUD + live minimap + cover chase are in — wanted
 // stars, cash, objective banner, speed, health, in-game clock, start screen with a
 // best-run record and a staged ?shot=cover (police cruisers + traffic around the
-// player's car, wanted 3, all real game state). Later phases add traffic/pedestrians/
-// wanted/police AI, missions, combat/activities/save/sound, then polish. This file
-// itself only copies the game and writes the dossier; the game lives in game/src/.
+// player's car, wanted 3, all real game state). Phase 3 (v3-police-wanted): the city
+// lives — traffic and pedestrians on the road grid, a live wanted level, police
+// cruisers that chase, ram, bust, lose the player, search and give up. Later phases
+// add missions, combat/activities/save/sound, then polish. This file itself only
+// copies the game and writes the dossier; the game lives in game/src/.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

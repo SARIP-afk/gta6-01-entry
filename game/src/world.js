@@ -10,9 +10,18 @@
 // objective, and `extras`: visual-only cars (police cruisers, traffic) that the cover
 // shot stages around the player. Extras never move or collide; they are scenery with
 // wheels, placed by the shot stager.
+// Phase 3: wanted is LIVE (police.js), and the city lives (traffic.js): traffic
+// cars and pedestrians drive and walk the grid, crimes raise the wanted level,
+// cruisers chase, ram and can bust the player — and can lose him, search, give up,
+// and let the wanted level decay. The subsystems share one seeded generator, so
+// the same seed gives the same city, traffic and police.
 import { CAR, CITY, HUD, PLAYER, STEP } from './config.js';
+import { createRandom } from './random.js';
+import { createTraffic } from './traffic.js';
+import { createPolice } from './police.js';
 
 export const EVENT_HIT = 1;
+export const EVENT_BUST = 2;
 
 const BOUNDS = { minX: -340, maxX: 334, minZ: -340, maxZ: 340 };
 const CAR_RADIUS = 1.9;
@@ -61,7 +70,11 @@ function resolveCircle(state, x, z, radius) {
   return { x, z, hit };
 }
 
-export function createWorld(city) {
+export function createWorld(city, seed) {
+  const traffic = createTraffic(city);
+  const police = createPolice(city);
+  let random = createRandom(seed);
+
   const state = {
     colliders: city.colliders,
     route: city.route,
@@ -69,8 +82,8 @@ export function createWorld(city) {
     time: 0,
     car: { x: 0, z: 0, heading: 0, speed: 0, steer: 0, hit: false },
     player: { x: 0, z: 0, heading: 0, moving: false, running: false },
-    // Phase 2 HUD state. Wanted is display-only for now (the system is Phase 3);
-    // cash and health change only when later phases add jobs and combat.
+    // Phase 3: wanted is live (police.js owns it; synced here every step).
+    // cash is lost on a bust; health drops when a cruiser rams the car.
     wanted: 0,
     cash: 0,
     health: HUD.healthMax,
@@ -78,9 +91,20 @@ export function createWorld(city) {
     // Visual-only cars, staged by shots.js (cover): { kind: 'police'|'traffic',
     // x, z, heading }. Never simulated, never collided with.
     extras: [],
+    // Live city (Phase 3): traffic cars, pedestrians, cruisers — plain state
+    // objects the renderer and the minimap read every frame.
+    traffic: [],
+    peds: [],
+    police: [],
+    busted: 0,
+    crimes: {},
   };
 
   function reset() {
+    // A fresh seeded stream every reset: the same seed replays the same city.
+    random = createRandom(seed);
+    traffic.reset(random, city.spawn.car.x, city.spawn.car.z);
+    police.reset(random);
     state.mode = 'car';
     state.time = 0;
     state.car.x = city.spawn.car.x;
@@ -99,6 +123,11 @@ export function createWorld(city) {
     state.health = HUD.healthMax;
     state.objective = { ...HUD.objective };
     state.extras = [];
+    state.traffic = traffic.state.cars;
+    state.peds = traffic.state.peds;
+    state.police = police.state.police;
+    state.busted = 0;
+    state.crimes = {};
   }
 
   function distanceToCar() {
@@ -125,6 +154,32 @@ export function createWorld(city) {
       return true;
     }
     return false;
+  }
+
+  /** A crime happened: the police system decides whether the level rises. */
+  function commitCrime(kind) {
+    if (police.commitCrime(kind, state.time, state.car.x, state.car.z)) {
+      state.crimes[kind] = (state.crimes[kind] ?? 0) + 1;
+    }
+  }
+
+  /** Busted (or wasted): cash is lost, Rio respawns at the start, wanted clears. */
+  function doBust() {
+    state.cash = 0;
+    state.health = HUD.healthMax;
+    state.mode = 'car';
+    state.car.x = city.spawn.car.x;
+    state.car.z = city.spawn.car.z;
+    state.car.heading = city.spawn.car.heading;
+    state.car.speed = 0;
+    state.car.steer = 0;
+    state.player.x = city.spawn.player.x;
+    state.player.z = city.spawn.player.z;
+    state.player.heading = city.spawn.car.heading;
+    police.despawnAll();
+    police.setWanted(0, state.time, state.car.x, state.car.z);
+    state.wanted = 0;
+    state.busted += 1;
   }
 
   function stepCar(dt, input) {
@@ -214,13 +269,43 @@ export function createWorld(city) {
   /**
    * One fixed step. `input` is { forward, back, left, right, handbrake, run, enter }
    * (enter is a one-shot edge, already taken by the caller). `cameraYaw` steers on-foot
-   * movement. Returns event flags (EVENT_HIT when the car hits something).
+   * movement. Returns event flags (EVENT_HIT when the car hits something,
+   * EVENT_BUST when the police catch the player standing still).
    */
   function step(dt, input, cameraYaw) {
     state.time += dt;
     if (input.enter) toggleEnter();
-    if (state.mode === 'car') return stepCar(dt, input);
-    return stepFoot(dt, input, cameraYaw);
+    let events = 0;
+    if (state.mode === 'car') events |= stepCar(dt, input);
+    else events |= stepFoot(dt, input, cameraYaw);
+    // The city lives around the player: traffic, pedestrians, then the police.
+    traffic.step(dt, {
+      time: state.time,
+      car: state.car,
+      player: state.player,
+      mode: state.mode,
+      colliders: state.colliders,
+      police: police.state.police,
+      commitCrime,
+    });
+    const policeEvent = police.step(dt, {
+      time: state.time,
+      car: state.car,
+      player: state.player,
+      mode: state.mode,
+      colliders: state.colliders,
+      damage: (n) => { state.health = Math.max(0, state.health - n); },
+      commitCrime,
+    });
+    state.wanted = police.state.wanted;
+    state.traffic = traffic.state.cars;
+    state.peds = traffic.state.peds;
+    state.police = police.state.police;
+    if (policeEvent === 'bust' || state.health <= 0) {
+      doBust();
+      events |= EVENT_BUST;
+    }
+    return events;
   }
 
   /**
@@ -230,7 +315,8 @@ export function createWorld(city) {
    * so it cut straight across blocks from the spawn). It brakes for sharp turns:
    * the yaw cap means a 90-degree corner needs a slow car. Returns { throttle,
    * steer, brake } in the same shape as player input, so the shot stager can drive
-   * the car with it.
+   * the car with it. Phase 3: it also brakes for traffic and cruisers ahead, so
+   * the staged shots never plough through the city's cars.
    */
   function autopilot() {
     const car = state.car;
@@ -283,11 +369,74 @@ export function createWorld(city) {
     const diff = angleDelta(wanted, car.heading);
     const steer = clamp(diff * 1.6, -1, 1);
     const sharp = Math.abs(diff) > 0.5;
-    return { throttle: sharp ? 0 : 1, steer, brake: sharp };
+    // Traffic ahead: a car in our lane within 16 m means lift off and brake
+    // (brake only while moving — braking at a standstill would reverse us).
+    let blocked = false;
+    if (Math.abs(car.speed) > 2) {
+      const fx = Math.sin(car.heading);
+      const fz = Math.cos(car.heading);
+      const check = (vx, vz) => {
+        const rx = vx - car.x;
+        const rz = vz - car.z;
+        const along = rx * fx + rz * fz;
+        const lateral = Math.abs(rx * fz - rz * fx);
+        return along > 0 && along < 16 && lateral < 3.5;
+      };
+      for (const t of traffic.state.cars) {
+        if (check(t.x, t.z)) { blocked = true; break; }
+      }
+      if (!blocked) {
+        for (const p of police.state.police) {
+          if (check(p.x, p.z)) { blocked = true; break; }
+        }
+      }
+    }
+    return {
+      throttle: sharp || blocked ? 0 : 1,
+      steer,
+      brake: sharp || (blocked && Math.abs(car.speed) > 2),
+    };
   }
 
+  /** Test hooks: drive the systems directly (browser play tests, Node tests). */
+  const debug = {
+    commitCrime(kind) {
+      commitCrime(kind);
+    },
+    setWanted(n) {
+      police.setWanted(n, state.time, state.car.x, state.car.z);
+      state.wanted = police.state.wanted;
+    },
+    teleport(x, z) {
+      state.car.x = x;
+      state.car.z = z;
+      state.car.speed = 0;
+      state.player.x = x;
+      state.player.z = z + 5;
+    },
+    snapshot() {
+      return {
+        time: state.time,
+        mode: state.mode,
+        wanted: state.wanted,
+        cash: state.cash,
+        health: state.health,
+        busted: state.busted,
+        crimes: { ...state.crimes },
+        car: { x: state.car.x, z: state.car.z, heading: state.car.heading, speed: state.car.speed },
+        police: police.state.police.map((p) => ({
+          x: p.x, z: p.z, heading: p.heading, speed: p.speed, mode: p.mode, hasLos: p.hasLos,
+        })),
+        traffic: traffic.state.cars.map((c) => ({ x: c.x, z: c.z, speed: c.speed, kind: c.kind, road: c.road, line: c.line, heading: c.heading })),
+        peds: traffic.state.peds.map((p) => ({ x: p.x, z: p.z, state: p.state, road: p.road, line: p.line, heading: p.heading })),
+        trafficStats: { ...traffic.state.stats },
+        policeStats: { ...police.state.stats },
+      };
+    },
+  };
+
   reset();
-  return { state, reset, step, toggleEnter, autopilot, distanceToCar };
+  return { state, reset, step, toggleEnter, autopilot, distanceToCar, debug };
 }
 
 // Re-export STEP so callers read the step size from one place.

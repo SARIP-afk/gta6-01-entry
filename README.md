@@ -6,7 +6,7 @@
 
 An original open-world crime game in the browser, built in the spirit of GTA 6: a sun-soaked coastal city on foot and by car, traffic and pedestrians, cars to steal, a wanted level and police, missions and a story, combat, a HUD with a minimap, a start and a save. Three.js, procedural city, zero Rockstar assets.
 
-Phase 2 (v2-cover-reads): HUD (wanted stars, cash, objective banner, speed, health, clock), live minimap, and a staged cover chase (`?shot=cover`) — all real game state.
+Phase 3 (v3-police-wanted): the city lives — traffic and pedestrians on the road grid, a live wanted level, and police cruisers that chase, ram, bust, lose the player, search and give up.
 
 ## Run it
 

@@ -1,4 +1,5 @@
 // Every tuning number, name and colour in one place. Solmarina is a sun-soaked coastal
+// Finishing (v3.8-structural, recording #4): file re-written in this session; gates re-run on this exact content — see BATCH2-FINISH-REPORT.md.
 // city: golden-hour light, warm walls, a marina and a pier on the east sea edge.
 // The city is a 12x12 block grid (52 m pitch) centred on the origin; roads are the gaps.
 // All randomness comes from the seeded generator, so the same seed builds the same city.
@@ -117,6 +118,12 @@ export const CAMERA = {
  */
 export const LIGHT = {
   sunIntensity: 2.4,
+  // Batch 2, Phase D (pass 5): back to Batch 1 levels (1.15/0.7). Pass 1's
+  // lift (1.25/0.9) pushed the red hero car over ACES's knee — the red
+  // channel clipped and desaturated to pink (proven by the diagnostic: plain
+  // Standard, no clearcoat, no env was still pink). The facade gate is
+  // carried by the lifted asphalt albedo, not by the light, so the light
+  // reverts and the gate is re-measured.
   hemiIntensity: 1.15,
   fillIntensity: 0.7,
   fillColor: '#ffe8cc',
@@ -251,7 +258,11 @@ export const PALETTE = {
   fog: '#b8c8d8',
   sun: '#ffb46b',
   groundSand: '#d9b380',
-  asphalt: '#4a4642',
+  // Batch 2, Phase D: the asphalt base is lifted (was #4a4642) so the road in
+  // building shadow stops rendering near-black — the facade gate. Still a
+  // warm worn grey, not concrete; the speckle/crack colours in
+  // makeAsphaltTexture are lifted to match.
+  asphalt: '#5d5850',
   sidewalk: '#cfc3ab',
   crosswalk: '#f5efe0',
   laneDash: '#f2c94c',

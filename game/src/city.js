@@ -1,4 +1,5 @@
 // Solmarina, the city itself: a seeded procedural grid built from instanced meshes.
+// Finishing (v3.8-structural, recording #4): file re-written in this session; gates re-run on this exact content — see BATCH2-FINISH-REPORT.md.
 // Everything here is deterministic — every size, colour and position comes from the
 // seeded random passed in, never from Math.random. The city is one group of meshes plus
 // a list of 2D colliders (building footprints, channel banks, pier) and a driving route.
@@ -18,6 +19,17 @@
 // doors + awnings + a denser ground window row, and street props (benches,
 // planters, hydrants, sign poles) — chasing the reference city's colour and
 // detail density from the chase camera, not its top-down framing.
+// Batch 2, Phase C: the road cross-section (curbs + edge lines + stop lines;
+// the ±8 m crosswalk gap in the curb IS the curb ramp), arm lamps, traffic
+// lights on the two main avenues, bus stops, bins, bollards, a second
+// broadleaf tree, a second prop per block, and a segmented frond palm
+// (5 stacked trunk cylinders + 7 axis-aligned fronds + coconuts). The palm
+// fronds are stepped axis-aligned boxes, NOT a baked merged geometry: the
+// Node test stub has no Matrix4 rotation and no BufferGeometry, so a merged
+// palm cannot be built in city.js — the silhouette still reads as a palm
+// from both gameplay cameras. All new placements are hash-derived (no new
+// random() calls); the palm mesh block keeps EXACTLY 4 random() calls per
+// palm, in the same order as v3.7, so the seeded stream is untouched.
 // Batch 1 (v3.7-sharp): anisotropic filtering on (the blur diagnosis proved the
 // road texture collapsed to flat colour at the chase camera's ~7.6° grazing
 // angle because anisotropy was never set), asphalt + paving canvases 256 → 512.
@@ -25,6 +37,13 @@
 // position is doubled, nothing added) so the seeded stream — and therefore the
 // whole city layout — is byte-identical to v3.6: a true apples-to-apples
 // before/after.
+// Batch 2, Phase B (v3.8-structural): layered building massing — podium base
+// bands, cornices, setback crowns, framed ground+1 window units (0.3 m relief,
+// past the 0.21 m shadow texel), glass storefronts + fascia, railed balconies,
+// curtain-glass tower strips, suburb chimneys. ALL variation is hash-derived
+// from (bx, bz, n): NO new random() calls anywhere in this phase, and the new
+// meshes use fixed colours or the stored building colour — the seeded stream,
+// the city layout and the sim trace (S7) stay byte-identical to v3.7.
 import { CITY, PALETTE, districtOf } from './config.js';
 
 /** Road centre lines, each way: 11 internal roads plus the perimeter ring. */
@@ -47,18 +66,37 @@ function pick(random, list) {
 }
 
 function makeSkyTexture(THREE) {
-  // A vertical gradient painted once on a small canvas: warm horizon, blue top.
+  // A vertical gradient painted once on a canvas: warm horizon, blue top.
+  // Batch 2, Phase D: the canvas is 512x512 (was 4x256) so procedural
+  // clouds can be painted into it — 8 soft clusters of overlapping
+  // translucent white circles, at hash-derived positions (no random() calls,
+  // so the seeded stream is untouched). The gradient is vertical, so the
+  // wider canvas does not change it.
   const canvas = document.createElement('canvas');
-  canvas.width = 4;
-  canvas.height = 256;
+  canvas.width = 512;
+  canvas.height = 512;
   const ctx = canvas.getContext('2d');
-  const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+  const gradient = ctx.createLinearGradient(0, 0, 0, 512);
   gradient.addColorStop(0, PALETTE.skyTop);
   gradient.addColorStop(0.62, '#a8c8e2');
   gradient.addColorStop(0.82, PALETTE.skyHorizon);
   gradient.addColorStop(1, '#ffcf96');
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 4, 256);
+  ctx.fillRect(0, 0, 512, 512);
+  for (let c = 0; c < 8; c += 1) {
+    const cx = (c * 167 + 40) % 512;
+    const cy = 50 + ((c * 53) % 130);
+    const r = 26 + ((c * 29) % 22);
+    for (let b = 0; b < 5; b += 1) {
+      const bx = cx + ((b * 37 + c * 11) % 70) - 35;
+      const by = cy + ((b * 23 + c * 7) % 24) - 12;
+      const br = r * (0.55 + ((b * 13) % 10) / 20);
+      ctx.fillStyle = `rgba(255,255,255,${0.10 + ((b * 7 + c) % 3) * 0.05})`;
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -125,9 +163,12 @@ function makeAsphaltTexture(THREE, random) {
   const { ctx, texture } = canvasTexture(THREE, 512, 512);
   ctx.fillStyle = PALETTE.asphalt;
   ctx.fillRect(0, 0, 512, 512);
-  speckle(ctx, random, 512, 512, 2600, ['#35322f', '#454240', '#2e2b29', '#4a4642'], 2, 6);
+  // Batch 2, Phase D: the speckle palette is lifted with the asphalt base
+  // (same random-call count — only the colour literals change, so the seeded
+  // stream and the city layout are untouched).
+  speckle(ctx, random, 512, 512, 2600, ['#4a4642', '#5a554e', '#413d3a', '#5f5950'], 2, 6);
   // Hairline cracks: thin dark rects, mostly along the driving direction.
-  ctx.fillStyle = '#2a2725';
+  ctx.fillStyle = '#38342f';
   for (let i = 0; i < 14; i += 1) {
     ctx.fillRect(random() * 512, random() * 512, 40 + random() * 120, 2);
   }
@@ -170,6 +211,18 @@ function makeSeaTexture(THREE, random) {
     ctx.fillRect(random() * 256, random() * 256, 40 + random() * 160, 2 + random() * 4);
   }
   speckle(ctx, random, 256, 256, 400, ['#3a90b8', '#2a6a90'], 1, 2);
+  // Batch 2, Phase D: sun glint + foam — a few bright horizontal streaks
+  // and pale foam flecks, at hash-derived positions (no random() calls, so
+  // the seeded stream is untouched). The sea stays Lambert (the Node stub
+  // has no MeshStandardMaterial), so the life comes from the texture.
+  for (let i = 0; i < 10; i += 1) {
+    ctx.fillStyle = `rgba(255,244,214,${0.20 + ((i * 7) % 3) * 0.08})`;
+    ctx.fillRect((i * 53) % 256, (i * 89) % 256, 30 + ((i * 31) % 90), 2);
+  }
+  for (let i = 0; i < 24; i += 1) {
+    ctx.fillStyle = `rgba(235,245,250,${0.25 + ((i * 5) % 3) * 0.10})`;
+    ctx.fillRect((i * 41 + 17) % 256, (i * 67 + 9) % 256, 3 + ((i * 11) % 8), 2);
+  }
   return texture;
 }
 
@@ -240,6 +293,29 @@ export function buildCity(THREE, random) {
   const signPoles = [];
   const signBoards = [];
   const windows = [];
+  // Batch 2, Phase B: layered massing (see the header note — hash-derived,
+  // no random() calls, fixed or stored colours only).
+  const podiums = [];
+  const cornices = [];
+  const crowns = [];
+  const windowFrames = [];
+  const storefrontGlass = [];
+  const fascias = [];
+  const balconySlabs = [];
+  const balconyRails = [];
+  const chimneys = [];
+  // Batch 2, Phase C: road cross-section, traffic lights, street furniture,
+  // second tree species — all hash-derived, no random() calls.
+  const curbs = [];
+  const edgeLines = [];
+  const stopLines = [];
+  const trafficStructs = [];
+  const trafficLenses = [];
+  const busStops = [];
+  const bins = [];
+  const bollards = [];
+  const broadleafTrunks = [];
+  const broadleafBlobs = [];
   const sidewalks = [];
   const palms = [];
   const lamps = [];
@@ -369,6 +445,78 @@ export function buildCity(THREE, random) {
       }
     }
   }
+  // Batch 2, Phase C: the road cross-section. The curb runs along both edges
+  // of every road (11 internal + the 2 perimeter lines, both orientations),
+  // in pieces between the intersections — the ±8 m crosswalk zone is left
+  // open, so the gap IS the curb ramp where the zebra meets the sidewalk.
+  // The edge line is a white strip inside the curb. No random() calls.
+  {
+    const roadLinesAll = [...lines, -312, 312];
+    const gaps = [];
+    let prev = -324;
+    for (const c of lines) {
+      gaps.push([prev, c - 8]);
+      prev = c + 8;
+    }
+    gaps.push([prev, 324]);
+    for (const c of roadLinesAll) {
+      for (const [g0, g1] of gaps) {
+        const len = g1 - g0;
+        const mid = (g0 + g1) / 2;
+        curbs.push({ x: c - 6.075, z: mid, w: 0.15, d: len, h: 0.3 });
+        curbs.push({ x: c + 6.075, z: mid, w: 0.15, d: len, h: 0.3 });
+        edgeLines.push({ x: c - 5.5, z: mid, w: 0.15, d: len, h: 0.12 });
+        edgeLines.push({ x: c + 5.5, z: mid, w: 0.15, d: len, h: 0.12 });
+        curbs.push({ x: mid, z: c - 6.075, w: len, d: 0.15, h: 0.3 });
+        curbs.push({ x: mid, z: c + 6.075, w: len, d: 0.15, h: 0.3 });
+        edgeLines.push({ x: mid, z: c - 5.5, w: len, d: 0.15, h: 0.12 });
+        edgeLines.push({ x: mid, z: c + 5.5, w: len, d: 0.15, h: 0.12 });
+      }
+    }
+    // Stop lines: one bar per approach at the 121 internal intersections,
+    // 11 m before the intersection centre (just before the zebra at ±8.5).
+    for (const cx of lines) {
+      for (const cz of lines) {
+        stopLines.push({ x: cx + 2.75, z: cz - 11, w: 5.5, d: 0.6, h: 0.12 });
+        stopLines.push({ x: cx - 2.75, z: cz + 11, w: 5.5, d: 0.6, h: 0.12 });
+        stopLines.push({ x: cx - 11, z: cz + 2.75, w: 0.6, d: 5.5, h: 0.12 });
+        stopLines.push({ x: cx + 11, z: cz - 2.75, w: 0.6, d: 5.5, h: 0.12 });
+      }
+    }
+    // Traffic lights on the two main avenues (x = -6 north-south, z = -6
+    // east-west): one per intersection, 21 in all (the shared corner -6,-6
+    // counted once). Pole on the north-east corner, arm reaching over the
+    // road, head hanging at the arm's end, 3 lenses facing the oncoming
+    // lane — the lit one (red top or green bottom, by hash) is static.
+    const addLight = (cx, cz, alongX) => {
+      const px = cx + 7.5;
+      const pz = cz + 7.5;
+      trafficStructs.push({ x: px, z: pz, w: 0.3, d: 0.3, h: 6, y: 3 });
+      const hx = alongX ? px - 2.5 : px;
+      const hz = alongX ? pz : pz - 2.5;
+      if (alongX) {
+        trafficStructs.push({ x: px - 1.25, z: pz, w: 2.5, d: 0.15, h: 0.15, y: 5.9 });
+      } else {
+        trafficStructs.push({ x: px, z: pz - 1.25, w: 0.15, d: 2.5, h: 0.15, y: 5.9 });
+      }
+      trafficStructs.push({ x: hx, z: hz, w: 0.5, d: 0.5, h: 1.2, y: 5.3 });
+      const litGreen = ((cx + cz) % 2 + 2) % 2 === 0;
+      for (let li = 0; li < 3; li += 1) {
+        const off = 0.35 - li * 0.35;
+        const lit = (li === 0 && !litGreen) || (li === 2 && litGreen);
+        const col = lit ? (li === 0 ? '#ff3a2a' : '#2aff5a') : '#1a1a1a';
+        if (alongX) {
+          trafficLenses.push({ x: hx, z: hz - 0.26, w: 0.2, d: 0.06, h: 0.2, y: 5.3 + off, color: col });
+        } else {
+          trafficLenses.push({ x: hx - 0.26, z: hz, w: 0.06, d: 0.2, h: 0.2, y: 5.3 + off, color: col });
+        }
+      }
+    };
+    for (const cz of lines) addLight(-6, cz, true);
+    for (const cx of lines) {
+      if (cx !== -6) addLight(cx, -6, false);
+    }
+  }
   function instancedBoxes(list, mat, y, name) {
     const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, list.length);
     mesh.name = name;
@@ -425,6 +573,32 @@ export function buildCity(THREE, random) {
         // not a beige city with a few accents.
         const color = random() < 0.5 ? pick(random, accent) : pick(random, palette);
         buildings.push({ x, z, w, d, h, color, district });
+        // Batch 2, Phase B: layered massing, hash-derived from (bx, bz, n) —
+        // no random() calls, so the seeded stream is untouched. The podium is
+        // the same footprint (a darker base band, no collider change); the
+        // cornice caps the shaft just under the roof slab; the setback crown
+        // breaks the flat roofline on ~1/3 of the taller buildings.
+        const dark = shade(color, 0.72);
+        // The podium is 6 cm wider than the shaft on each side: its faces
+        // sit proud of the wall instead of coplanar with it (coplanar faces
+        // z-fight), and 3 cm is far inside the 0.3 m collider margin.
+        podiums.push({ x, z, w: w + 0.06, d: d + 0.06, h: 1.2, y: 0.6, color: dark });
+        cornices.push({ x, z, w: w + 0.4, d: d + 0.4, h: 0.25, y: h - 0.125, color: dark });
+        const crownHash = (bx * 7 + bz * 3 + n * 5) % 3;
+        const isSuburbLow = district === 'suburb' && h < 12 && ((bx * 11 + bz * 7 + n * 3) % 3 === 0);
+        if ((h > 15 || isSuburbLow) && crownHash === 0) {
+          crowns.push({
+            x, z, w: w * 0.55, d: d * 0.55,
+            h: isSuburbLow ? 1.2 : 2.5, y: h + 0.7 + (isSuburbLow ? 0.6 : 1.25), color,
+          });
+        }
+        // Building types, all hashed: storefront (downtown/marina commercial),
+        // corner shop (storefront wrapping two faces), balcony residential,
+        // curtain-glass tower (downtown, tall), suburb low-rise (chimney + cap).
+        const isStorefront = district !== 'suburb' && ((bx * 5 + bz * 3 + n * 7) % 5 < 2);
+        const isCornerShop = isStorefront && ((bx + bz + n) % 4 === 0);
+        const hasBalcony = district !== 'downtown' && ((bx * 3 + bz * 5 + n) % 3 === 0);
+        const isTower = district === 'downtown' && h > 40;
         roofs.push({ x, z, w: w + 0.8, d: d + 0.8, h: 0.7, y: h + 0.35 });
         colliders.push({ minX: x - w / 2 - 0.3, maxX: x + w / 2 + 0.3, minZ: z - d / 2 - 0.3, maxZ: z + d / 2 + 0.3 });
         // Roof furniture: an AC box on ~45% of roofs, a pyramid peak on ~20%
@@ -452,6 +626,32 @@ export function buildCity(THREE, random) {
         const doorSpan = doorFace < 2 ? w : d;
         const doorAlong = ((((bx * 13 + bz * 5 + n * 11) % 10) - 5) / 10) * doorSpan * 0.5;
         const rows = Math.min(10, Math.max(1, Math.floor((h - 3) / 4.5)));
+        // Batch 2, Phase B: glass storefront + fascia on the door face (the
+        // ground floor reads as shops from the street, not blank wall). The
+        // glass replaces the ground-row windows on that face (skipped in the
+        // window loop below, AFTER the lit roll is drawn) and the fascia
+        // replaces the awning there. A corner shop wraps both faces.
+        if (isStorefront) {
+          const faces = [doorFace];
+          if (isCornerShop) faces.push((doorFace + 1) % 4);
+          for (const f of faces) {
+            const span = f < 2 ? w : d;
+            const gw = span - 2;
+            if (f === 0) {
+              storefrontGlass.push({ x, z: z + d / 2 + 0.15, w: gw, d: 0.1, h: 2.6, y: 1.3 });
+              fascias.push({ x, z: z + d / 2 + 0.075, w: span - 1, d: 0.15, h: 0.5, y: 2.85 });
+            } else if (f === 1) {
+              storefrontGlass.push({ x, z: z - d / 2 - 0.15, w: gw, d: 0.1, h: 2.6, y: 1.3 });
+              fascias.push({ x, z: z - d / 2 - 0.075, w: span - 1, d: 0.15, h: 0.5, y: 2.85 });
+            } else if (f === 2) {
+              storefrontGlass.push({ x: x + w / 2 + 0.15, z, w: 0.1, d: gw, h: 2.6, y: 1.3 });
+              fascias.push({ x: x + w / 2 + 0.075, z, w: 0.15, d: span - 1, h: 0.5, y: 2.85 });
+            } else {
+              storefrontGlass.push({ x: x - w / 2 - 0.15, z, w: 0.1, d: gw, h: 2.6, y: 1.3 });
+              fascias.push({ x: x - w / 2 - 0.075, z, w: 0.15, d: span - 1, h: 0.5, y: 2.85 });
+            }
+          }
+        }
         for (let f = 0; f < 4; f += 1) {
           const span = f < 2 ? w : d;
           const cols = Math.max(2, Math.floor(span / 5));
@@ -464,12 +664,77 @@ export function buildCity(THREE, random) {
               // No pane where the ground-floor door stands.
               if (r === 0 && f === doorFace && Math.abs(along - doorAlong) < 1.7) continue;
               const lit = random() < 0.15;
-              if (f === 0) windows.push({ x: x + along, z: z + d / 2 + 0.09, w: 1.8, d: 0.12, h: 1.6, y, lit });
-              else if (f === 1) windows.push({ x: x + along, z: z - d / 2 - 0.09, w: 1.8, d: 0.12, h: 1.6, y, lit });
-              else if (f === 2) windows.push({ x: x + w / 2 + 0.09, z: z + along, w: 0.12, d: 1.8, h: 1.6, y, lit });
-              else windows.push({ x: x - w / 2 - 0.09, z: z + along, w: 0.12, d: 1.8, h: 1.6, y, lit });
+              // Batch 2, Phase B: the storefront glass replaces the ground
+              // row on its face, and the tower's glass strips replace the
+              // panes they cross — both AFTER the lit roll above, so the
+              // seeded stream keeps its exact call count and the layout is
+              // byte-identical to v3.7.
+              if (isStorefront && r === 0 && f === doorFace) continue;
+              if (isCornerShop && r === 0 && f === (doorFace + 1) % 4) continue;
+              if (isTower && (Math.abs(along + span / 4) < 1.3 || Math.abs(along) < 1.3 || Math.abs(along - span / 4) < 1.3)) continue;
+              // Framed units on ground + first floor (r <= 1): a dark frame
+              // 0.3 m deep (past the 0.21 m shadow texel) with the pane
+              // sitting proud of it at 0.42 m — the relief the blur diagnosis
+              // asked for. Upper floors keep the flush 0.09 m panes.
+              const deep = r <= 1;
+              const out = deep ? 0.36 : 0.09;
+              if (deep) {
+                if (f === 0) windowFrames.push({ x: x + along, z: z + d / 2 + 0.16, w: 2.2, d: 0.3, h: 2.0, y });
+                else if (f === 1) windowFrames.push({ x: x + along, z: z - d / 2 - 0.16, w: 2.2, d: 0.3, h: 2.0, y });
+                else if (f === 2) windowFrames.push({ x: x + w / 2 + 0.16, z: z + along, w: 0.3, d: 2.2, h: 2.0, y });
+                else windowFrames.push({ x: x - w / 2 - 0.16, z: z + along, w: 0.3, d: 2.2, h: 2.0, y });
+              }
+              if (f === 0) windows.push({ x: x + along, z: z + d / 2 + out, w: 1.8, d: 0.12, h: 1.6, y, lit });
+              else if (f === 1) windows.push({ x: x + along, z: z - d / 2 - out, w: 1.8, d: 0.12, h: 1.6, y, lit });
+              else if (f === 2) windows.push({ x: x + w / 2 + out, z: z + along, w: 0.12, d: 1.8, h: 1.6, y, lit });
+              else windows.push({ x: x - w / 2 - out, z: z + along, w: 0.12, d: 1.8, h: 1.6, y, lit });
             }
           }
+        }
+        // Batch 2, Phase B: railed balconies above the entrance (floors 2-3),
+        // curtain-glass tower strips, suburb chimney. All hash-derived.
+        if (hasBalcony) {
+          for (const r of [2, 3]) {
+            if (r >= rows) continue;
+            const by = 2.4 + r * 4.5 - 1.0;
+            // Slab (2.0 x 0.9, centred on the door) + front + side rails.
+            if (doorFace === 0) {
+              balconySlabs.push({ x: x + doorAlong, z: z + d / 2 + 0.45, w: 2.0, d: 0.9, h: 0.15, y: by });
+              balconyRails.push({ x: x + doorAlong, z: z + d / 2 + 0.875, w: 2.0, d: 0.05, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x + doorAlong - 0.975, z: z + d / 2 + 0.45, w: 0.05, d: 0.9, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x + doorAlong + 0.975, z: z + d / 2 + 0.45, w: 0.05, d: 0.9, h: 0.9, y: by + 0.5 });
+            } else if (doorFace === 1) {
+              balconySlabs.push({ x: x + doorAlong, z: z - d / 2 - 0.45, w: 2.0, d: 0.9, h: 0.15, y: by });
+              balconyRails.push({ x: x + doorAlong, z: z - d / 2 - 0.875, w: 2.0, d: 0.05, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x + doorAlong - 0.975, z: z - d / 2 - 0.45, w: 0.05, d: 0.9, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x + doorAlong + 0.975, z: z - d / 2 - 0.45, w: 0.05, d: 0.9, h: 0.9, y: by + 0.5 });
+            } else if (doorFace === 2) {
+              balconySlabs.push({ x: x + w / 2 + 0.45, z: z + doorAlong, w: 0.9, d: 2.0, h: 0.15, y: by });
+              balconyRails.push({ x: x + w / 2 + 0.875, z: z + doorAlong, w: 0.05, d: 2.0, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x + w / 2 + 0.45, z: z + doorAlong - 0.975, w: 0.9, d: 0.05, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x + w / 2 + 0.45, z: z + doorAlong + 0.975, w: 0.9, d: 0.05, h: 0.9, y: by + 0.5 });
+            } else {
+              balconySlabs.push({ x: x - w / 2 - 0.45, z: z + doorAlong, w: 0.9, d: 2.0, h: 0.15, y: by });
+              balconyRails.push({ x: x - w / 2 - 0.875, z: z + doorAlong, w: 0.05, d: 2.0, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x - w / 2 - 0.45, z: z + doorAlong - 0.975, w: 0.9, d: 0.05, h: 0.9, y: by + 0.5 });
+              balconyRails.push({ x: x - w / 2 - 0.45, z: z + doorAlong + 0.975, w: 0.9, d: 0.05, h: 0.9, y: by + 0.5 });
+            }
+          }
+        }
+        if (isTower) {
+          for (let f = 0; f < 4; f += 1) {
+            const span = f < 2 ? w : d;
+            for (const c of [-0.25, 0, 0.25]) {
+              const along = span * c;
+              if (f === 0) storefrontGlass.push({ x: x + along, z: z + d / 2 + 0.15, w: 0.8, d: 0.15, h: h - 4, y: 2 + (h - 4) / 2 });
+              else if (f === 1) storefrontGlass.push({ x: x + along, z: z - d / 2 - 0.15, w: 0.8, d: 0.15, h: h - 4, y: 2 + (h - 4) / 2 });
+              else if (f === 2) storefrontGlass.push({ x: x + w / 2 + 0.15, z: z + along, w: 0.15, d: 0.8, h: h - 4, y: 2 + (h - 4) / 2 });
+              else storefrontGlass.push({ x: x - w / 2 - 0.15, z: z + along, w: 0.15, d: 0.8, h: h - 4, y: 2 + (h - 4) / 2 });
+            }
+          }
+        }
+        if (isSuburbLow) {
+          chimneys.push({ x: x + w / 4, z: z - d / 4, w: 0.8, d: 0.8, h: 1.5, y: h + 0.7 + 0.75 });
         }
         // Phase 3.6: roof variety — parapet rims (~30%), stepped roof boxes
         // (~20%), plus roof props: flat solar panels, water tanks with cone
@@ -511,18 +776,24 @@ export function buildCity(THREE, random) {
           antennaTips.push({ x: ax, z: az, w: 0.6, d: 0.6, h: 0.6, y: h + 0.7 + 7 + 0.3 });
         }
         // Ground-floor door + awning on the hashed face (see above).
+        // Batch 2, Phase B: on a storefront the door sits proud of the glass
+        // band (0.25 out instead of 0.12) and the fascia replaces the awning —
+        // but the awning colour roll is still drawn, so the seeded stream is
+        // untouched.
+        const doorOut = isStorefront ? 0.25 : 0.12;
+        const awningColor = pick(random, PALETTE.awningColors);
         if (doorFace === 0) {
-          doors.push({ x: x + doorAlong, z: z + d / 2 + 0.12, w: 1.6, d: 0.18, h: 2.6, y: 1.3 });
-          awnings.push({ x: x + doorAlong, z: z + d / 2 + 0.55, w: 2.6, d: 1.1, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
+          doors.push({ x: x + doorAlong, z: z + d / 2 + doorOut, w: 1.6, d: 0.18, h: 2.6, y: 1.3 });
+          if (!isStorefront) awnings.push({ x: x + doorAlong, z: z + d / 2 + 0.55, w: 2.6, d: 1.1, h: 0.15, y: 3.0, color: awningColor });
         } else if (doorFace === 1) {
-          doors.push({ x: x + doorAlong, z: z - d / 2 - 0.12, w: 1.6, d: 0.18, h: 2.6, y: 1.3 });
-          awnings.push({ x: x + doorAlong, z: z - d / 2 - 0.55, w: 2.6, d: 1.1, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
+          doors.push({ x: x + doorAlong, z: z - d / 2 - doorOut, w: 1.6, d: 0.18, h: 2.6, y: 1.3 });
+          if (!isStorefront) awnings.push({ x: x + doorAlong, z: z - d / 2 - 0.55, w: 2.6, d: 1.1, h: 0.15, y: 3.0, color: awningColor });
         } else if (doorFace === 2) {
-          doors.push({ x: x + w / 2 + 0.12, z: z + doorAlong, w: 0.18, d: 1.6, h: 2.6, y: 1.3 });
-          awnings.push({ x: x + w / 2 + 0.55, z: z + doorAlong, w: 1.1, d: 2.6, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
+          doors.push({ x: x + w / 2 + doorOut, z: z + doorAlong, w: 0.18, d: 1.6, h: 2.6, y: 1.3 });
+          if (!isStorefront) awnings.push({ x: x + w / 2 + 0.55, z: z + doorAlong, w: 1.1, d: 2.6, h: 0.15, y: 3.0, color: awningColor });
         } else {
-          doors.push({ x: x - w / 2 - 0.12, z: z + doorAlong, w: 0.18, d: 1.6, h: 2.6, y: 1.3 });
-          awnings.push({ x: x - w / 2 - 0.55, z: z + doorAlong, w: 1.1, d: 2.6, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
+          doors.push({ x: x - w / 2 - doorOut, z: z + doorAlong, w: 0.18, d: 1.6, h: 2.6, y: 1.3 });
+          if (!isStorefront) awnings.push({ x: x - w / 2 - 0.55, z: z + doorAlong, w: 1.1, d: 2.6, h: 0.15, y: 3.0, color: awningColor });
         }
         if (random() < 0.6) {
           palms.push({ x: xr.min + 3 + random() * 6, z: zr.min + 3 + random() * 6 });
@@ -640,6 +911,59 @@ export function buildCity(THREE, random) {
       mesh.setMatrixAt(i, m);
       mesh.setColorAt(i, color.set(w.lit ? PALETTE.windowLit : PALETTE.window));
     }
+    group.add(mesh);
+  }
+  // Batch 2, Phase B: podium base bands, cornices, setback crowns — one
+  // instanced mesh each, coloured per instance from the stored (already
+  // darkened) building colour. No random() calls here, so the colours of the
+  // meshes built after this one are exactly what v3.7 produced.
+  for (const [list, name] of [[podiums, 'podiums'], [cornices, 'cornices'], [crowns, 'crowns']]) {
+    if (list.length === 0) continue;
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      list.length,
+    );
+    mesh.name = name;
+    const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    for (let i = 0; i < list.length; i += 1) {
+      const b = list[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, color.set(b.color));
+    }
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  // Batch 2, Phase B: framed window units (dark, one mesh), storefront glass
+  // + tower strips (pale blue glass, one mesh), fascia boards, balcony slabs
+  // + rails, chimneys — all single-colour instanced meshes.
+  for (const [list, name, colorHex, shadow] of [
+    [windowFrames, 'window-frames', 0x2a2f36, true],
+    [storefrontGlass, 'storefront-glass', 0x9fc4d4, false],
+    [fascias, 'fascias', 0x2a2f36, true],
+    [balconySlabs, 'balcony-slabs', 0xcfc8b8, true],
+    [balconyRails, 'balcony-rails', 0x2a2f36, true],
+    [chimneys, 'chimneys', 0x7a4a3a, true],
+  ]) {
+    if (list.length === 0) continue;
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: colorHex }),
+      list.length,
+    );
+    mesh.name = name;
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < list.length; i += 1) {
+      const b = list[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = shadow;
     group.add(mesh);
   }
   // Phase 3.6: parapet rims + stepped roofs, coloured per instance from the
@@ -774,42 +1098,94 @@ export function buildCity(THREE, random) {
     mesh.castShadow = true;
     group.add(mesh);
   }
-  // Palms: trunk + canopy blobs, varied per palm now (trunk height, canopy
-  // size and squash, leaf shade) so the 156 palms stop reading as clones.
+  // Batch 2, Phase C: segmented frond palm — 5 stacked trunk cylinders
+  // (tapering 0.42 -> 0.16, banded shades like stacked rings) + a crown of
+  // 7 axis-aligned fronds (4 cardinal, each a horizontal base + a drooping
+  // tip, + 3 diagonal plates; the 4th diagonal is the hash-missing one) +
+  // 2 coconuts under the crown. The fronds are stepped axis-aligned boxes:
+  // the Node stub has no Matrix4 rotation and no BufferGeometry, so a baked
+  // merged palm cannot be built here. Random() budget: EXACTLY 4 calls per
+  // palm, in the same order as v3.7 (trunk height, frond spread, frond
+  // width, leaf shade) — the seeded stream is untouched.
   {
+    const trunkSegs = 5;
+    const frondsPerPalm = 13;
     const trunk = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.28, 0.42, 6, 6),
-      new THREE.MeshLambertMaterial({ color: PALETTE.palmTrunk }),
-      palms.length,
+      new THREE.CylinderGeometry(1, 1, 1, 6),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      palms.length * trunkSegs,
     );
     trunk.name = 'palm-trunks';
-    const canopy = new THREE.InstancedMesh(
-      new THREE.SphereGeometry(2.6, 7, 5),
+    const frond = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
       new THREE.MeshLambertMaterial({ color: 0xffffff }),
-      palms.length,
+      palms.length * frondsPerPalm,
     );
-    canopy.name = 'palm-canopies';
+    frond.name = 'palm-fronds';
     const m = new THREE.Matrix4();
     const color = new THREE.Color();
     const leafShades = ['#3f7a3a', '#4a8a3a', '#35702f'];
+    const trunkShades = ['#7a5a3a', '#8a6a45', '#6a4a30'];
+    const diags = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let ti = 0;
+    let fi = 0;
     for (let i = 0; i < palms.length; i += 1) {
       const p = palms[i];
       const trunkH = 6 * (0.85 + random() * 0.3);
-      m.makeScale(1, trunkH / 6, 1);
-      m.setPosition(p.x, trunkH / 2, p.z);
-      trunk.setMatrixAt(i, m);
       const cs = 1.2 + random() * 0.5;
-      m.makeScale(cs, 0.55 * (0.85 + random() * 0.3), cs);
-      m.setPosition(p.x, trunkH + 0.4, p.z);
-      canopy.setMatrixAt(i, m);
-      canopy.setColorAt(i, color.set(pick(random, leafShades)));
+      const fw = 0.55 * (0.85 + random() * 0.3);
+      const leaf = pick(random, leafShades);
+      for (let s = 0; s < trunkSegs; s += 1) {
+        const r = 0.42 - 0.065 * s;
+        m.makeScale(r, trunkH / trunkSegs, r);
+        m.setPosition(p.x, ((s + 0.5) * trunkH) / trunkSegs, p.z);
+        trunk.setMatrixAt(ti, m);
+        trunk.setColorAt(ti, color.set(trunkShades[(i + s) % 3]));
+        ti += 1;
+      }
+      const crownY = trunkH;
+      const L = 2.2 * cs;
+      const tipL = 1.1 * cs;
+      for (const [dx, dz] of dirs) {
+        m.makeScale(Math.abs(dx) * L + (dx === 0 ? fw : 0), 0.08, Math.abs(dz) * L + (dz === 0 ? fw : 0));
+        m.setPosition(p.x + dx * L * 0.5, crownY + 0.3, p.z + dz * L * 0.5);
+        frond.setMatrixAt(fi, m);
+        frond.setColorAt(fi, color.set(leaf));
+        fi += 1;
+        m.makeScale(Math.abs(dx) * tipL + (dx === 0 ? fw * 0.85 : 0), 0.08, Math.abs(dz) * tipL + (dz === 0 ? fw * 0.85 : 0));
+        m.setPosition(p.x + dx * (L + tipL * 0.5), crownY - 0.25, p.z + dz * (L + tipL * 0.5));
+        frond.setMatrixAt(fi, m);
+        frond.setColorAt(fi, color.set(leaf));
+        fi += 1;
+      }
+      const missing = i % 4;
+      for (let d = 0; d < 4; d += 1) {
+        if (d === missing) continue;
+        const [dx, dz] = diags[d];
+        m.makeScale(1.5 * cs, 0.08, 1.5 * cs);
+        m.setPosition(p.x + dx * 1.1 * cs, crownY - 0.1, p.z + dz * 1.1 * cs);
+        frond.setMatrixAt(fi, m);
+        frond.setColorAt(fi, color.set(leaf));
+        fi += 1;
+      }
+      for (const [ox, oz] of [[0.35, 0.2], [-0.3, -0.25]]) {
+        m.makeScale(0.28, 0.28, 0.28);
+        m.setPosition(p.x + ox, crownY - 0.25, p.z + oz);
+        frond.setMatrixAt(fi, m);
+        frond.setColorAt(fi, color.set('#6a4a2a'));
+        fi += 1;
+      }
     }
     trunk.castShadow = true;
-    canopy.castShadow = true;
+    frond.castShadow = true;
     group.add(trunk);
-    group.add(canopy);
+    group.add(frond);
   }
-  // Streetlights: pole + warm head.
+  // Streetlights: pole + arm reaching over the road + warm head at the arm's
+  // end (Batch 2, Phase C — the old head sat directly above the pole, so the
+  // light never hung over the road). The lamps stand 2 m inside the block,
+  // so a 2.5 m arm puts the head just past the road edge.
   {
     const pole = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.12, 0.16, 7, 6),
@@ -817,6 +1193,12 @@ export function buildCity(THREE, random) {
       lamps.length,
     );
     pole.name = 'lamp-poles';
+    const arm = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: 0x2a2f36 }),
+      lamps.length,
+    );
+    arm.name = 'lamp-arms';
     const head = new THREE.InstancedMesh(
       new THREE.BoxGeometry(0.9, 0.3, 0.3),
       new THREE.MeshLambertMaterial({ color: PALETTE.lampGlow, emissive: 0xffc861, emissiveIntensity: 0.7 }),
@@ -829,10 +1211,15 @@ export function buildCity(THREE, random) {
       m.makeScale(1, 1, 1);
       m.setPosition(l.x, 3.5, l.z);
       pole.setMatrixAt(i, m);
-      m.setPosition(l.x, 7, l.z);
+      m.makeScale(2.5, 0.12, 0.12);
+      m.setPosition(l.x - 1.25, 6.9, l.z);
+      arm.setMatrixAt(i, m);
+      m.makeScale(1, 1, 1);
+      m.setPosition(l.x - 2.5, 6.8, l.z);
       head.setMatrixAt(i, m);
     }
     group.add(pole);
+    group.add(arm);
     group.add(head);
   }
 
@@ -861,6 +1248,69 @@ export function buildCity(THREE, random) {
       } else {
         signPoles.push({ x: px, z: pz, w: 0.24, d: 0.24, h: 3, y: 1.5 });
         signBoards.push({ x: px, z: pz, w: 1.2, d: 0.12, h: 0.8, y: 3.0, color: pick(random, ['#2a6a9a', '#3a7a4a', '#c94a3a']) });
+      }
+      // Batch 2, Phase C: a second prop per block (opposite corner, hash type)
+      // + a trash bin on ~1/3 of blocks (adjacent corner) — no random() calls,
+      // so the seeded stream is untouched and the two props never overlap.
+      const corner2 = (corner + 2) % 4;
+      const px2 = corner2 % 2 === 0 ? xr.min + 2 : xr.max - 2;
+      const pz2 = corner2 < 2 ? zr.min + 2 : zr.max - 2;
+      const roll2 = (bx * 13 + bz * 7) % 4;
+      if (roll2 === 0) {
+        benchSeats.push({ x: px2, z: pz2, w: 1.8, d: 0.6, h: 0.15, y: 0.55 });
+        benchBacks.push({ x: px2, z: pz2 - 0.3, w: 1.8, d: 0.12, h: 0.6, y: 0.9 });
+      } else if (roll2 === 1) {
+        planters.push({ x: px2, z: pz2, w: 1, d: 1, h: 0.8, y: 0.4 });
+        shrubs.push({ x: px2, z: pz2, w: 1.4, d: 1.4, h: 1.1, y: 1.1 });
+      } else if (roll2 === 2) {
+        hydrants.push({ x: px2, z: pz2, w: 0.5, d: 0.5, h: 0.9, y: 0.45 });
+      } else {
+        signPoles.push({ x: px2, z: pz2, w: 0.24, d: 0.24, h: 3, y: 1.5 });
+        signBoards.push({ x: px2, z: pz2, w: 1.2, d: 0.12, h: 0.8, y: 3.0, color: ['#2a6a9a', '#3a7a4a', '#c94a3a'][(bx + bz) % 3] });
+      }
+      if ((bx * 7 + bz * 11) % 3 === 0) {
+        const corner3 = (corner + 1) % 4;
+        bins.push({
+          x: corner3 % 2 === 0 ? xr.min + 2 : xr.max - 2,
+          z: corner3 < 2 ? zr.min + 2 : zr.max - 2,
+          w: 0.5, d: 0.5, h: 0.7, y: 0.35,
+        });
+      }
+    }
+  }
+  // Batch 2, Phase C: bus stops (4, on the south sidewalk of the z = -6
+  // avenue), bollards along the pier edges, and the second tree species —
+  // broadleaf trees along the marina promenade (x = 341, skipping the pier
+  // mouth). All fixed/hash-derived, no random() calls.
+  for (const sx of [-150, -50, 50, 150]) {
+    busStops.push({ x: sx - 1.2, z: -13.5, w: 0.15, d: 0.15, h: 2.5, y: 1.25, color: '#2a2f36' });
+    busStops.push({ x: sx + 1.2, z: -13.5, w: 0.15, d: 0.15, h: 2.5, y: 1.25, color: '#2a2f36' });
+    busStops.push({ x: sx, z: -13.5, w: 3.2, d: 1.6, h: 0.15, y: 2.55, color: '#3a6a9a' });
+    busStops.push({ x: sx, z: -13.1, w: 1.8, d: 0.6, h: 0.15, y: 0.55, color: '#7a5a3a' });
+    busStops.push({ x: sx, z: -12.8, w: 1.8, d: 0.12, h: 0.6, y: 0.9, color: '#7a5a3a' });
+  }
+  for (let i = 0; i < 10; i += 1) {
+    const x = 340 + 9 * i;
+    bollards.push({ x, z: -11, w: 0.4, d: 0.4, h: 0.55, y: 0.275 });
+    bollards.push({ x, z: -1, w: 0.4, d: 0.4, h: 0.55, y: 0.275 });
+  }
+  {
+    const blobShades = ['#3f7a3a', '#4a8a3a', '#35702f'];
+    for (let t = 0; t < 28; t += 1) {
+      const z = -190 + 14 * t;
+      if (Math.abs(z + 6) < 8) continue;
+      const x = 341 + ((t * 5) % 3 - 1) * 1.5;
+      const trunkH = 3 + ((t * 7) % 3) * 0.5;
+      broadleafTrunks.push({ x, z, w: 0.5, d: 0.5, h: trunkH, y: trunkH / 2 });
+      for (let b = 0; b < 3; b += 1) {
+        const r = 1.6 + ((t + b * 3) % 3) * 0.3;
+        broadleafBlobs.push({
+          x: x + ((t * 3 + b * 5) % 3 - 1) * 0.8,
+          z: z + ((t * 7 + b * 2) % 3 - 1) * 0.8,
+          w: r, d: r, h: r * 0.75,
+          y: trunkH + 0.6 + b * 0.7,
+          color: blobShades[(t + b) % 3],
+        });
       }
     }
   }
@@ -940,6 +1390,53 @@ export function buildCity(THREE, random) {
     }
     group.add(mesh);
   }
+
+  // Batch 2, Phase C: the road cross-section + street furniture meshes.
+  // instancedBoxes() above takes one fixed height for the whole list; these
+  // lists carry a per-instance centre height (b.y) and, for the lenses /
+  // bus stops / tree blobs, a per-instance colour (b.color).
+  function instancedBoxesY(list, mat, name) {
+    if (list.length === 0) return;
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, list.length);
+    mesh.name = name;
+    const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    for (let i = 0; i < list.length; i += 1) {
+      const b = list[i];
+      m.makeScale(b.w, b.h ?? 0.12, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+      if (b.color) mesh.setColorAt(i, color.set(b.color));
+    }
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  function instancedPrim(list, geometry, mat, name) {
+    if (list.length === 0) return;
+    const mesh = new THREE.InstancedMesh(geometry, mat, list.length);
+    mesh.name = name;
+    const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    for (let i = 0; i < list.length; i += 1) {
+      const b = list[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+      if (b.color) mesh.setColorAt(i, color.set(b.color));
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  instancedBoxes(curbs, new THREE.MeshLambertMaterial({ color: 0x9a9a96 }), 0.15, 'curbs');
+  instancedBoxes(edgeLines, new THREE.MeshLambertMaterial({ color: 0xd8d8d8 }), 0.12, 'edge-lines');
+  instancedBoxes(stopLines, new THREE.MeshLambertMaterial({ color: 0xe8e8e8 }), 0.12, 'stop-lines');
+  instancedBoxesY(trafficStructs, new THREE.MeshLambertMaterial({ color: 0x2a2f36 }), 'traffic-structs');
+  instancedBoxesY(trafficLenses, new THREE.MeshLambertMaterial({ color: 0xffffff }), 'traffic-lenses');
+  instancedBoxesY(busStops, new THREE.MeshLambertMaterial({ color: 0xffffff }), 'bus-stops');
+  instancedPrim(bins, new THREE.CylinderGeometry(0.5, 0.5, 1, 8), new THREE.MeshLambertMaterial({ color: 0x3a3f45 }), 'bins');
+  instancedPrim(bollards, new THREE.CylinderGeometry(0.5, 0.5, 1, 8), new THREE.MeshLambertMaterial({ color: 0x8a8f96 }), 'bollards');
+  instancedPrim(broadleafTrunks, new THREE.CylinderGeometry(0.5, 0.5, 1, 6), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }), 'broadleaf-trunks');
+  instancedPrim(broadleafBlobs, new THREE.SphereGeometry(1, 6, 5), new THREE.MeshLambertMaterial({ color: 0xffffff }), 'broadleaf-blobs');
 
   // Phase 3.6: rooftop landmarks — generic signs and food stacks, our own
   // shapes, no brand. HOTEL board on the tallest marina roof, SOLMARINA board

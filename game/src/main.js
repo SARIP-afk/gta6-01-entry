@@ -1,4 +1,5 @@
 // Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s
+// Finishing (v3.8-structural, recording #4): file re-written in this session; gates re-run on this exact content — see BATCH2-FINISH-REPORT.md.
 // steps (several in a slow frame, none in a fast one), and the renderer paints what is
 // there. The game moves between three screens: title, play and paused.
 //
@@ -123,6 +124,9 @@ window.__solmarina = {
   get antialias() {
     return renderer.antialias();
   },
+  /** Batch 2 (test-only): hold/release the camera at an exact pose. */
+  holdCamera: (x, y, z, lx, ly, lz) => renderer.holdCamera(x, y, z, lx, ly, lz),
+  releaseCamera: () => renderer.releaseCamera(),
   /** Test-only scene switches for the frame-rate investigation (Phase 1). */
   diagnostics: {
     hideCity(hidden) {
@@ -130,9 +134,13 @@ window.__solmarina = {
     },
     basicMaterials() {
       // Flat colours everywhere: drops the per-fragment lighting cost, so the
-      // probe can tell lighting apart from geometry and fill rate.
+      // probe can tell lighting apart from geometry and fill rate. Batch 2:
+      // the cars are MeshStandard/Physical now (car.js, Phase A) and the
+      // scene has a PMREM environment (Phase D) — converting Lambert alone
+      // would leave the most expensive fragments lit.
       renderer.scene.traverse((object) => {
-        if (object.isMesh && object.material && object.material.isMeshLambertMaterial) {
+        if (object.isMesh && object.material && (object.material.isMeshLambertMaterial
+          || object.material.isMeshStandardMaterial || object.material.isMeshPhysicalMaterial)) {
           object.material = new THREE.MeshBasicMaterial({ color: object.material.color });
         }
       });
@@ -142,8 +150,10 @@ window.__solmarina = {
     },
     hideClutter(hidden) {
       // The flat ground layers: roads, lane dashes, crosswalk stripes, sidewalks.
+      // Batch 2, Phase C: the road cross-section adds curbs, edge lines and
+      // stop lines — they are ground layers too, so the switch hides them.
       renderer.scene.traverse((object) => {
-        if (object.isMesh && ['roads', 'dashes', 'crosswalks', 'sidewalks'].includes(object.name)) {
+        if (object.isMesh && ['roads', 'dashes', 'crosswalks', 'sidewalks', 'curbs', 'edge-lines', 'stop-lines'].includes(object.name)) {
           object.visible = !hidden;
         }
       });

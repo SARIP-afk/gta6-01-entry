@@ -1,4 +1,5 @@
 // Drawing only: the three.js renderer, the chase camera, the car and Rio meshes, and
+// Finishing (v3.8-structural, recording #4): file re-written in this session; gates re-run on this exact content — see BATCH2-FINISH-REPORT.md.
 // the DOM HUD. The world state in, pixels out. The sun follows the active entity so
 // its shadow map stays crisp where the action is; the camera trails behind with a
 // speed-sensitive field of view.
@@ -25,222 +26,57 @@
 // never steals a staged one's slot in the cover shot.
 import * as THREE from 'three';
 import { CAMERA, CAR, EXTRA_CAR, GAME, LIGHT, PALETTE, PLAYER } from './config.js';
+import { buildCar } from './car.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
 
-/**
- * Shared car trim (Phase 3.5 visual pass): raked windshield + rear glass, bumpers,
- * grille, tail lights, side mirrors — so every car reads as a car instead of two
- * boxes. `spoiler` (Rio's car only) adds a rear wing on struts. Hubcaps are added
- * by each builder's own wheel loop, next to its wheels.
- */
-function addCarDetails(car, mats, spoilerMat) {
-  const shield = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 1.1), mats.glassBright);
-  shield.position.set(0, 1.12, 0.95);
-  shield.rotation.x = -0.5;
-  car.add(shield);
-  const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.9), mats.glass);
-  rearGlass.position.set(0, 1.12, -1.15);
-  rearGlass.rotation.x = 0.45;
-  car.add(rearGlass);
-  for (const z of [CAR.length / 2 + 0.03, -CAR.length / 2 - 0.03]) {
-    const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.22, 0.14), mats.trim);
-    bumper.position.set(0, 0.42, z);
-    car.add(bumper);
-  }
-  const grille = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.16, 0.08), mats.trim);
-  grille.position.set(0, 0.62, CAR.length / 2 + 0.06);
-  car.add(grille);
-  for (const x of [-0.62, 0.62]) {
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.08), mats.tail);
-    tail.position.set(x, 0.62, -CAR.length / 2 - 0.04);
-    car.add(tail);
-  }
-  for (const x of [-0.95, 0.95]) {
-    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.3), mats.trim);
-    mirror.position.set(x, 1.12, 0.75);
-    car.add(mirror);
-  }
-  if (spoilerMat) {
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.5), spoilerMat);
-    wing.position.set(0, 1.18, -CAR.length / 2 + 0.25);
-    car.add(wing);
-    for (const x of [-0.7, 0.7]) {
-      const strut = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), mats.trim);
-      strut.position.set(x, 1.0, -CAR.length / 2 + 0.25);
-      car.add(strut);
-    }
-  }
-}
-
-function buildCarMesh() {
-  const car = new THREE.Group();
-  car.name = 'rio-car';
-  const bodyMat = new THREE.MeshLambertMaterial({ color: CAR.color });
-  // The cabin is the glasshouse now: light blue-grey glass, not a solid dark box.
-  const glassMat = new THREE.MeshLambertMaterial({ color: CAR.glassColor });
-  const wheelMat = new THREE.MeshLambertMaterial({ color: CAR.wheelColor });
-  const lightMat = new THREE.MeshLambertMaterial({
-    color: '#fff6c8', emissive: 0xffe9a8, emissiveIntensity: 0.9,
-  });
-  const trimMat = new THREE.MeshLambertMaterial({ color: CAR.trimColor });
-  const glassBrightMat = new THREE.MeshLambertMaterial({ color: CAR.glassBright });
-  const tailMat = new THREE.MeshLambertMaterial({
-    color: CAR.tailColor, emissive: 0xa02010, emissiveIntensity: 0.6,
-  });
-  const hubMat = new THREE.MeshLambertMaterial({ color: CAR.hubColor });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
-  body.position.y = 0.55;
-  body.castShadow = true;
-  car.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), glassMat);
-  cabin.position.set(0, 1.05, -0.2);
-  cabin.castShadow = true;
-  car.add(cabin);
-  addCarDetails(car, { glass: glassMat, glassBright: glassBrightMat, trim: trimMat, tail: tailMat }, bodyMat);
-  const wheels = [];
-  for (const [x, z, front] of [[-0.85, 1.45, true], [0.85, 1.45, true], [-0.85, -1.45, false], [0.85, -1.45, false]]) {
-    // Steer group (yaw) around the spin mesh (axle along X): nesting keeps both right.
-    const steer = new THREE.Group();
-    steer.position.set(x, 0.36, z);
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12), wheelMat);
-    wheel.rotation.z = Math.PI / 2;
-    wheel.castShadow = true;
-    steer.add(wheel);
-    // Bright hubcap: the wheel reads on black asphalt now.
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 10), hubMat);
-    hub.rotation.z = Math.PI / 2;
-    steer.add(hub);
-    car.add(steer);
-    wheels.push({ steer, spin: wheel, front });
-  }
-  for (const x of [-0.6, 0.6]) {
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.1), lightMat);
-    lamp.position.set(x, 0.62, CAR.length / 2 + 0.02);
-    car.add(lamp);
-  }
-  return { group: car, wheels };
-}
-
-/** A visual-only car: same silhouette as Rio's, another paint job. Police get a roof light bar. */
-function buildExtraCarMesh(kind, colorIndex) {
-  const car = new THREE.Group();
-  car.name = `extra-${kind}`;
-  const bodyColor = kind === 'police'
-    ? EXTRA_CAR.policeBody
-    : EXTRA_CAR.trafficColors[colorIndex % EXTRA_CAR.trafficColors.length];
-  const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
-  const glassMat = new THREE.MeshLambertMaterial({ color: CAR.glassColor });
-  const wheelMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.wheelColor });
-  const trimMat = new THREE.MeshLambertMaterial({ color: CAR.trimColor });
-  const glassBrightMat = new THREE.MeshLambertMaterial({ color: CAR.glassBright });
-  const tailMat = new THREE.MeshLambertMaterial({
-    color: CAR.tailColor, emissive: 0xa02010, emissiveIntensity: 0.6,
-  });
-  const hubMat = new THREE.MeshLambertMaterial({ color: CAR.hubColor });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
-  body.position.y = 0.55;
-  car.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), glassMat);
-  cabin.position.set(0, 1.05, -0.2);
-  car.add(cabin);
-  addCarDetails(car, { glass: glassMat, glassBright: glassBrightMat, trim: trimMat, tail: tailMat }, null);
-  if (kind === 'police') {
-    // White roof band, then the light bar: red left, blue right.
-    const roof = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 0.12, 2.2),
-      new THREE.MeshLambertMaterial({ color: EXTRA_CAR.policeRoof }),
-    );
-    roof.position.set(0, 1.32, -0.2);
-    car.add(roof);
-  }
-  for (const [x, z] of [[-0.85, 1.45], [0.85, 1.45], [-0.85, -1.45], [0.85, -1.45]]) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12), wheelMat);
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, 0.36, z);
-    car.add(wheel);
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 10), hubMat);
-    hub.rotation.z = Math.PI / 2;
-    hub.position.set(x, 0.36, z);
-    car.add(hub);
-  }
-  let redLamp = null;
-  let blueLamp = null;
-  if (kind === 'police') {
-    const redMat = new THREE.MeshLambertMaterial({
-      color: 0x881111, emissive: EXTRA_CAR.policeLightRed, emissiveIntensity: 1.6,
-    });
-    const blueMat = new THREE.MeshLambertMaterial({
-      color: 0x112288, emissive: EXTRA_CAR.policeLightBlue, emissiveIntensity: 0.15,
-    });
-    redLamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.5), redMat);
-    redLamp.position.set(-0.45, 1.5, -0.2);
-    car.add(redLamp);
-    blueLamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.5), blueMat);
-    blueLamp.position.set(0.45, 1.5, -0.2);
-    car.add(blueLamp);
-  }
-  return { group: car, redLamp, blueLamp };
-}
-
-/** A live traffic car: the same silhouette, fewer meshes (no lamps, no light bar). */
-function buildTrafficCarMesh(kind, colorIndex) {
-  const car = new THREE.Group();
-  car.name = `traffic-${kind}`;
-  const bodyColor = kind === 'taxi'
-    ? 0xf2c94c
-    : EXTRA_CAR.trafficColors[colorIndex % EXTRA_CAR.trafficColors.length];
-  const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
-  const glassMat = new THREE.MeshLambertMaterial({ color: CAR.glassColor });
-  const wheelMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.wheelColor });
-  const trimMat = new THREE.MeshLambertMaterial({ color: CAR.trimColor });
-  const glassBrightMat = new THREE.MeshLambertMaterial({ color: CAR.glassBright });
-  const tailMat = new THREE.MeshLambertMaterial({
-    color: CAR.tailColor, emissive: 0xa02010, emissiveIntensity: 0.6,
-  });
-  const hubMat = new THREE.MeshLambertMaterial({ color: CAR.hubColor });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
-  body.position.y = 0.55;
-  car.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), glassMat);
-  cabin.position.set(0, 1.05, -0.2);
-  car.add(cabin);
-  addCarDetails(car, { glass: glassMat, glassBright: glassBrightMat, trim: trimMat, tail: tailMat }, null);
-  for (const [x, z] of [[-0.85, 1.45], [0.85, 1.45], [-0.85, -1.45], [0.85, -1.45]]) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12), wheelMat);
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, 0.36, z);
-    car.add(wheel);
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 10), hubMat);
-    hub.rotation.z = Math.PI / 2;
-    hub.position.set(x, 0.36, z);
-    car.add(hub);
-  }
-  // The pool mesh is repainted every frame from the live car's kind/colour, so
-  // a slot never shows the wrong paint job when cars respawn into other slots.
-  return { group: car, bodyMat };
-}
-
-/** A pedestrian: torso + head, shirt colour varies (index into PALETTE.pedShirts). */
+// Batch 2, Phase A: the car builders moved to game/src/car.js — one
+// buildCar() (sloped hood/deck, glass cabin + pillars, wheel arches, merged
+// meshes, spoked rims) replaces buildCarMesh / buildExtraCarMesh /
+// buildTrafficCarMesh + addCarDetails. Same sizes, same speeds, same
+// colliders — visual only. The old windshield lean (rx -0.5, top edge
+// forward of the roof) is corrected in car.js (rx +0.55).
+/** A pedestrian: two legs, torso, head, hair, and two sleeved arms that swing
+ * while walking (Batch 2, Phase C — the old ped was 3 boxes and glided).
+ * The arms are groups pivoted at the shoulder, so rotation.x swings them
+ * like Rio's legs. Same size, same speed, same hitbox — visual only. */
 function buildPedMesh(shirtColor) {
   const ped = new THREE.Group();
   ped.name = 'pedestrian';
   const shirt = new THREE.MeshLambertMaterial({ color: shirtColor });
   const skin = new THREE.MeshLambertMaterial({ color: 0xe8b98a });
   const pants = new THREE.MeshLambertMaterial({ color: 0x33302a });
-  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.7, 0.26), pants);
-  legs.position.y = 0.35;
-  ped.add(legs);
+  const hairMat = new THREE.MeshLambertMaterial({ color: 0x2a2018 });
+  const legs = [];
+  for (const x of [-0.09, 0.09]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.7, 0.26), pants);
+    leg.position.set(x, 0.35, 0);
+    ped.add(leg);
+    legs.push(leg);
+  }
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.68, 0.3), shirt);
   torso.position.y = 1.04;
   ped.add(torso);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.32), skin);
   head.position.y = 1.56;
   ped.add(head);
+  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.34), hairMat);
+  hair.position.y = 1.78;
+  ped.add(hair);
+  const arms = [];
+  for (const x of [-0.35, 0.35]) {
+    const arm = new THREE.Group();
+    arm.position.set(x, 1.32, 0);
+    const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.58, 0.16), shirt);
+    sleeve.position.y = -0.29;
+    arm.add(sleeve);
+    ped.add(arm);
+    arms.push(arm);
+  }
   // Repainted every frame from the live pedestrian's shirt, like traffic cars.
-  return { group: ped, shirtMat: shirt };
+  return { group: ped, shirtMat: shirt, legs, arms };
 }
 
 function buildPlayerMesh() {
@@ -280,7 +116,37 @@ function buildPlayerMesh() {
   const capMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.38), cap);
   capMesh.position.y = 1.94;
   rio.add(capMesh);
-  return { group: rio, legs };
+  // Batch 2, Phase C: Rio stops being a wooden figure — a minimal face (two
+  // eyes), a belt and a collar, and two sleeved arms (yellow jacket, skin
+  // hands) pivoted at the shoulders, swinging against the legs on the
+  // existing walk phase. Same size, same speed, same hitbox — visual only.
+  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  for (const x of [-0.08, 0.08]) {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.02), eyeMat);
+    eye.position.set(x, 1.76, 0.18);
+    rio.add(eye);
+  }
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.34), shoeMat);
+  belt.position.y = 0.82;
+  rio.add(belt);
+  const collar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.34), jacketMat);
+  collar.position.y = 1.5;
+  rio.add(collar);
+  const arms = [];
+  for (const x of [-0.37, 0.37]) {
+    const arm = new THREE.Group();
+    arm.position.set(x, 1.45, 0);
+    const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.56, 0.18), jacketMat);
+    sleeve.position.y = -0.28;
+    sleeve.castShadow = true;
+    arm.add(sleeve);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), skin);
+    hand.position.y = -0.6;
+    arm.add(hand);
+    rio.add(arm);
+    arms.push(arm);
+  }
+  return { group: rio, legs, arms };
 }
 
 export function createRenderer(canvas, hud, options = {}) {
@@ -302,6 +168,43 @@ export function createRenderer(canvas, hud, options = {}) {
   // drowning in warm cream fog at 250 m.
   const fog = new THREE.Fog(new THREE.Color(PALETTE.fog), 350, 1200);
   scene.fog = fog;
+  // Batch 2, Phase D: a procedural PMREM environment map, generated once at
+  // load from a mini scene (blue sky ball + bright sun disc + warm ground) —
+  // the only reflection source without external assets. It lights the
+  // MeshStandard/Physical materials (car paint, glass, sea) that Lambert
+  // ignores; without it, moving to Standard would be invisible. Deterministic
+  // (no random), one-off cost at load, then scene.environment for free.
+  {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envScene = new THREE.Scene();
+    // Batch 2, Phase D (pass 4): the env scene is deliberately DIM (a deep
+    // blue sky, a warm sun disc, a mid-brown ground) — pass 3 proved even a
+    // mid-bright env washes the red hero car pink through the diffuse
+    // irradiance. The direct sun + hemi + fill do the main lighting; the env
+    // only adds a subtle clearcoat sheen.
+    const skyBall = new THREE.Mesh(
+      new THREE.SphereGeometry(50, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x4a6a8a, side: THREE.BackSide }),
+    );
+    envScene.add(skyBall);
+    const sunDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(8, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffd890 }),
+    );
+    sunDisc.position.set(-30, 18, -30);
+    sunDisc.lookAt(0, 0, 0);
+    envScene.add(sunDisc);
+    const groundDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(45, 24),
+      new THREE.MeshBasicMaterial({ color: 0x8a6a45 }),
+    );
+    groundDisc.rotation.x = -Math.PI / 2;
+    groundDisc.position.y = -8;
+    envScene.add(groundDisc);
+    const envRT = pmrem.fromScene(envScene, 0.04);
+    scene.environment = envRT.texture;
+    pmrem.dispose();
+  }
 
   const sun = new THREE.DirectionalLight(new THREE.Color(PALETTE.sun), LIGHT.sunIntensity);
   sun.castShadow = true;
@@ -329,8 +232,13 @@ export function createRenderer(canvas, hud, options = {}) {
   const camera = new THREE.PerspectiveCamera(CAMERA.fovBase, 1, 0.1, 3000);
   const camPos = new THREE.Vector3(0, 10, -20);
   const camLook = new THREE.Vector3(0, 0, 0);
+  // Batch 2 (test-only): a held camera pose for proof frames (e.g. the
+  // 3/4-front car shot the cover never shows). Only the automated driver
+  // sets it; the shipped game never calls holdCamera.
+  let cameraHold = null;
 
-  const car = buildCarMesh();
+  const car = buildCar({ kind: 'hero', paint: CAR.color, interactive: true });
+  car.group.name = 'rio-car';
   scene.add(car.group);
   const rio = buildPlayerMesh();
   scene.add(rio.group);
@@ -340,13 +248,24 @@ export function createRenderer(canvas, hud, options = {}) {
   const trafficPool = [];
   const pedPool = [];
   for (let i = 0; i < 3; i += 1) {
-    const p = buildExtraCarMesh('police', i);
+    const p = buildCar({ kind: 'police', paint: EXTRA_CAR.policeBody });
+    p.group.name = 'police-live';
     p.group.visible = false;
     scene.add(p.group);
     policePool.push(p);
   }
+  // Traffic slots carry a kind so the draw loop can match a live car to a
+  // slot of the same silhouette (van/taxi/sedan). Mix mirrors the spawn
+  // mix in traffic.js (taxi 20%, van 15%, sedan 65%).
+  const TRAFFIC_SLOT_KINDS = ['sedan', 'sedan', 'sedan', 'sedan', 'sedan', 'taxi', 'taxi', 'van'];
   for (let i = 0; i < 8; i += 1) {
-    const t = buildTrafficCarMesh('sedan', i);
+    const kind = TRAFFIC_SLOT_KINDS[i];
+    const t = buildCar({
+      kind,
+      paint: kind === 'taxi' ? 0xf2c94c : EXTRA_CAR.trafficColors[i % EXTRA_CAR.trafficColors.length],
+    });
+    t.group.name = `traffic-${kind}`;
+    t.slotKind = kind;
     t.group.visible = false;
     scene.add(t.group);
     trafficPool.push(t);
@@ -357,18 +276,55 @@ export function createRenderer(canvas, hud, options = {}) {
     scene.add(p.group);
     pedPool.push(p);
   }
+  // Batch 2, Phase D: blob shadows — a soft dark disc under the hero car,
+  // Rio and each pedestrian, following them every frame. A backup for the
+  // coarse shadow map (texel ~0.21 m): the characters read as grounded even
+  // where the real shadow is a smear. Transparent, depthWrite off, so it
+  // never z-fights the road or the dashes. The disc height follows the
+  // surface: road 0.11, sidewalk 0.21, beach sand -0.14.
+  const groundY = (x, z) => {
+    if (x > 336) return -0.14;
+    const d = (v) => {
+      const t = (((v + 266) % 52) + 52) % 52;
+      return Math.min(t, 52 - t);
+    };
+    return (d(x) < 6.5 || d(z) < 6.5) ? 0.11 : 0.21;
+  };
+  const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false });
+  const blobGeo = new THREE.CircleGeometry(1, 16);
+  const makeBlob = (r) => {
+    const b = new THREE.Mesh(blobGeo, blobMat);
+    b.rotation.x = -Math.PI / 2;
+    b.scale.set(r, r, 1);
+    b.renderOrder = 1;
+    scene.add(b);
+    return b;
+  };
+  const carBlob = makeBlob(2.4);
+  const rioBlob = makeBlob(0.55);
+  const pedBlobs = pedPool.map(() => makeBlob(0.45));
   // Staged extras (cover shot): their own pools, so they never fight the live
   // cars for a slot. 2 police cruisers + 3 traffic cars, as the cover stages.
+  // The staged traffic trio shows three silhouettes (sedan, hatch, van) so
+  // the cover reads as a street full of different cars.
   const extraPolicePool = [];
   const extraTrafficPool = [];
   for (let i = 0; i < 2; i += 1) {
-    const p = buildExtraCarMesh('police', i);
+    const p = buildCar({ kind: 'police', paint: EXTRA_CAR.policeBody });
+    p.group.name = 'police-staged';
     p.group.visible = false;
     scene.add(p.group);
     extraPolicePool.push(p);
   }
+  const STAGED_TRAFFIC_KINDS = ['sedan', 'hatch', 'van'];
   for (let i = 0; i < 3; i += 1) {
-    const t = buildExtraCarMesh('traffic', i);
+    const kind = STAGED_TRAFFIC_KINDS[i];
+    const t = buildCar({
+      kind,
+      paint: EXTRA_CAR.trafficColors[i % EXTRA_CAR.trafficColors.length],
+    });
+    t.group.name = `traffic-staged-${kind}`;
+    t.slotKind = kind;
     t.group.visible = false;
     scene.add(t.group);
     extraTrafficPool.push(t);
@@ -402,6 +358,11 @@ export function createRenderer(canvas, hud, options = {}) {
    * snap the staged frames show the camera still travelling from its start pose.
    */
   function placeCamera(state, screen, snap, dt) {
+    if (cameraHold) {
+      camera.position.copy(cameraHold.pos);
+      camera.lookAt(cameraHold.look);
+      return;
+    }
     const active = state.mode === 'car' ? state.car : state.player;
     const heading = active.heading;
     const fx = Math.sin(heading);
@@ -455,22 +416,33 @@ export function createRenderer(canvas, hud, options = {}) {
     // Car mesh follows the car; Rio follows the player (hidden while driving).
     car.group.position.set(state.car.x, 0, state.car.z);
     car.group.rotation.y = state.car.heading;
+    carBlob.position.set(state.car.x, groundY(state.car.x, state.car.z), state.car.z);
     const wheelSpin = (state.car.speed * dt) / 0.36;
     for (let i = 0; i < car.wheels.length; i += 1) {
       const w = car.wheels[i];
-      w.spin.rotateY(wheelSpin);
-      if (w.front) w.steer.rotation.y = state.car.steer * 0.5;
+      // Spin around the axle (X). The old code rotated the tyre mesh around
+      // its local Y after a z-rotation, which spun the wheels backwards;
+      // rotation.x += is the physically correct roll direction.
+      w.spin.rotation.x += wheelSpin;
+      if (i < 2) w.steer.rotation.y = state.car.steer * 0.5;
     }
     rio.group.visible = state.mode === 'foot';
     rio.group.position.set(state.player.x, 0, state.player.z);
     rio.group.rotation.y = state.player.heading;
+    rioBlob.visible = state.mode === 'foot';
+    rioBlob.position.set(state.player.x, groundY(state.player.x, state.player.z), state.player.z);
     if (state.player.moving) {
       const phase = state.time * (state.player.running ? 11 : 7);
       rio.legs[0].rotation.x = Math.sin(phase) * 0.5;
       rio.legs[1].rotation.x = -Math.sin(phase) * 0.5;
+      // Batch 2, Phase C: the arms swing against the legs on the same phase.
+      rio.arms[0].rotation.x = -Math.sin(phase) * 0.4;
+      rio.arms[1].rotation.x = Math.sin(phase) * 0.4;
     } else {
       rio.legs[0].rotation.x = 0;
       rio.legs[1].rotation.x = 0;
+      rio.arms[0].rotation.x = 0;
+      rio.arms[1].rotation.x = 0;
     }
 
     // Police light bars flash on game time, so a staged shot (fixed time) shows
@@ -493,19 +465,29 @@ export function createRenderer(canvas, hud, options = {}) {
       mesh.group.rotation.y = p.heading;
       flash(mesh);
     }
-    // Live traffic (Phase 3): from state.traffic. The pool mesh is a plain
-    // sedan silhouette; a taxi reads by its yellow paint, a van by its colour.
+    // Live traffic (Phase 3): from state.traffic. Each live car takes the
+    // first free pool slot of the same silhouette kind (a van gets a van
+    // mesh); if none is free it falls back to any free slot, repainted to
+    // the live car's colour — the old code's behaviour for a mismatch.
     const liveTraffic = state.traffic || [];
-    for (let i = 0; i < trafficPool.length; i += 1) {
-      const mesh = trafficPool[i];
+    const usedSlots = new Set();
+    for (let i = 0; i < liveTraffic.length; i += 1) {
       const t = liveTraffic[i];
-      if (!t) { mesh.group.visible = false; continue; }
+      if (!t) continue;
+      let slot = trafficPool.findIndex((m, j) => !usedSlots.has(j) && m.slotKind === t.kind);
+      if (slot < 0) slot = trafficPool.findIndex((m, j) => !usedSlots.has(j));
+      if (slot < 0) break;
+      usedSlots.add(slot);
+      const mesh = trafficPool[slot];
       mesh.group.visible = true;
       mesh.group.position.set(t.x, 0, t.z);
       mesh.group.rotation.y = t.heading;
-      mesh.bodyMat.color.setHex(t.kind === 'taxi'
+      mesh.paintMat.color.setHex(t.kind === 'taxi'
         ? 0xf2c94c
         : EXTRA_CAR.trafficColors[t.colorIndex % EXTRA_CAR.trafficColors.length]);
+    }
+    for (let i = 0; i < trafficPool.length; i += 1) {
+      if (!usedSlots.has(i)) trafficPool[i].group.visible = false;
     }
     // Pedestrians (Phase 3): from state.peds. A knocked-down pedestrian is
     // hidden until it walks again elsewhere (it respawns after 2 seconds).
@@ -513,11 +495,19 @@ export function createRenderer(canvas, hud, options = {}) {
     for (let i = 0; i < pedPool.length; i += 1) {
       const mesh = pedPool[i];
       const p = livePeds[i];
-      if (!p || p.state === 'down') { mesh.group.visible = false; continue; }
+      if (!p || p.state === 'down') { mesh.group.visible = false; pedBlobs[i].visible = false; continue; }
       mesh.group.visible = true;
       mesh.group.position.set(p.x, 0, p.z);
       mesh.group.rotation.y = p.heading;
       mesh.shirtMat.color.setHex(PALETTE.pedShirts[p.shirt % PALETTE.pedShirts.length]);
+      // Batch 2, Phase C: the peds' arms swing while they walk or flee —
+      // same 7 Hz walk phase as Rio's, offset per ped so the crowd does not
+      // march in lockstep.
+      const pedPhase = state.time * 7 + i * 1.3;
+      mesh.arms[0].rotation.x = -Math.sin(pedPhase) * 0.35;
+      mesh.arms[1].rotation.x = Math.sin(pedPhase) * 0.35;
+      pedBlobs[i].visible = true;
+      pedBlobs[i].position.set(p.x, groundY(p.x, p.z), p.z);
     }
     // Staged extras (cover shot): their own pools, placed by the shot stager.
     let extraPoliceSeen = 0;
@@ -587,6 +577,16 @@ export function createRenderer(canvas, hud, options = {}) {
     /** Staged shots only: place the camera exactly where it belongs, at once. */
     snap(state, screen) {
       placeCamera(state, screen, true, 1 / 60);
+    },
+    /** Test-only: hold the camera at an exact pose until releaseCamera(). */
+    holdCamera(x, y, z, lx, ly, lz) {
+      cameraHold = {
+        pos: new THREE.Vector3(x, y, z),
+        look: new THREE.Vector3(lx, ly, lz),
+      };
+    },
+    releaseCamera() {
+      cameraHold = null;
     },
   };
 }

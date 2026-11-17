@@ -1,4 +1,5 @@
 // Solmarina, a gta6-01 entry (Node 22, standard library only): the game is this
+// Finishing (v3.8-structural, recording #4): file re-written in this session; gates re-run on this exact content — see BATCH2-FINISH-REPORT.md.
 // directory's game/ folder, plain static files a desktop browser loads offline
 // (game/index.html and its ES modules, three.js vendored under game/vendor/, no library
 // loaded over the network and no network request at all), and the program hands it in.
@@ -33,6 +34,18 @@
 // antialiasing on + 2x supersampled capture for cover/play (PR2 downscaled),
 // JPEG quality 90. Node S0-S7 byte-identical to v3.6; dossier byte-identical
 // across two runs.
+// Batch 2 (v3.8-structural): structural visual work, no gameplay change —
+// Phase A: one buildCar() (sloped hood/deck, glass cabin, arches, spoked
+// rims, light bars); Phase B: layered building massing (podium, cornice,
+// setback crown, framed windows, storefronts, balconies); Phase C: the road
+// cross-section (curbs, edge lines, stop lines), frond palms + a second tree,
+// arm lamps, traffic lights, bus stops, bins, bollards, a second prop per
+// block, and Rio + pedestrians with swinging arms; Phase D: materials + light
+// (PMREM environment map, lifted asphalt + fill/hemi, clouds, sea glint,
+// blob shadows). Gate: facade near-black <15% (from 39.2%), S0-S7
+// byte-identical, determinism, kit check, judge-view 768x480, no gameplay
+// regression — no checkpoint if any gate fails. Node S0-S7 byte-identical to
+// v3.7; dossier byte-identical across two runs.
 // Later phases add missions, combat/activities/save/sound, then polish. This file itself only copies the game and writes the
 // dossier; the game lives in game/src/.
 //

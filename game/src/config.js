@@ -66,6 +66,13 @@ export const CAR = {
   color: 0xe8543f,
   cabinColor: 0x2a3140,
   wheelColor: 0x14161a,
+  // Phase 3.5 visual pass: real glass (light, not the old solid dark cabin),
+  // dark trim for bumpers/grille, bright hubs so the wheels read on black asphalt.
+  glassColor: 0x8fb8cc,
+  glassBright: 0xc8e2f0,
+  trimColor: 0x2a2f36,
+  hubColor: 0xc8ccd2,
+  tailColor: 0xd8382a,
 };
 
 export const PLAYER = {
@@ -77,6 +84,10 @@ export const PLAYER = {
   color: 0xf2c94c,
   shirtColor: 0x2f6fb2,
   pantsColor: 0x33302a,
+  // Phase 3.5 visual pass: shoes + a yellow jacket panel over the shirt, so Rio
+  // reads as a person (not three boxes) at close range.
+  shoeColor: 0x2a2622,
+  jacketColor: 0xf2c94c,
 };
 
 export const CAMERA = {
@@ -87,6 +98,13 @@ export const CAMERA = {
   fovBase: 60,
   fovSpeed: 15,
   smoothing: 5,
+  // Cover shot only (Phase 3.5 visual pass): closer and lower than live play,
+  // narrower FOV, so the car fills ~15% of the frame instead of ~5%. Live play
+  // keeps driveDistance/driveHeight above — the cover override lives in
+  // shots.js (world.state.cameraOverride) and never touches live play.
+  coverDistance: 8.5,
+  coverHeight: 4.0,
+  coverFov: 55,
 };
 
 /**
@@ -212,21 +230,32 @@ export const POLICE = {
 export const PALETTE = {
   skyTop: '#6ea8dd',
   skyHorizon: '#ffd9a0',
-  fog: '#f2c98a',
+  // Phase 3.5 visual pass: fog is cool blue-grey now, not warm cream — the city
+  // gets depth instead of drowning in a beige haze.
+  fog: '#b8c8d8',
   sun: '#ffb46b',
   groundSand: '#d9b380',
-  asphalt: '#3d3a38',
+  asphalt: '#4a4642',
   sidewalk: '#cfc3ab',
   crosswalk: '#f5efe0',
   laneDash: '#f2c94c',
   sea: '#2e7fa8',
   seaDeep: '#1f5f86',
   pierWood: '#8a6a4a',
-  buildingDowntown: ['#e8dcc8', '#d9c9a8', '#c9b18c', '#e0cfae', '#b8a88e'],
-  buildingMarina: ['#f2e6d0', '#e8cfae', '#d9b380', '#f0d9b8', '#e3c39a'],
-  buildingSuburb: ['#f5ead6', '#e8d5b0', '#d9c39a', '#efe0c0', '#e0cba6'],
+  // Phase 3.5 visual pass: each district keeps its warm base, but gains cooler /
+  // stronger entries so the three districts read apart at a glance. The accent
+  // lists are picked ~22% of the time (city.js) for buildings that break the
+  // beige monopoly: glass blue downtown, teal/white marina, terracotta suburb.
+  buildingDowntown: ['#e8dcc8', '#d9c9a8', '#c9b18c', '#e0cfae', '#b8a88e', '#8fa8c0', '#6a8ab0'],
+  buildingDowntownAccent: ['#3a6a9a', '#2a5a8a', '#c96a4a'],
+  buildingMarina: ['#f2e6d0', '#e8cfae', '#d9b380', '#f0d9b8', '#e3c39a', '#cfe0dc', '#9fc4c8'],
+  buildingMarinaAccent: ['#2e8a9a', '#f2f6f2', '#d84a35'],
+  buildingSuburb: ['#f5ead6', '#e8d5b0', '#d9c39a', '#efe0c0', '#e0cba6', '#c9b18c', '#a8b89a'],
+  buildingSuburbAccent: ['#c96a4a', '#b85a3a', '#7a9a5a'],
   roof: '#8a6a4a',
+  roofColors: ['#8a6a4a', '#6a5a4a', '#a8a88a', '#7a6a5a'],
   window: '#2a3547',
+  windowLit: '#ffd27a',
   palmTrunk: '#7a5a3a',
   palmLeaf: '#3f7a3a',
   lampPole: '#3a3f46',

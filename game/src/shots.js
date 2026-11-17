@@ -9,7 +9,7 @@
 // the objective banner reads the escape. Everything in the frame is real game state
 // — the same world, the same renderer, the same HUD — with the chase staged around
 // where the autopilot actually drove, not a mockup pasted on top.
-import { COVER, STEP } from './config.js';
+import { CAMERA, COVER, STEP } from './config.js';
 import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
 // The title camera is fixed to the car and nothing moves before play starts, so two
@@ -41,7 +41,16 @@ function driveFor(world, seconds) {
  */
 export function stageShot(name, world) {
   world.reset();
+  // The cover re-frame (Phase 3.5 visual pass) lives only in the staged shot:
+  // a closer, lower camera and a narrower FOV, so the car fills ~15% of the
+  // frame. Live play never sets cameraOverride and keeps its own framing.
+  delete world.state.cameraOverride;
   if (name === 'cover') {
+    world.state.cameraOverride = {
+      distance: CAMERA.coverDistance,
+      height: CAMERA.coverHeight,
+      fov: CAMERA.coverFov,
+    };
     // Six seconds of real driving east on the avenue: the car is mid-avenue at
     // ~30 m/s, heading east toward the marina, the bridge and the sea.
     driveFor(world, COVER.driveSeconds);
@@ -57,11 +66,13 @@ export function stageShot(name, world) {
       heading,
     });
     // Two police cruisers flanking just behind the car — close enough to stay in
-    // front of the chase camera (11 m back), far enough not to hide Rio's car.
-    // Three traffic cars ahead: two in the flow, one oncoming in the other lane.
+    // front of the chase camera, far enough not to hide Rio's car. Symmetric
+    // (both along -3.0, lateral ±2.6): the first framing had them at different
+    // distances and the farther one clipped the frame corner. Three traffic cars
+    // ahead: two in the flow, one oncoming in the other lane.
     world.state.extras = [
-      { kind: 'police', ...place(-4, -2.5, car.heading) },
-      { kind: 'police', ...place(-5, 2.5, car.heading) },
+      { kind: 'police', ...place(-3.0, -2.6, car.heading) },
+      { kind: 'police', ...place(-3.0, 2.6, car.heading) },
       { kind: 'traffic', ...place(18, -2.5, car.heading) },
       { kind: 'traffic', ...place(32, 2.5, car.heading) },
       { kind: 'traffic', ...place(24, 5, car.heading + Math.PI) },

@@ -3,10 +3,14 @@
 // its shadow map stays crisp where the action is; the camera trails behind with a
 // speed-sensitive field of view.
 //
-// Phase 1 frame-rate notes: the renderer runs with no antialiasing, no shadow map and
+// Phase 1 frame-rate notes: the renderer ran with no antialiasing, no shadow map and
 // no tone mapping — all three were measured and cost frames in software rendering
-// without buying anything on this flat, sun-soaked look. setFog() exists only so play
-// tests can measure what the distance haze costs; the shipped game keeps it on.
+// without buying anything on the flat, sun-soaked look of the time. setFog() exists
+// only so play tests can measure what the distance haze costs; the shipped game
+// keeps it on. Phase 3.5 (visual pass) reverses the shadow/tone-mapping call: the
+// audit proved the flat look came from the missing shadows and grade, not from the
+// polygon count — shadows and ACES are ON now, and the headless frame rate is
+// reported honestly instead of bought back by flattening the picture.
 // Phase 2: the HUD itself lives in hud.js (this file only calls hud.draw); the
 // renderer also draws `state.extras` — visual-only police cruisers and traffic cars
 // staged for the cover shot, with flashing light bars. Extras have no AI (Phase 3);
@@ -22,15 +26,67 @@ export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
 
+/**
+ * Shared car trim (Phase 3.5 visual pass): raked windshield + rear glass, bumpers,
+ * grille, tail lights, side mirrors — so every car reads as a car instead of two
+ * boxes. `spoiler` (Rio's car only) adds a rear wing on struts. Hubcaps are added
+ * by each builder's own wheel loop, next to its wheels.
+ */
+function addCarDetails(car, mats, spoilerMat) {
+  const shield = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 1.1), mats.glassBright);
+  shield.position.set(0, 1.12, 0.95);
+  shield.rotation.x = -0.5;
+  car.add(shield);
+  const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.9), mats.glass);
+  rearGlass.position.set(0, 1.12, -1.15);
+  rearGlass.rotation.x = 0.45;
+  car.add(rearGlass);
+  for (const z of [CAR.length / 2 + 0.03, -CAR.length / 2 - 0.03]) {
+    const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.22, 0.14), mats.trim);
+    bumper.position.set(0, 0.42, z);
+    car.add(bumper);
+  }
+  const grille = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.16, 0.08), mats.trim);
+  grille.position.set(0, 0.62, CAR.length / 2 + 0.06);
+  car.add(grille);
+  for (const x of [-0.62, 0.62]) {
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.08), mats.tail);
+    tail.position.set(x, 0.62, -CAR.length / 2 - 0.04);
+    car.add(tail);
+  }
+  for (const x of [-0.95, 0.95]) {
+    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.3), mats.trim);
+    mirror.position.set(x, 1.12, 0.75);
+    car.add(mirror);
+  }
+  if (spoilerMat) {
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.5), spoilerMat);
+    wing.position.set(0, 1.18, -CAR.length / 2 + 0.25);
+    car.add(wing);
+    for (const x of [-0.7, 0.7]) {
+      const strut = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), mats.trim);
+      strut.position.set(x, 1.0, -CAR.length / 2 + 0.25);
+      car.add(strut);
+    }
+  }
+}
+
 function buildCarMesh() {
   const car = new THREE.Group();
   car.name = 'rio-car';
   const bodyMat = new THREE.MeshLambertMaterial({ color: CAR.color });
-  const glassMat = new THREE.MeshLambertMaterial({ color: CAR.cabinColor });
+  // The cabin is the glasshouse now: light blue-grey glass, not a solid dark box.
+  const glassMat = new THREE.MeshLambertMaterial({ color: CAR.glassColor });
   const wheelMat = new THREE.MeshLambertMaterial({ color: CAR.wheelColor });
   const lightMat = new THREE.MeshLambertMaterial({
     color: '#fff6c8', emissive: 0xffe9a8, emissiveIntensity: 0.9,
   });
+  const trimMat = new THREE.MeshLambertMaterial({ color: CAR.trimColor });
+  const glassBrightMat = new THREE.MeshLambertMaterial({ color: CAR.glassBright });
+  const tailMat = new THREE.MeshLambertMaterial({
+    color: CAR.tailColor, emissive: 0xa02010, emissiveIntensity: 0.6,
+  });
+  const hubMat = new THREE.MeshLambertMaterial({ color: CAR.hubColor });
   const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
   body.position.y = 0.55;
   body.castShadow = true;
@@ -39,6 +95,7 @@ function buildCarMesh() {
   cabin.position.set(0, 1.05, -0.2);
   cabin.castShadow = true;
   car.add(cabin);
+  addCarDetails(car, { glass: glassMat, glassBright: glassBrightMat, trim: trimMat, tail: tailMat }, bodyMat);
   const wheels = [];
   for (const [x, z, front] of [[-0.85, 1.45, true], [0.85, 1.45, true], [-0.85, -1.45, false], [0.85, -1.45, false]]) {
     // Steer group (yaw) around the spin mesh (axle along X): nesting keeps both right.
@@ -48,6 +105,10 @@ function buildCarMesh() {
     wheel.rotation.z = Math.PI / 2;
     wheel.castShadow = true;
     steer.add(wheel);
+    // Bright hubcap: the wheel reads on black asphalt now.
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 10), hubMat);
+    hub.rotation.z = Math.PI / 2;
+    steer.add(hub);
     car.add(steer);
     wheels.push({ steer, spin: wheel, front });
   }
@@ -67,14 +128,21 @@ function buildExtraCarMesh(kind, colorIndex) {
     ? EXTRA_CAR.policeBody
     : EXTRA_CAR.trafficColors[colorIndex % EXTRA_CAR.trafficColors.length];
   const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
-  const glassMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.cabinColor });
+  const glassMat = new THREE.MeshLambertMaterial({ color: CAR.glassColor });
   const wheelMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.wheelColor });
+  const trimMat = new THREE.MeshLambertMaterial({ color: CAR.trimColor });
+  const glassBrightMat = new THREE.MeshLambertMaterial({ color: CAR.glassBright });
+  const tailMat = new THREE.MeshLambertMaterial({
+    color: CAR.tailColor, emissive: 0xa02010, emissiveIntensity: 0.6,
+  });
+  const hubMat = new THREE.MeshLambertMaterial({ color: CAR.hubColor });
   const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
   body.position.y = 0.55;
   car.add(body);
   const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), glassMat);
   cabin.position.set(0, 1.05, -0.2);
   car.add(cabin);
+  addCarDetails(car, { glass: glassMat, glassBright: glassBrightMat, trim: trimMat, tail: tailMat }, null);
   if (kind === 'police') {
     // White roof band, then the light bar: red left, blue right.
     const roof = new THREE.Mesh(
@@ -89,6 +157,10 @@ function buildExtraCarMesh(kind, colorIndex) {
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(x, 0.36, z);
     car.add(wheel);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 10), hubMat);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(x, 0.36, z);
+    car.add(hub);
   }
   let redLamp = null;
   let blueLamp = null;
@@ -117,19 +189,30 @@ function buildTrafficCarMesh(kind, colorIndex) {
     ? 0xf2c94c
     : EXTRA_CAR.trafficColors[colorIndex % EXTRA_CAR.trafficColors.length];
   const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
-  const glassMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.cabinColor });
+  const glassMat = new THREE.MeshLambertMaterial({ color: CAR.glassColor });
   const wheelMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.wheelColor });
+  const trimMat = new THREE.MeshLambertMaterial({ color: CAR.trimColor });
+  const glassBrightMat = new THREE.MeshLambertMaterial({ color: CAR.glassBright });
+  const tailMat = new THREE.MeshLambertMaterial({
+    color: CAR.tailColor, emissive: 0xa02010, emissiveIntensity: 0.6,
+  });
+  const hubMat = new THREE.MeshLambertMaterial({ color: CAR.hubColor });
   const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
   body.position.y = 0.55;
   car.add(body);
   const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), glassMat);
   cabin.position.set(0, 1.05, -0.2);
   car.add(cabin);
+  addCarDetails(car, { glass: glassMat, glassBright: glassBrightMat, trim: trimMat, tail: tailMat }, null);
   for (const [x, z] of [[-0.85, 1.45], [0.85, 1.45], [-0.85, -1.45], [0.85, -1.45]]) {
     const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12), wheelMat);
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(x, 0.36, z);
     car.add(wheel);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 10), hubMat);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(x, 0.36, z);
+    car.add(hub);
   }
   // The pool mesh is repainted every frame from the live car's kind/colour, so
   // a slot never shows the wrong paint job when cars respawn into other slots.
@@ -163,6 +246,8 @@ function buildPlayerMesh() {
   const shirt = new THREE.MeshLambertMaterial({ color: PLAYER.shirtColor });
   const pants = new THREE.MeshLambertMaterial({ color: PLAYER.pantsColor });
   const cap = new THREE.MeshLambertMaterial({ color: PLAYER.color });
+  const shoeMat = new THREE.MeshLambertMaterial({ color: PLAYER.shoeColor });
+  const jacketMat = new THREE.MeshLambertMaterial({ color: PLAYER.jacketColor });
   const legs = [];
   for (const x of [-0.14, 0.14]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.26), pants);
@@ -170,11 +255,20 @@ function buildPlayerMesh() {
     leg.castShadow = true;
     rio.add(leg);
     legs.push(leg);
+    // Shoes: dark, slightly proud of the leg, so the feet read on the asphalt.
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.36), shoeMat);
+    shoe.position.set(x, 0.06, 0.04);
+    shoe.castShadow = true;
+    rio.add(shoe);
   }
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.72, 0.32), shirt);
   torso.position.y = 1.16;
   torso.castShadow = true;
   rio.add(torso);
+  // Yellow jacket panel over the shirt: Rio's signature colour, visible at range.
+  const jacket = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 0.08), jacketMat);
+  jacket.position.set(0, 1.18, 0.19);
+  rio.add(jacket);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.34), skin);
   head.position.y = 1.72;
   head.castShadow = true;
@@ -188,13 +282,20 @@ function buildPlayerMesh() {
 export function createRenderer(canvas, hud) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
   renderer.setPixelRatio(1);
-  renderer.shadowMap.enabled = false;
+  // Phase 3.5 visual pass: shadows and ACES tone mapping are ON. The shadow
+  // camera + castShadow flags were already there — only this flag was off. The
+  // normal bias keeps the big flat instanced faces acne-free at a 220 m frustum
+  // (texel ~0.21 m); it was tuned against the staged shots, see the report.
+  renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
 
   const scene = new THREE.Scene();
-  const fog = new THREE.Fog(new THREE.Color(PALETTE.fog), 250, 1000);
+  // Phase 3.5: cooler, farther haze — the city keeps its depth instead of
+  // drowning in warm cream fog at 250 m.
+  const fog = new THREE.Fog(new THREE.Color(PALETTE.fog), 350, 1200);
   scene.fog = fog;
 
   const sun = new THREE.DirectionalLight(new THREE.Color(PALETTE.sun), 2.4);
@@ -207,9 +308,10 @@ export function createRenderer(canvas, hud) {
   sun.shadow.camera.near = 10;
   sun.shadow.camera.far = 600;
   sun.shadow.bias = -0.0008;
+  sun.shadow.normalBias = 0.15;
   scene.add(sun);
   scene.add(sun.target);
-  const hemi = new THREE.HemisphereLight(0xbcd8f0, 0xe8c9a0, 0.75);
+  const hemi = new THREE.HemisphereLight(0xbcd8f0, 0xe8c9a0, 0.85);
   scene.add(hemi);
 
   const camera = new THREE.PerspectiveCamera(CAMERA.fovBase, 1, 0.1, 3000);
@@ -299,8 +401,10 @@ export function createRenderer(canvas, hud) {
       camera.updateProjectionMatrix();
       return;
     }
-    const dist = state.mode === 'car' ? CAMERA.driveDistance : CAMERA.footDistance;
-    const height = state.mode === 'car' ? CAMERA.driveHeight : CAMERA.footHeight;
+    const dist = state.cameraOverride?.distance
+      ?? (state.mode === 'car' ? CAMERA.driveDistance : CAMERA.footDistance);
+    const height = state.cameraOverride?.height
+      ?? (state.mode === 'car' ? CAMERA.driveHeight : CAMERA.footHeight);
     const wantX = active.x - fx * dist;
     const wantY = height;
     const wantZ = active.z - fz * dist;
@@ -315,9 +419,10 @@ export function createRenderer(canvas, hud) {
     camLook.set(active.x + fx * 8, 1.5, active.z + fz * 8);
     camera.position.copy(camPos);
     camera.lookAt(camLook);
-    const targetFov = state.mode === 'car'
-      ? CAMERA.fovBase + Math.min(CAMERA.fovSpeed, Math.abs(state.car.speed) * 0.45)
-      : CAMERA.fovBase;
+    const targetFov = state.cameraOverride?.fov
+      ?? (state.mode === 'car'
+        ? CAMERA.fovBase + Math.min(CAMERA.fovSpeed, Math.abs(state.car.speed) * 0.45)
+        : CAMERA.fovBase);
     if (Math.abs(camera.fov - targetFov) > 0.05) {
       camera.fov = targetFov;
       camera.updateProjectionMatrix();

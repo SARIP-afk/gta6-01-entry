@@ -19,9 +19,12 @@
 // best-run record and a staged ?shot=cover (police cruisers + traffic around the
 // player's car, wanted 3, all real game state). Phase 3 (v3-police-wanted): the city
 // lives — traffic and pedestrians on the road grid, a live wanted level, police
-// cruisers that chase, ram, bust, lose the player, search and give up. Later phases
-// add missions, combat/activities/save/sound, then polish. This file itself only
-// copies the game and writes the dossier; the game lives in game/src/.
+// cruisers that chase, ram, bust, lose the player, search and give up. Phase 3.5
+// (v3.5-visual-pass): shadows + ACES tone mapping, four-face window grids, roof
+// variants, wider district palettes, procedural textures, detailed cars and Rio,
+// and a re-framed cover shot. Later phases add missions, combat/activities/save/
+// sound, then polish. This file itself only copies the game and writes the
+// dossier; the game lives in game/src/.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

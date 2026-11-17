@@ -7,6 +7,11 @@
 // is one deck spanning the channel along the east-west road at z -6.
 // Phase 2: buildCity also returns `map`, a flat 2D summary (roads, building footprints,
 // water, landmarks, route) that the HUD draws as the minimap — no 3D data needed there.
+// Phase 3.5 (visual pass): procedural canvas textures (asphalt, paving, sand, sea,
+// wood — all seeded, all painted with fillRect + gradients only, so the Node test
+// stub can run them), window grids on all four faces, roof variants, district accent
+// colours, palm variation. Textures are created once at load; the dossier stays
+// byte-identical across runs because every pixel comes from the seeded stream.
 import { CITY, PALETTE, districtOf } from './config.js';
 
 /** Road centre lines, each way: 11 internal roads plus the perimeter ring. */
@@ -46,12 +51,127 @@ function makeSkyTexture(THREE) {
   return texture;
 }
 
+/** A hex colour lightened/darkened by `factor` (1 = unchanged). */
+function shade(hex, factor) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * factor));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) * factor));
+  const b = Math.min(255, Math.round((n & 255) * factor));
+  return `rgb(${r},${g},${b})`;
+}
+
+/** Scatter `count` small rects of the given colours: speckle, grain, wear. */
+function speckle(ctx, random, w, h, count, colors, sizeMin, sizeMax) {
+  for (let i = 0; i < count; i += 1) {
+    ctx.fillStyle = colors[Math.floor(random() * colors.length)];
+    const s = sizeMin + random() * (sizeMax - sizeMin);
+    ctx.fillRect(random() * w, random() * h, s, s);
+  }
+}
+
+/**
+ * One canvas texture, repeat-wrapped. The wrap/repeat assignments are guarded:
+ * the Node test stub has no RepeatWrapping and no repeat vector (it never
+ * renders), while the browser always has both — so the same code runs in both.
+ */
+function canvasTexture(THREE, w, h, repeatX, repeatY) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  if (THREE.RepeatWrapping !== undefined) {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+  }
+  if (texture.repeat && repeatX !== undefined) texture.repeat.set(repeatX, repeatY);
+  return { ctx, texture };
+}
+
+/** Clone a texture with its own repeat (the bridge deck, the beach strip). */
+function cloneTexture(tex, repeatX, repeatY) {
+  if (!tex.clone) return tex;
+  const t = tex.clone();
+  if (t.repeat) t.repeat.set(repeatX, repeatY);
+  t.needsUpdate = true;
+  return t;
+}
+
+function makeAsphaltTexture(THREE, random) {
+  // One tile = one 24 m road segment, so the grain reads at driving scale.
+  const { ctx, texture } = canvasTexture(THREE, 256, 256);
+  ctx.fillStyle = PALETTE.asphalt;
+  ctx.fillRect(0, 0, 256, 256);
+  speckle(ctx, random, 256, 256, 2600, ['#35322f', '#454240', '#2e2b29', '#4a4642'], 1, 3);
+  // Hairline cracks: thin dark rects, mostly along the driving direction.
+  ctx.fillStyle = '#2a2725';
+  for (let i = 0; i < 14; i += 1) {
+    ctx.fillRect(random() * 256, random() * 256, 20 + random() * 60, 1);
+  }
+  return texture;
+}
+
+function makePavingTexture(THREE, random) {
+  // One tile = one 40 m sidewalk slab, repeated 4x4: pavers read ~2.5 m.
+  const { ctx, texture } = canvasTexture(THREE, 256, 256, 4, 4);
+  ctx.fillStyle = PALETTE.sidewalk;
+  ctx.fillRect(0, 0, 256, 256);
+  const cell = 64;
+  for (let gy = 0; gy < 4; gy += 1) {
+    for (let gx = 0; gx < 4; gx += 1) {
+      ctx.fillStyle = shade(PALETTE.sidewalk, 0.92 + random() * 0.16);
+      ctx.fillRect(gx * cell + 2, gy * cell + 2, cell - 4, cell - 4);
+    }
+  }
+  speckle(ctx, random, 256, 256, 500, ['#b8ab8d', '#d8ccb4'], 1, 2);
+  return texture;
+}
+
+function makeSandTexture(THREE, random) {
+  const { ctx, texture } = canvasTexture(THREE, 256, 256, 30, 40);
+  ctx.fillStyle = PALETTE.groundSand;
+  ctx.fillRect(0, 0, 256, 256);
+  speckle(ctx, random, 256, 256, 3000, ['#c9a370', '#e8c090', '#d9b380', '#b89a68'], 1, 3);
+  return texture;
+}
+
+function makeSeaTexture(THREE, random) {
+  const { ctx, texture } = canvasTexture(THREE, 256, 256, 20, 26);
+  ctx.fillStyle = PALETTE.seaDeep;
+  ctx.fillRect(0, 0, 256, 256);
+  // Long faint streaks: swell lines, not a flat teal sheet.
+  for (let i = 0; i < 42; i += 1) {
+    ctx.fillStyle = `rgba(46,127,168,${0.12 + random() * 0.18})`;
+    ctx.fillRect(random() * 256, random() * 256, 40 + random() * 160, 2 + random() * 4);
+  }
+  speckle(ctx, random, 256, 256, 400, ['#3a90b8', '#2a6a90'], 1, 2);
+  return texture;
+}
+
+function makeWoodTexture(THREE, random) {
+  // One tile = one 8 m pier deck piece: plank rows run along the pier.
+  const { ctx, texture } = canvasTexture(THREE, 128, 128);
+  ctx.fillStyle = PALETTE.pierWood;
+  ctx.fillRect(0, 0, 128, 128);
+  for (let row = 0; row < 8; row += 1) {
+    ctx.fillStyle = shade(PALETTE.pierWood, 0.9 + random() * 0.2);
+    ctx.fillRect(0, row * 16 + 1, 128, 14);
+  }
+  ctx.fillStyle = '#6a4a2a';
+  for (let row = 0; row < 8; row += 1) ctx.fillRect(0, row * 16, 128, 2);
+  speckle(ctx, random, 128, 128, 200, ['#7a5a3a', '#9a7a52'], 1, 2);
+  return texture;
+}
+
 export function buildCity(THREE, random) {
   const group = new THREE.Group();
   group.name = 'solmarina-city';
   const colliders = [];
   const buildings = [];
   const roofs = [];
+  const roofAC = [];
+  const roofPeaks = [];
   const windows = [];
   const sidewalks = [];
   const palms = [];
@@ -60,14 +180,26 @@ export function buildCity(THREE, random) {
   const crosswalks = [];
 
   const lines = roadLines();
-  const groundMat = new THREE.MeshLambertMaterial({ color: PALETTE.groundSand });
-  const asphaltMat = new THREE.MeshLambertMaterial({ color: PALETTE.asphalt });
-  const walkMat = new THREE.MeshLambertMaterial({ color: PALETTE.sidewalk });
+  // Phase 3.5: textured materials. The map already carries the base colour, so
+  // the material colour stays white (it multiplies the map).
+  const asphaltTex = makeAsphaltTexture(THREE, random);
+  const pavingTex = makePavingTexture(THREE, random);
+  const sandTex = makeSandTexture(THREE, random);
+  const seaTex = makeSeaTexture(THREE, random);
+  const woodTex = makeWoodTexture(THREE, random);
+  const groundMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: sandTex });
+  const asphaltMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: asphaltTex });
+  const walkMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: pavingTex });
   const dashMat = new THREE.MeshLambertMaterial({ color: PALETTE.laneDash });
   const crossMat = new THREE.MeshLambertMaterial({ color: PALETTE.crosswalk });
   const seaMat = new THREE.MeshLambertMaterial({ color: PALETTE.sea });
-  const seaDeepMat = new THREE.MeshLambertMaterial({ color: PALETTE.seaDeep });
-  const woodMat = new THREE.MeshLambertMaterial({ color: PALETTE.pierWood });
+  const seaDeepMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: seaTex });
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: woodTex });
+  // The bridge deck is one 140 m box, so it gets its own asphalt repeat (6x1)
+  // instead of the road segments' 1x1 — otherwise the grain stretches 12:1.
+  const deckMat = new THREE.MeshLambertMaterial({
+    color: 0xffffff, map: cloneTexture(asphaltTex, 6, 1),
+  });
 
   function box(w, h, d, mat, x, y, z) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -92,7 +224,12 @@ export function buildCity(THREE, random) {
   group.add(sea);
 
   // A flat sand strip where the land meets the sea, slightly below road level.
-  const beach = new THREE.Mesh(new THREE.PlaneGeometry(26, 1400), groundMat);
+  // Its own sand repeat (1x40): the shared ground repeat would stretch the
+  // grain 40:1 along this 26 m strip.
+  const beachMat = new THREE.MeshLambertMaterial({
+    color: 0xffffff, map: cloneTexture(sandTex, 1, 40),
+  });
+  const beach = new THREE.Mesh(new THREE.PlaneGeometry(26, 1400), beachMat);
   beach.rotation.x = -Math.PI / 2;
   beach.position.set(348, -0.25, 0);
   group.add(beach);
@@ -110,21 +247,29 @@ export function buildCity(THREE, random) {
   group.add(channel);
 
   // --- sky dome ---------------------------------------------------------------
+  // toneMapped: false — ACES must not dull the authored sky gradient.
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(1400, 16, 12),
-    new THREE.MeshBasicMaterial({ map: makeSkyTexture(THREE), side: THREE.BackSide, fog: false }),
+    new THREE.MeshBasicMaterial({ map: makeSkyTexture(THREE), side: THREE.BackSide, fog: false, toneMapped: false }),
   );
   group.add(sky);
 
   // --- roads: asphalt strips on the ground ------------------------------------
+  // Phase 3.5: each strip is cut into 24 m segments, one texture tile each —
+  // a single 648 m strip would stretch the asphalt grain 54:1. Still one
+  // InstancedMesh (one draw call); the segments tile edge to edge, no gaps.
   const roadGeoms = [];
   for (const c of lines) {
-    roadGeoms.push({ x: c, z: 0, w: CITY.road, d: 648 });
-    roadGeoms.push({ x: 0, z: c, w: 648, d: CITY.road });
+    for (let p = -324; p < 324; p += 24) {
+      roadGeoms.push({ x: c, z: p + 12, w: CITY.road, d: 24 });
+      roadGeoms.push({ x: p + 12, z: c, w: 24, d: CITY.road });
+    }
   }
   for (const edge of [-312, 312]) {
-    roadGeoms.push({ x: edge, z: 0, w: CITY.road, d: 648 });
-    roadGeoms.push({ x: 0, z: edge, w: 648, d: CITY.road });
+    for (let p = -324; p < 324; p += 24) {
+      roadGeoms.push({ x: edge, z: p + 12, w: CITY.road, d: 24 });
+      roadGeoms.push({ x: p + 12, z: edge, w: 24, d: CITY.road });
+    }
   }
   const roadMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), asphaltMat, roadGeoms.length);
   roadMesh.name = 'roads';
@@ -196,6 +341,9 @@ export function buildCity(THREE, random) {
       const palette = district === 'downtown'
         ? PALETTE.buildingDowntown
         : district === 'marina' ? PALETTE.buildingMarina : PALETTE.buildingSuburb;
+      const accent = district === 'downtown'
+        ? PALETTE.buildingDowntownAccent
+        : district === 'marina' ? PALETTE.buildingMarinaAccent : PALETTE.buildingSuburbAccent;
       const count = district === 'downtown' ? 1 : 2;
       for (let n = 0; n < count; n += 1) {
         const w = district === 'downtown' ? 24 + random() * 6 : 11 + random() * 7;
@@ -205,13 +353,44 @@ export function buildCity(THREE, random) {
           : district === 'marina' ? 12 + random() * 18 : 6 + random() * 8;
         const x = count === 1 ? cx : xr.min + 8 + (n * 20) + (random() * 4 - 2);
         const z = count === 1 ? cz : zr.min + 8 + (n * 20) + (random() * 4 - 2);
-        const color = pick(random, palette);
-        buildings.push({ x, z, w, d, h, color });
+        // ~22% of buildings take the district accent instead of the warm base,
+        // so the beige monopoly breaks without repainting the whole city.
+        const color = random() < 0.22 ? pick(random, accent) : pick(random, palette);
+        buildings.push({ x, z, w, d, h, color, district });
         roofs.push({ x, z, w: w + 0.8, d: d + 0.8, h: 0.7, y: h + 0.35 });
         colliders.push({ minX: x - w / 2 - 0.3, maxX: x + w / 2 + 0.3, minZ: z - d / 2 - 0.3, maxZ: z + d / 2 + 0.3 });
-        const strips = Math.max(1, Math.floor(h / 12));
-        for (let s = 0; s < strips; s += 1) {
-          windows.push({ x, z: z + d / 2 + 0.18, w: w * 0.7, d: 0.36, h: 1.2, y: 5 + s * 12 });
+        // Roof furniture: an AC box on ~45% of roofs, a pyramid peak on ~20%
+        // of low-rise roofs (never on downtown towers — they stay flat + AC).
+        const roofRoll = random();
+        if (roofRoll < 0.45) {
+          roofAC.push({
+            x: x + (random() * (w - 6) - (w - 6) / 2),
+            z: z + (random() * (d - 6) - (d - 6) / 2),
+            w: 2.5, d: 2, h: 1, y: h + 0.7 + 0.5,
+          });
+        } else if (roofRoll < 0.65 && district !== 'downtown') {
+          roofPeaks.push({ x, z, w: w * 0.55, d: d * 0.55, h: 3, y: h + 0.7 + 1.5 });
+        }
+        // Window grid on ALL FOUR faces — the old build only striped the south
+        // face, so the chase camera mostly saw blank walls. Small panes, one
+        // per ~5 m across and ~4.5 m up, capped at 10 floors so a tower does
+        // not drown the scene in glass. ~15% of panes are lit warm.
+        const rows = Math.min(10, Math.max(1, Math.floor((h - 4) / 4.5)));
+        for (let f = 0; f < 4; f += 1) {
+          const span = f < 2 ? w : d;
+          const cols = Math.max(2, Math.floor(span / 5));
+          for (let r = 0; r < rows; r += 1) {
+            const y = 5 + r * 4.5;
+            if (y + 0.8 > h - 1) continue;
+            for (let c = 0; c < cols; c += 1) {
+              const along = -span / 2 + ((c + 0.5) * span) / cols;
+              const lit = random() < 0.15;
+              if (f === 0) windows.push({ x: x + along, z: z + d / 2 + 0.09, w: 1.8, d: 0.12, h: 1.6, y, lit });
+              else if (f === 1) windows.push({ x: x + along, z: z - d / 2 - 0.09, w: 1.8, d: 0.12, h: 1.6, y, lit });
+              else if (f === 2) windows.push({ x: x + w / 2 + 0.09, z: z + along, w: 0.12, d: 1.8, h: 1.6, y, lit });
+              else windows.push({ x: x - w / 2 - 0.09, z: z + along, w: 0.12, d: 1.8, h: 1.6, y, lit });
+            }
+          }
         }
         if (random() < 0.6) {
           palms.push({ x: xr.min + 3 + random() * 6, z: zr.min + 3 + random() * 6 });
@@ -223,6 +402,16 @@ export function buildCity(THREE, random) {
     }
   }
   instancedBoxes(sidewalks, walkMat, 0.1, 'sidewalks');
+
+  // Landmarks: the tallest downtown tower goes glass blue, the tallest marina
+  // building goes teal — two strong accents the eye can find from any street.
+  for (const [d, color] of [['downtown', '#3a6a9a'], ['marina', '#2e8a9a']]) {
+    let tallest = null;
+    for (const b of buildings) {
+      if (b.district === d && (!tallest || b.h > tallest.h)) tallest = b;
+    }
+    if (tallest) tallest.color = color;
+  }
 
   // Buildings: one instanced box per building, coloured per instance.
   {
@@ -245,17 +434,37 @@ export function buildCity(THREE, random) {
     mesh.receiveShadow = true;
     group.add(mesh);
   }
-  // Roof caps.
+  // Roof caps, coloured per instance so the roofscape is not one brown slab.
   {
     const mesh = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshLambertMaterial({ color: PALETTE.roof }),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
       roofs.length,
     );
     mesh.name = 'roofs';
     const m = new THREE.Matrix4();
+    const color = new THREE.Color();
     for (let i = 0; i < roofs.length; i += 1) {
       const r = roofs[i];
+      m.makeScale(r.w, r.h, r.d);
+      m.setPosition(r.x, r.y, r.z);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, color.set(pick(random, PALETTE.roofColors)));
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  // Roof AC boxes.
+  {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: '#8a8f94' }),
+      roofAC.length,
+    );
+    mesh.name = 'roof-ac';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < roofAC.length; i += 1) {
+      const r = roofAC[i];
       m.makeScale(r.w, r.h, r.d);
       m.setPosition(r.x, r.y, r.z);
       mesh.setMatrixAt(i, m);
@@ -263,24 +472,46 @@ export function buildCity(THREE, random) {
     mesh.castShadow = true;
     group.add(mesh);
   }
-  // Window strips on the south face.
+  // Roof pyramids (4-sided cones; the square base reads as a pyramid with no
+  // per-instance rotation needed — its corners sit on the axes).
+  {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.02, 1, 1, 4),
+      new THREE.MeshLambertMaterial({ color: PALETTE.roof }),
+      roofPeaks.length,
+    );
+    mesh.name = 'roof-peaks';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < roofPeaks.length; i += 1) {
+      const r = roofPeaks[i];
+      m.makeScale(r.w / 2, r.h, r.d / 2);
+      m.setPosition(r.x, r.y, r.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  // Window panes on all four faces, coloured per instance (~15% lit warm).
   {
     const mesh = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshLambertMaterial({ color: PALETTE.window }),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
       windows.length,
     );
     mesh.name = 'windows';
     const m = new THREE.Matrix4();
+    const color = new THREE.Color();
     for (let i = 0; i < windows.length; i += 1) {
       const w = windows[i];
       m.makeScale(w.w, w.h, w.d);
       m.setPosition(w.x, w.y, w.z);
       mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, color.set(w.lit ? PALETTE.windowLit : PALETTE.window));
     }
     group.add(mesh);
   }
-  // Palms: trunk + canopy blobs.
+  // Palms: trunk + canopy blobs, varied per palm now (trunk height, canopy
+  // size and squash, leaf shade) so the 156 palms stop reading as clones.
   {
     const trunk = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.28, 0.42, 6, 6),
@@ -290,19 +521,24 @@ export function buildCity(THREE, random) {
     trunk.name = 'palm-trunks';
     const canopy = new THREE.InstancedMesh(
       new THREE.SphereGeometry(2.6, 7, 5),
-      new THREE.MeshLambertMaterial({ color: PALETTE.palmLeaf }),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
       palms.length,
     );
     canopy.name = 'palm-canopies';
     const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    const leafShades = ['#3f7a3a', '#4a8a3a', '#35702f'];
     for (let i = 0; i < palms.length; i += 1) {
       const p = palms[i];
-      m.makeScale(1, 1, 1);
-      m.setPosition(p.x, 3, p.z);
+      const trunkH = 6 * (0.85 + random() * 0.3);
+      m.makeScale(1, trunkH / 6, 1);
+      m.setPosition(p.x, trunkH / 2, p.z);
       trunk.setMatrixAt(i, m);
-      m.makeScale(1.4, 0.55, 1.4);
-      m.setPosition(p.x, 6.4, p.z);
+      const cs = 1.2 + random() * 0.5;
+      m.makeScale(cs, 0.55 * (0.85 + random() * 0.3), cs);
+      m.setPosition(p.x, trunkH + 0.4, p.z);
       canopy.setMatrixAt(i, m);
+      canopy.setColorAt(i, color.set(pick(random, leafShades)));
     }
     trunk.castShadow = true;
     canopy.castShadow = true;
@@ -341,7 +577,7 @@ export function buildCity(THREE, random) {
   {
     const tx = blockCentre(CITY.tower.bx);
     const tz = blockCentre(CITY.tower.bz);
-    const tower = box(18, CITY.tower.height, 18, new THREE.MeshLambertMaterial({ color: '#e8dcc8' }), tx, CITY.tower.height / 2, tz);
+    const tower = box(18, CITY.tower.height, 18, new THREE.MeshLambertMaterial({ color: '#7fa8c9' }), tx, CITY.tower.height / 2, tz);
     tower.castShadow = true;
     box(20, 2, 20, new THREE.MeshLambertMaterial({ color: PALETTE.roof }), tx, CITY.tower.height + 1, tz);
     const spire = new THREE.Mesh(
@@ -402,7 +638,7 @@ export function buildCity(THREE, random) {
     const b = CITY.bridge;
     const deckLength = b.x1 - b.x0;
     const deckX = (b.x0 + b.x1) / 2;
-    const deck = box(deckLength, 0.5, b.width, asphaltMat, deckX, 0.28, b.z);
+    const deck = box(deckLength, 0.5, b.width, deckMat, deckX, 0.28, b.z);
     deck.receiveShadow = true;
     const railMat = new THREE.MeshLambertMaterial({ color: '#e8e2d2' });
     box(deckLength, 1.1, 0.5, railMat, deckX, 0.9, b.z - b.width / 2);

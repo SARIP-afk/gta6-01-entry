@@ -108,6 +108,22 @@ export const CAMERA = {
 };
 
 /**
+ * Lighting (Batch 1, v3.7-sharp): the blur diagnosis measured street frames at
+ * 46.6% near-black (luminance <32) vs 0.6% in the reference — hemisphere 0.85
+ * could not lift the shadowed side after ACES. Hemi 1.15 + a weak east fill
+ * (0.45, no shadow map) lift the shadows without touching exposure or the sun,
+ * so contrast and depth survive. Targets (measured on re-rendered frames):
+ * facade frame near-black <15%, cover <10%.
+ */
+export const LIGHT = {
+  sunIntensity: 2.4,
+  hemiIntensity: 1.15,
+  fillIntensity: 0.7,
+  fillColor: '#ffe8cc',
+  exposure: 1.15,
+};
+
+/**
  * HUD + minimap (Phase 2). Phase 3: the wanted level is LIVE — the HUD stars
  * follow world.state.wanted, which the police system raises on crimes and lowers
  * when the player stays clean and unseen. The objective is the story thread the

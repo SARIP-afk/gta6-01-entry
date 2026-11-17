@@ -9,6 +9,13 @@
 // scene and a few diagnostics (render info, city visibility, flat materials) used to
 // hunt the headless frame-rate bottleneck in Phase 1 — the shipped game never calls them.
 //
+// Batch 1 (v3.7-sharp): ?aa=0 turns antialiasing off for A/B capture tests
+// (default ON); ?pr=2 renders at 2x for a supersampled screenshot. After the
+// renderer exists, every procedural texture in the city gets anisotropy at the
+// GPU's capability (capped at 8) — the blur diagnosis proved the road texture
+// collapsed to flat colour at the chase camera's grazing angle because
+// anisotropy was never set.
+//
 // Phase 3: the world takes the same seed, so its traffic and police replay
 // identically; window.__solmarina also exposes the world itself (live counts,
 // police modes, test hooks) for automated play tests.
@@ -36,8 +43,27 @@ const status = document.getElementById('status');
 const city = buildCity(THREE, createRandom(seed));
 const world = createWorld(city, seed);
 const hud = createHud(city.map);
-const renderer = createRenderer(canvas, hud);
+const renderer = createRenderer(canvas, hud, { antialias: params.get('aa') !== '0' });
 renderer.scene.add(city.group);
+// Batch 1 (v3.7-sharp): anisotropic filtering at the GPU's capability
+// (capped at 8) on every procedural texture in the city — canvasTexture()
+// already defaults to 8 at creation; this sets the exact supported value
+// before the first frame uploads the textures.
+{
+  const maxAniso = Math.min(renderer.maxAnisotropy(), 8);
+  city.group.traverse((object) => {
+    if (!object.isMesh) return;
+    const mats = Array.isArray(object.material) ? object.material : [object.material];
+    for (const mat of mats) {
+      if (mat && mat.map) {
+        mat.map.anisotropy = maxAniso;
+        mat.map.needsUpdate = true;
+      }
+    }
+  });
+}
+// Capture tests only: ?pr=2 renders at 2x for a supersampled screenshot.
+if (params.get('pr') === '2') renderer.setPixelRatio(2);
 
 // Distance driven this session (metres), for the pause screen and the best-run record.
 let distanceDriven = 0;
@@ -88,6 +114,14 @@ window.__solmarina = {
   /** Draw calls and triangles of the last rendered frame. */
   get renderInfo() {
     return renderer.info();
+  },
+  /** The GPU's anisotropy ceiling (Batch 1 verification). */
+  get maxAnisotropy() {
+    return renderer.maxAnisotropy();
+  },
+  /** Whether this WebGL context actually got antialiasing (Batch 1). */
+  get antialias() {
+    return renderer.antialias();
   },
   /** Test-only scene switches for the frame-rate investigation (Phase 1). */
   diagnostics: {

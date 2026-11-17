@@ -25,6 +25,14 @@
 // and a re-framed cover shot. Phase 3.6 (v3.6-city-look): bolder palettes (~50%
 // strong colour), more roof variants + rooftop landmarks, dense ground-floor
 // facades, street props — chasing the reference city's colour and detail density.
+// Batch 1 (v3.7-sharp): quick visual wins, no gameplay change — anisotropy 8 on
+// every procedural texture, hemisphere 1.15 + a high east fill light 0.7 (two
+// measured iterations; the worst-case shadowed street frame improves 46.7% to
+// 39.2% near-black but does not reach 15% — that needs structural Batch 2 work),
+// asphalt texture 256 to 512 px (same seeded pattern, layout byte-identical),
+// antialiasing on + 2x supersampled capture for cover/play (PR2 downscaled),
+// JPEG quality 90. Node S0-S7 byte-identical to v3.6; dossier byte-identical
+// across two runs.
 // Later phases add missions, combat/activities/save/sound, then polish. This file itself only copies the game and writes the
 // dossier; the game lives in game/src/.
 //

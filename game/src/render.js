@@ -11,6 +11,10 @@
 // audit proved the flat look came from the missing shadows and grade, not from the
 // polygon count — shadows and ACES are ON now, and the headless frame rate is
 // reported honestly instead of bought back by flattening the picture.
+// Batch 1 (v3.7-sharp): antialiasing ON by default (free on a real GPU; the
+// finalist review plays the game on one) — ?aa=0 in the URL turns it off for
+// A/B capture tests. Hemisphere 1.15 + a weak east fill light lift the
+// shadowed streets the blur diagnosis measured at 46.6% near-black.
 // Phase 2: the HUD itself lives in hud.js (this file only calls hud.draw); the
 // renderer also draws `state.extras` — visual-only police cruisers and traffic cars
 // staged for the cover shot, with flashing light bars. Extras have no AI (Phase 3);
@@ -20,7 +24,7 @@
 // pools. The staged extras keep dedicated pools of their own, so a live cruiser
 // never steals a staged one's slot in the cover shot.
 import * as THREE from 'three';
-import { CAMERA, CAR, EXTRA_CAR, GAME, PALETTE, PLAYER } from './config.js';
+import { CAMERA, CAR, EXTRA_CAR, GAME, LIGHT, PALETTE, PLAYER } from './config.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -279,8 +283,9 @@ function buildPlayerMesh() {
   return { group: rio, legs };
 }
 
-export function createRenderer(canvas, hud) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+export function createRenderer(canvas, hud, options = {}) {
+  // Batch 1: antialiasing ON unless the URL says ?aa=0 (A/B capture tests).
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: options.antialias !== false });
   renderer.setPixelRatio(1);
   // Phase 3.5 visual pass: shadows and ACES tone mapping are ON. The shadow
   // camera + castShadow flags were already there — only this flag was off. The
@@ -290,7 +295,7 @@ export function createRenderer(canvas, hud) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = LIGHT.exposure;
 
   const scene = new THREE.Scene();
   // Phase 3.5: cooler, farther haze — the city keeps its depth instead of
@@ -298,7 +303,7 @@ export function createRenderer(canvas, hud) {
   const fog = new THREE.Fog(new THREE.Color(PALETTE.fog), 350, 1200);
   scene.fog = fog;
 
-  const sun = new THREE.DirectionalLight(new THREE.Color(PALETTE.sun), 2.4);
+  const sun = new THREE.DirectionalLight(new THREE.Color(PALETTE.sun), LIGHT.sunIntensity);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.left = -110;
@@ -311,8 +316,15 @@ export function createRenderer(canvas, hud) {
   sun.shadow.normalBias = 0.15;
   scene.add(sun);
   scene.add(sun.target);
-  const hemi = new THREE.HemisphereLight(0xbcd8f0, 0xe8c9a0, 0.85);
+  const hemi = new THREE.HemisphereLight(0xbcd8f0, 0xe8c9a0, LIGHT.hemiIntensity);
   scene.add(hemi);
+  // Batch 1: a weak fill light from the east (opposite the western sun), no
+  // shadow map — it lifts the faces the sun never reaches, so the shadowed
+  // side of a street stops being a black hole. Positioned in setSun(), which
+  // already follows the active entity.
+  const fill = new THREE.DirectionalLight(new THREE.Color(LIGHT.fillColor), LIGHT.fillIntensity);
+  scene.add(fill);
+  scene.add(fill.target);
 
   const camera = new THREE.PerspectiveCamera(CAMERA.fovBase, 1, 0.1, 3000);
   const camPos = new THREE.Vector3(0, 10, -20);
@@ -377,6 +389,10 @@ export function createRenderer(canvas, hud) {
     // Golden hour from the west: low sun, long shadows, warm light.
     sun.position.set(target.x - 180, 140, target.z + 60);
     sun.target.position.set(target.x, 0, target.z);
+    // Batch 1 iter-2: the fill is HIGHER (63 deg) so it lifts horizontal
+    // surfaces (roads) more than vertical ones; intensity 0.7.
+    fill.position.set(target.x + 90, 180, target.z - 30);
+    fill.target.position.set(target.x, 0, target.z);
   }
 
   /**
@@ -550,6 +566,19 @@ export function createRenderer(canvas, hud) {
         calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
       };
+    },
+    /** The GPU's anisotropy ceiling, for the capture-time texture setup. */
+    maxAnisotropy() {
+      return renderer.capabilities.getMaxAnisotropy();
+    },
+    /** Whether this WebGL context actually got antialiasing (A/B verification). */
+    antialias() {
+      return renderer.getContext().getContextAttributes().antialias;
+    },
+    /** Capture tests only: render at 2x for a supersampled screenshot. */
+    setPixelRatio(ratio) {
+      renderer.setPixelRatio(ratio);
+      resize();
     },
     /** Test-only: switch the distance haze off/on to measure what it costs. */
     setFog(on) {

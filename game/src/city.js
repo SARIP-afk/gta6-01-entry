@@ -18,6 +18,13 @@
 // doors + awnings + a denser ground window row, and street props (benches,
 // planters, hydrants, sign poles) — chasing the reference city's colour and
 // detail density from the chase camera, not its top-down framing.
+// Batch 1 (v3.7-sharp): anisotropic filtering on (the blur diagnosis proved the
+// road texture collapsed to flat colour at the chase camera's ~7.6° grazing
+// angle because anisotropy was never set), asphalt + paving canvases 256 → 512.
+// The texture painters keep the SAME random-call counts as v3.6 (every size /
+// position is doubled, nothing added) so the seeded stream — and therefore the
+// whole city layout — is byte-identical to v3.6: a true apples-to-apples
+// before/after.
 import { CITY, PALETTE, districtOf } from './config.js';
 
 /** Road centre lines, each way: 11 internal roads plus the perimeter ring. */
@@ -87,6 +94,12 @@ function canvasTexture(THREE, w, h, repeatX, repeatY) {
   const ctx = canvas.getContext('2d');
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  // Batch 1 (v3.7-sharp): anisotropy 8 at creation — the blur diagnosis proved
+  // the road texture collapsed to its average colour at the chase camera's
+  // ~7.6° grazing angle because anisotropy was never set (default 1). main.js
+  // upgrades this to the GPU's capability (capped at 8) once the renderer
+  // exists; clones inherit it via Texture.copy.
+  texture.anisotropy = 8;
   if (THREE.RepeatWrapping !== undefined) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
@@ -106,31 +119,36 @@ function cloneTexture(tex, repeatX, repeatY) {
 
 function makeAsphaltTexture(THREE, random) {
   // One tile = one 24 m road segment, so the grain reads at driving scale.
-  const { ctx, texture } = canvasTexture(THREE, 256, 256);
+  // Batch 1: canvas 256 → 512 (10.7 → 21.4 px/m) with the SAME random-call
+  // count (speckle 2600, cracks 14) — every size/position doubled, so the
+  // seeded stream and the city layout are unchanged from v3.6.
+  const { ctx, texture } = canvasTexture(THREE, 512, 512);
   ctx.fillStyle = PALETTE.asphalt;
-  ctx.fillRect(0, 0, 256, 256);
-  speckle(ctx, random, 256, 256, 2600, ['#35322f', '#454240', '#2e2b29', '#4a4642'], 1, 3);
+  ctx.fillRect(0, 0, 512, 512);
+  speckle(ctx, random, 512, 512, 2600, ['#35322f', '#454240', '#2e2b29', '#4a4642'], 2, 6);
   // Hairline cracks: thin dark rects, mostly along the driving direction.
   ctx.fillStyle = '#2a2725';
   for (let i = 0; i < 14; i += 1) {
-    ctx.fillRect(random() * 256, random() * 256, 20 + random() * 60, 1);
+    ctx.fillRect(random() * 512, random() * 512, 40 + random() * 120, 2);
   }
   return texture;
 }
 
 function makePavingTexture(THREE, random) {
   // One tile = one 40 m sidewalk slab, repeated 4x4: pavers read ~2.5 m.
-  const { ctx, texture } = canvasTexture(THREE, 256, 256, 4, 4);
+  // Batch 1: canvas 256 → 512, same random-call count (16 cell shades,
+  // speckle 500) — sizes doubled, city layout unchanged.
+  const { ctx, texture } = canvasTexture(THREE, 512, 512, 4, 4);
   ctx.fillStyle = PALETTE.sidewalk;
-  ctx.fillRect(0, 0, 256, 256);
-  const cell = 64;
+  ctx.fillRect(0, 0, 512, 512);
+  const cell = 128;
   for (let gy = 0; gy < 4; gy += 1) {
     for (let gx = 0; gx < 4; gx += 1) {
       ctx.fillStyle = shade(PALETTE.sidewalk, 0.92 + random() * 0.16);
-      ctx.fillRect(gx * cell + 2, gy * cell + 2, cell - 4, cell - 4);
+      ctx.fillRect(gx * cell + 4, gy * cell + 4, cell - 8, cell - 8);
     }
   }
-  speckle(ctx, random, 256, 256, 500, ['#b8ab8d', '#d8ccb4'], 1, 2);
+  speckle(ctx, random, 512, 512, 500, ['#b8ab8d', '#d8ccb4'], 2, 4);
   return texture;
 }
 

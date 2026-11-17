@@ -1,79 +1,59 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules
+// forward from a fresh world for a fixed number of steps, steered by the autopilot,
+// so the frame is what a short game really looks like and the same seed always gives
+// the same frame. Start is the title over the avenue; play is the car mid-drive;
+// end is Rio on foot by the marina, the car parked behind him.
+import { STEP } from './config.js';
+import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
-
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
-}
-
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
-}
+// The title camera is fixed to the car and nothing moves before play starts, so two
+// idle seconds stage exactly what five did; the shorter wait only speeds the shots up.
+const START_SECONDS = 2;
+const PLAY_SECONDS = 24;
+const END_WALK_SECONDS = 6;
 
 /**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
+ * Set `world` to the named scene (start, play or end; any other name is start) and
+ * return the screen to draw over it.
  */
 export function stageShot(name, world) {
   world.reset();
   if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+    // Title: idle briefly so the first painted frame is a settled one.
+    for (let index = 0; index < START_SECONDS / STEP; index += 1) {
+      world.step(STEP, { forward: false, back: false, left: false, right: false, handbrake: false, run: false, enter: false }, 0);
+    }
+    return { screen: SCREEN_TITLE };
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+  if (name === 'end') {
+    // On foot by the marina: park the car on the promenade, Rio steps out and walks
+    // toward the pier, the lighthouse and the sea ahead of him.
+    world.state.car.x = 300;
+    world.state.car.z = -6;
+    world.state.car.heading = Math.PI / 2;
+    world.state.car.speed = 0;
+    world.state.mode = 'foot';
+    world.state.player.x = 296;
+    world.state.player.z = -2;
+    world.state.player.heading = Math.PI / 2;
+    for (let index = 0; index < END_WALK_SECONDS / STEP; index += 1) {
+      world.step(STEP, { forward: true, back: false, left: false, right: false, handbrake: false, run: false, enter: false }, world.state.player.heading);
+    }
+    return { screen: SCREEN_PLAY };
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  // Play: the autopilot drives the route for twenty-four seconds.
+  for (let index = 0; index < PLAY_SECONDS / STEP; index += 1) {
+    const drive = world.autopilot();
+    world.step(STEP, {
+      forward: drive.throttle > 0,
+      back: drive.brake,
+      left: false,
+      right: false,
+      steer: drive.steer,
+      handbrake: false,
+      run: false,
+      enter: false,
+    }, 0);
+  }
+  return { screen: SCREEN_PLAY };
 }

@@ -290,7 +290,7 @@ export function createRenderer(canvas, hud) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.15;
 
   const scene = new THREE.Scene();
   // Phase 3.5: cooler, farther haze — the city keeps its depth instead of

@@ -246,14 +246,21 @@ export const PALETTE = {
   // stronger entries so the three districts read apart at a glance. The accent
   // lists are picked ~22% of the time (city.js) for buildings that break the
   // beige monopoly: glass blue downtown, teal/white marina, terracotta suburb.
-  buildingDowntown: ['#e8dcc8', '#d9c9a8', '#c9b18c', '#e0cfae', '#b8a88e', '#8fa8c0', '#6a8ab0'],
-  buildingDowntownAccent: ['#3a6a9a', '#2a5a8a', '#c96a4a'],
-  buildingMarina: ['#f2e6d0', '#e8cfae', '#d9b380', '#f0d9b8', '#e3c39a', '#cfe0dc', '#9fc4c8'],
-  buildingMarinaAccent: ['#2e8a9a', '#f2f6f2', '#d84a35'],
-  buildingSuburb: ['#f5ead6', '#e8d5b0', '#d9c39a', '#efe0c0', '#e0cba6', '#c9b18c', '#a8b89a'],
-  buildingSuburbAccent: ['#c96a4a', '#b85a3a', '#7a9a5a'],
+  // Phase 3.6 (visual pass 2): the bold colours move INTO the base lists too —
+  // the reference city is ~half strong colour, not a beige city with a few
+  // accents. Accent chance in city.js is now ~50%, and the base lists carry
+  // glass blue, brick orange, sage green and clean white alongside the warm
+  // bases, so no street reads as one beige wall.
+  buildingDowntown: ['#e8dcc8', '#d9c9a8', '#5a8ab0', '#3a6a9a', '#e8e8e8', '#8fa8c0', '#c96a4a', '#6a8ab0'],
+  buildingDowntownAccent: ['#2a5a8a', '#1a4a7a', '#d84a35', '#f2f6f2', '#e8a83a'],
+  buildingMarina: ['#f2e6d0', '#e8cfae', '#2e8a9a', '#f2f6f2', '#d84a35', '#cfe0dc', '#e8a83a', '#9fc4c8'],
+  buildingMarinaAccent: ['#1a7a8a', '#d84a35', '#f2c94c', '#2e8a9a'],
+  buildingSuburb: ['#f5ead6', '#e8d5b0', '#c96a4a', '#7a9a5a', '#b85a3a', '#a8b89a', '#e8e8e8', '#d9c39a'],
+  buildingSuburbAccent: ['#a84a2a', '#5a8a4a', '#c94a3a', '#3a6a9a'],
   roof: '#8a6a4a',
-  roofColors: ['#8a6a4a', '#6a5a4a', '#a8a88a', '#7a6a5a'],
+  roofColors: ['#8a6a4a', '#6a5a4a', '#a8a88a', '#7a6a5a', '#b85a3a', '#4a6a8a'],
+  // Phase 3.6: striped-shop colours for the awnings over ground-floor doors.
+  awningColors: ['#c94a3a', '#2a6a9a', '#3a7a4a', '#e8a83a', '#f2f6f2'],
   window: '#2a3547',
   windowLit: '#ffd27a',
   palmTrunk: '#7a5a3a',

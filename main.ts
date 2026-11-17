@@ -22,8 +22,10 @@
 // cruisers that chase, ram, bust, lose the player, search and give up. Phase 3.5
 // (v3.5-visual-pass): shadows + ACES tone mapping, four-face window grids, roof
 // variants, wider district palettes, procedural textures, detailed cars and Rio,
-// and a re-framed cover shot. Later phases add missions, combat/activities/save/
-// sound, then polish. This file itself only copies the game and writes the
+// and a re-framed cover shot. Phase 3.6 (v3.6-city-look): bolder palettes (~50%
+// strong colour), more roof variants + rooftop landmarks, dense ground-floor
+// facades, street props — chasing the reference city's colour and detail density.
+// Later phases add missions, combat/activities/save/sound, then polish. This file itself only copies the game and writes the
 // dossier; the game lives in game/src/.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.

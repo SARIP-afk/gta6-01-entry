@@ -12,6 +12,12 @@
 // stub can run them), window grids on all four faces, roof variants, district accent
 // colours, palm variation. Textures are created once at load; the dossier stays
 // byte-identical across runs because every pixel comes from the seeded stream.
+// Phase 3.6 (visual pass 2): bolder palettes (~50% strong colour), more roof
+// variants (parapet rims, stepped roofs, solar panels, water tanks, antennas),
+// rooftop landmarks (generic signs + food stacks, our own shapes), ground-floor
+// doors + awnings + a denser ground window row, and street props (benches,
+// planters, hydrants, sign poles) — chasing the reference city's colour and
+// detail density from the chase camera, not its top-down framing.
 import { CITY, PALETTE, districtOf } from './config.js';
 
 /** Road centre lines, each way: 11 internal roads plus the perimeter ring. */
@@ -164,6 +170,30 @@ function makeWoodTexture(THREE, random) {
   return texture;
 }
 
+/**
+ * A rooftop sign board texture (Phase 3.6): one fixed word in bold white on a
+ * flat colour — our own city words (HOTEL, SOLMARINA), no brand, no logo.
+ * The text and colours are fixed, so the texture is deterministic; the 2D
+ * context calls used here (fillRect, fillText, font/align assignment) are all
+ * no-ops the Node test stub already tolerates.
+ */
+function makeSignTexture(THREE, text, bg) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.fillStyle = '#f2f6f2';
+  ctx.font = 'bold 72px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 256, 68);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 export function buildCity(THREE, random) {
   const group = new THREE.Group();
   group.name = 'solmarina-city';
@@ -172,6 +202,25 @@ export function buildCity(THREE, random) {
   const roofs = [];
   const roofAC = [];
   const roofPeaks = [];
+  // Phase 3.6: parapet rims (4 thin boxes each), stepped roof boxes, flat solar
+  // panels, water tanks (+ cone lids), antennas (+ red tips), ground-floor
+  // doors and awnings, street props (benches, planters, hydrants, sign poles).
+  const roofParapet = [];
+  const roofSteps = [];
+  const roofSolar = [];
+  const roofTanks = [];
+  const roofTankTops = [];
+  const roofAntennas = [];
+  const antennaTips = [];
+  const doors = [];
+  const awnings = [];
+  const benchSeats = [];
+  const benchBacks = [];
+  const planters = [];
+  const shrubs = [];
+  const hydrants = [];
+  const signPoles = [];
+  const signBoards = [];
   const windows = [];
   const sidewalks = [];
   const palms = [];
@@ -353,9 +402,10 @@ export function buildCity(THREE, random) {
           : district === 'marina' ? 12 + random() * 18 : 6 + random() * 8;
         const x = count === 1 ? cx : xr.min + 8 + (n * 20) + (random() * 4 - 2);
         const z = count === 1 ? cz : zr.min + 8 + (n * 20) + (random() * 4 - 2);
-        // ~22% of buildings take the district accent instead of the warm base,
-        // so the beige monopoly breaks without repainting the whole city.
-        const color = random() < 0.22 ? pick(random, accent) : pick(random, palette);
+        // Phase 3.6: ~50% of buildings take a strong colour (base lists carry
+        // bold colours too now) — the reference city is half strong colour,
+        // not a beige city with a few accents.
+        const color = random() < 0.5 ? pick(random, accent) : pick(random, palette);
         buildings.push({ x, z, w, d, h, color, district });
         roofs.push({ x, z, w: w + 0.8, d: d + 0.8, h: 0.7, y: h + 0.35 });
         colliders.push({ minX: x - w / 2 - 0.3, maxX: x + w / 2 + 0.3, minZ: z - d / 2 - 0.3, maxZ: z + d / 2 + 0.3 });
@@ -375,15 +425,26 @@ export function buildCity(THREE, random) {
         // face, so the chase camera mostly saw blank walls. Small panes, one
         // per ~5 m across and ~4.5 m up, capped at 10 floors so a tower does
         // not drown the scene in glass. ~15% of panes are lit warm.
-        const rows = Math.min(10, Math.max(1, Math.floor((h - 4) / 4.5)));
+        // Phase 3.6: the ground row starts at y 2.4 (was 5 — the whole ground
+        // floor was bare wall, the pass-1 cover gap) and is denser (one pane
+        // per ~3 m, shopfront spacing); upper rows keep the 5 m grid.
+        // Ground-floor door (Phase 3.6): face + offset from the block hash, so
+        // no random is drawn here — the window layout stays deterministic.
+        const doorFace = (bx * 7 + bz * 3 + n * 5) % 4;
+        const doorSpan = doorFace < 2 ? w : d;
+        const doorAlong = ((((bx * 13 + bz * 5 + n * 11) % 10) - 5) / 10) * doorSpan * 0.5;
+        const rows = Math.min(10, Math.max(1, Math.floor((h - 3) / 4.5)));
         for (let f = 0; f < 4; f += 1) {
           const span = f < 2 ? w : d;
           const cols = Math.max(2, Math.floor(span / 5));
           for (let r = 0; r < rows; r += 1) {
-            const y = 5 + r * 4.5;
+            const y = 2.4 + r * 4.5;
             if (y + 0.8 > h - 1) continue;
-            for (let c = 0; c < cols; c += 1) {
-              const along = -span / 2 + ((c + 0.5) * span) / cols;
+            const colsThis = r === 0 ? Math.max(2, Math.floor(span / 3)) : cols;
+            for (let c = 0; c < colsThis; c += 1) {
+              const along = -span / 2 + ((c + 0.5) * span) / colsThis;
+              // No pane where the ground-floor door stands.
+              if (r === 0 && f === doorFace && Math.abs(along - doorAlong) < 1.7) continue;
               const lit = random() < 0.15;
               if (f === 0) windows.push({ x: x + along, z: z + d / 2 + 0.09, w: 1.8, d: 0.12, h: 1.6, y, lit });
               else if (f === 1) windows.push({ x: x + along, z: z - d / 2 - 0.09, w: 1.8, d: 0.12, h: 1.6, y, lit });
@@ -391,6 +452,59 @@ export function buildCity(THREE, random) {
               else windows.push({ x: x - w / 2 - 0.09, z: z + along, w: 0.12, d: 1.8, h: 1.6, y, lit });
             }
           }
+        }
+        // Phase 3.6: roof variety — parapet rims (~30%), stepped roof boxes
+        // (~20%), plus roof props: flat solar panels, water tanks with cone
+        // lids, antennas with red tips. All seeded, all axis-aligned (the
+        // Node test stub has no matrix rotation), all one instanced mesh each.
+        const roofVariant = random();
+        if (roofVariant < 0.3) {
+          // Parapet rim: four thin walls around the roof edge.
+          const py = h + 0.7 + 0.45;
+          roofParapet.push({ x, z: z - d / 2 - 0.1, w: w + 0.8, d: 0.5, h: 0.9, y: py });
+          roofParapet.push({ x, z: z + d / 2 + 0.1, w: w + 0.8, d: 0.5, h: 0.9, y: py });
+          roofParapet.push({ x: x - w / 2 - 0.1, z, w: 0.5, d: d + 0.8, h: 0.9, y: py });
+          roofParapet.push({ x: x + w / 2 + 0.1, z, w: 0.5, d: d + 0.8, h: 0.9, y: py });
+        } else if (roofVariant < 0.5) {
+          roofSteps.push({ x, z, w: w * 0.55, d: d * 0.55, h: 1.4, y: h + 0.7 + 0.7 });
+        }
+        const propRoll = random();
+        if (propRoll < 0.18) {
+          // Solar field: 2-4 flat dark panels spread over the roof.
+          const panels = 2 + Math.floor(random() * 3);
+          for (let p = 0; p < panels; p += 1) {
+            roofSolar.push({
+              x: x + (random() * (w - 6) - (w - 6) / 2),
+              z: z + (random() * (d - 6) - (d - 6) / 2),
+              w: 3, d: 2, h: 0.15, y: h + 0.7 + 0.1,
+            });
+          }
+        } else if (propRoll < 0.32) {
+          // Water tank: cylinder body + cone lid.
+          const tx = x + (random() * (w - 6) - (w - 6) / 2);
+          const tz = z + (random() * (d - 6) - (d - 6) / 2);
+          roofTanks.push({ x: tx, z: tz, w: 2.4, d: 2.4, h: 2.2, y: h + 0.7 + 1.1 });
+          roofTankTops.push({ x: tx, z: tz, w: 2.6, d: 2.6, h: 1, y: h + 0.7 + 2.2 + 0.5 });
+        } else if (propRoll < 0.42) {
+          // Antenna mast with a red tip.
+          const ax = x + (random() * (w - 6) - (w - 6) / 2);
+          const az = z + (random() * (d - 6) - (d - 6) / 2);
+          roofAntennas.push({ x: ax, z: az, w: 0.3, d: 0.3, h: 7, y: h + 0.7 + 3.5 });
+          antennaTips.push({ x: ax, z: az, w: 0.6, d: 0.6, h: 0.6, y: h + 0.7 + 7 + 0.3 });
+        }
+        // Ground-floor door + awning on the hashed face (see above).
+        if (doorFace === 0) {
+          doors.push({ x: x + doorAlong, z: z + d / 2 + 0.12, w: 1.6, d: 0.18, h: 2.6, y: 1.3 });
+          awnings.push({ x: x + doorAlong, z: z + d / 2 + 0.55, w: 2.6, d: 1.1, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
+        } else if (doorFace === 1) {
+          doors.push({ x: x + doorAlong, z: z - d / 2 - 0.12, w: 1.6, d: 0.18, h: 2.6, y: 1.3 });
+          awnings.push({ x: x + doorAlong, z: z - d / 2 - 0.55, w: 2.6, d: 1.1, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
+        } else if (doorFace === 2) {
+          doors.push({ x: x + w / 2 + 0.12, z: z + doorAlong, w: 0.18, d: 1.6, h: 2.6, y: 1.3 });
+          awnings.push({ x: x + w / 2 + 0.55, z: z + doorAlong, w: 1.1, d: 2.6, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
+        } else {
+          doors.push({ x: x - w / 2 - 0.12, z: z + doorAlong, w: 0.18, d: 1.6, h: 2.6, y: 1.3 });
+          awnings.push({ x: x - w / 2 - 0.55, z: z + doorAlong, w: 1.1, d: 2.6, h: 0.15, y: 3.0, color: pick(random, PALETTE.awningColors) });
         }
         if (random() < 0.6) {
           palms.push({ x: xr.min + 3 + random() * 6, z: zr.min + 3 + random() * 6 });
@@ -510,6 +624,138 @@ export function buildCity(THREE, random) {
     }
     group.add(mesh);
   }
+  // Phase 3.6: parapet rims + stepped roofs, coloured per instance from the
+  // roof palette (a few bold roofs among the brown ones).
+  for (const [list, name] of [[roofParapet, 'roof-parapets'], [roofSteps, 'roof-steps']]) {
+    if (list.length === 0) continue;
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      list.length,
+    );
+    mesh.name = name;
+    const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    for (let i = 0; i < list.length; i += 1) {
+      const b = list[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, color.set(pick(random, PALETTE.roofColors)));
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  // Phase 3.6: flat solar panels (dark blue slabs on the roofs).
+  if (roofSolar.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: '#1a3a6a' }),
+      roofSolar.length,
+    );
+    mesh.name = 'roof-solar';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < roofSolar.length; i += 1) {
+      const b = roofSolar[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  // Phase 3.6: water tanks (cylinder bodies + cone lids) and antennas.
+  if (roofTanks.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.5, 0.5, 1, 10),
+      new THREE.MeshLambertMaterial({ color: '#d8dde2' }),
+      roofTanks.length,
+    );
+    mesh.name = 'roof-tanks';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < roofTanks.length; i += 1) {
+      const b = roofTanks[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  if (roofTankTops.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.02, 0.5, 1, 8),
+      new THREE.MeshLambertMaterial({ color: PALETTE.roof }),
+      roofTankTops.length,
+    );
+    mesh.name = 'roof-tank-tops';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < roofTankTops.length; i += 1) {
+      const b = roofTankTops[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  if (roofAntennas.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.5, 0.5, 1, 6),
+      new THREE.MeshLambertMaterial({ color: '#3a3f46' }),
+      roofAntennas.length,
+    );
+    mesh.name = 'roof-antennas';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < roofAntennas.length; i += 1) {
+      const b = roofAntennas[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  if (antennaTips.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 6, 4),
+      new THREE.MeshLambertMaterial({ color: '#d8382a', emissive: 0xa02010, emissiveIntensity: 0.8 }),
+      antennaTips.length,
+    );
+    mesh.name = 'antenna-tips';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < antennaTips.length; i += 1) {
+      const b = antennaTips[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    group.add(mesh);
+  }
+  // Phase 3.6: ground-floor doors (one dark slab per building) + awnings
+  // (coloured per instance, the shop colours).
+  if (doors.length > 0) {
+    instancedBoxes(doors, new THREE.MeshLambertMaterial({ color: '#3a2f28' }), 1.3, 'doors');
+  }
+  if (awnings.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      awnings.length,
+    );
+    mesh.name = 'awnings';
+    const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    for (let i = 0; i < awnings.length; i += 1) {
+      const b = awnings[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, color.set(b.color));
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
   // Palms: trunk + canopy blobs, varied per palm now (trunk height, canopy
   // size and squash, leaf shade) so the 156 palms stop reading as clones.
   {
@@ -572,12 +818,185 @@ export function buildCity(THREE, random) {
     group.add(head);
   }
 
+  // Phase 3.6: street props, seeded, on the sidewalks — benches, planters,
+  // hydrants and sign poles. One spot per block corner, always inside the
+  // block footprint (never on the road) and never with a collider: they are
+  // visual only, so a pedestrian may clip one for a frame — cosmetic.
+  for (let bx = 0; bx < CITY.blocks; bx += 1) {
+    for (let bz = 0; bz < CITY.blocks; bz += 1) {
+      if (stadiumBlocks.has(`${bx},${bz}`)) continue;
+      if (bx === CITY.tower.bx && bz === CITY.tower.bz) continue;
+      const xr = blockRange(bx);
+      const zr = blockRange(bz);
+      const corner = Math.floor(random() * 4);
+      const px = corner % 2 === 0 ? xr.min + 2 : xr.max - 2;
+      const pz = corner < 2 ? zr.min + 2 : zr.max - 2;
+      const roll = random();
+      if (roll < 0.35) {
+        benchSeats.push({ x: px, z: pz, w: 1.8, d: 0.6, h: 0.15, y: 0.55 });
+        benchBacks.push({ x: px, z: pz - 0.3, w: 1.8, d: 0.12, h: 0.6, y: 0.9 });
+      } else if (roll < 0.65) {
+        planters.push({ x: px, z: pz, w: 1, d: 1, h: 0.8, y: 0.4 });
+        shrubs.push({ x: px, z: pz, w: 1.4, d: 1.4, h: 1.1, y: 1.1 });
+      } else if (roll < 0.8) {
+        hydrants.push({ x: px, z: pz, w: 0.5, d: 0.5, h: 0.9, y: 0.45 });
+      } else {
+        signPoles.push({ x: px, z: pz, w: 0.24, d: 0.24, h: 3, y: 1.5 });
+        signBoards.push({ x: px, z: pz, w: 1.2, d: 0.12, h: 0.8, y: 3.0, color: pick(random, ['#2a6a9a', '#3a7a4a', '#c94a3a']) });
+      }
+    }
+  }
+  if (benchSeats.length > 0) {
+    const benchMat = new THREE.MeshLambertMaterial({ color: '#7a5a3a' });
+    instancedBoxes(benchSeats, benchMat, 0.55, 'bench-seats');
+    instancedBoxes(benchBacks, benchMat, 0.9, 'bench-backs');
+  }
+  if (planters.length > 0) {
+    instancedBoxes(planters, new THREE.MeshLambertMaterial({ color: '#8a6a4a' }), 0.4, 'planters');
+  }
+  if (shrubs.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 7, 5),
+      new THREE.MeshLambertMaterial({ color: '#4a8a3a' }),
+      shrubs.length,
+    );
+    mesh.name = 'shrubs';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < shrubs.length; i += 1) {
+      const b = shrubs[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  if (hydrants.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.5, 0.5, 1, 8),
+      new THREE.MeshLambertMaterial({ color: '#c93a2a' }),
+      hydrants.length,
+    );
+    mesh.name = 'hydrants';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < hydrants.length; i += 1) {
+      const b = hydrants[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  if (signPoles.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.5, 0.5, 1, 6),
+      new THREE.MeshLambertMaterial({ color: '#3a3f46' }),
+      signPoles.length,
+    );
+    mesh.name = 'sign-poles';
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < signPoles.length; i += 1) {
+      const b = signPoles[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    group.add(mesh);
+  }
+  if (signBoards.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: 0xffffff }),
+      signBoards.length,
+    );
+    mesh.name = 'sign-boards';
+    const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    for (let i = 0; i < signBoards.length; i += 1) {
+      const b = signBoards[i];
+      m.makeScale(b.w, b.h, b.d);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, color.set(b.color));
+    }
+    group.add(mesh);
+  }
+
+  // Phase 3.6: rooftop landmarks — generic signs and food stacks, our own
+  // shapes, no brand. HOTEL board on the tallest marina roof, SOLMARINA board
+  // on the tallest downtown roof, a burger stack and a fries box on low-rise
+  // roofs. Chosen deterministically (tallest / first low-rise match).
+  {
+    const tallestMarina = buildings.filter((b) => b.district === 'marina')
+      .reduce((a, b) => ((a && a.h > b.h) ? a : b), null);
+    const tallestDowntown = buildings.filter((b) => b.district === 'downtown')
+      .reduce((a, b) => ((a && a.h > b.h) ? a : b), null);
+    const lowMarina = buildings.find((b) => b.district === 'marina' && b.h < 18 && b.w > 14);
+    const lowSuburb = buildings.find((b) => b.district === 'suburb' && b.h < 14 && b.w > 14);
+    // Backing slab on two posts + front plane with the word painted on canvas.
+    const signBoard = (b, text, bg, w, h) => {
+      const baseY = b.h + 0.7;
+      for (const dx of [-w / 2 + 0.5, w / 2 - 0.5]) {
+        box(0.3, 1.2, 0.3, new THREE.MeshLambertMaterial({ color: '#3a3f46' }), b.x + dx, baseY + 0.6, b.z + b.d / 2 + 0.1);
+      }
+      const slab = box(w, h, 0.3, new THREE.MeshLambertMaterial({ color: '#22303f' }), b.x, baseY + 1.2 + h / 2, b.z + b.d / 2 + 0.1);
+      slab.castShadow = true;
+      const face = new THREE.Mesh(
+        new THREE.PlaneGeometry(w - 0.4, h - 0.4),
+        new THREE.MeshLambertMaterial({ map: makeSignTexture(THREE, text, bg) }),
+      );
+      face.position.set(b.x, baseY + 1.2 + h / 2, b.z + b.d / 2 + 0.28);
+      group.add(face);
+    };
+    if (tallestMarina) signBoard(tallestMarina, 'HOTEL', '#1a2a4a', 8, 2);
+    if (tallestDowntown) signBoard(tallestDowntown, 'SOLMARINA', '#2a5a8a', 11, 2.4);
+    // Burger stack: bottom bun, patty, lettuce, cheese, squashed-sphere top bun.
+    if (lowMarina) {
+      const by = lowMarina.h + 0.7;
+      const bunMat = new THREE.MeshLambertMaterial({ color: '#e8b06a' });
+      const pattyMat = new THREE.MeshLambertMaterial({ color: '#5a3a22' });
+      const lettuceMat = new THREE.MeshLambertMaterial({ color: '#5a9a3a' });
+      const cheeseMat = new THREE.MeshLambertMaterial({ color: '#f2a83a' });
+      const stack = [
+        [new THREE.CylinderGeometry(2.2, 2.2, 0.8, 12), bunMat, 0.4],
+        [new THREE.CylinderGeometry(2.3, 2.3, 0.5, 12), pattyMat, 1.05],
+        [new THREE.CylinderGeometry(2.5, 2.5, 0.25, 12), lettuceMat, 1.4],
+        [new THREE.CylinderGeometry(2.4, 2.4, 0.2, 12), cheeseMat, 1.6],
+      ];
+      for (const [geo, mat, dy] of stack) {
+        const part = new THREE.Mesh(geo, mat);
+        part.position.set(lowMarina.x, by + dy, lowMarina.z);
+        part.castShadow = true;
+        group.add(part);
+      }
+      const topBun = new THREE.Mesh(new THREE.SphereGeometry(2.2, 12, 8), bunMat);
+      topBun.scale.set(1, 0.55, 1);
+      topBun.position.set(lowMarina.x, by + 2.6, lowMarina.z);
+      topBun.castShadow = true;
+      group.add(topBun);
+    }
+    // Fries box: red carton + five yellow sticks.
+    if (lowSuburb) {
+      const fy = lowSuburb.h + 0.7;
+      const carton = box(3.2, 2.4, 1.2, new THREE.MeshLambertMaterial({ color: '#d84a35' }), lowSuburb.x, fy + 1.2, lowSuburb.z);
+      carton.castShadow = true;
+      const fryMat = new THREE.MeshLambertMaterial({ color: '#f2c94c' });
+      for (let i = 0; i < 5; i += 1) {
+        const fry = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.2 + (i % 2) * 0.5, 0.35), fryMat);
+        fry.position.set(lowSuburb.x - 1.2 + i * 0.6, fy + 2.4 + 0.6, lowSuburb.z);
+        fry.castShadow = true;
+        group.add(fry);
+      }
+    }
+  }
+
   // --- landmarks ----------------------------------------------------------------
   // Solmarina Tower: the city's spike, downtown north.
   {
     const tx = blockCentre(CITY.tower.bx);
     const tz = blockCentre(CITY.tower.bz);
-    const tower = box(18, CITY.tower.height, 18, new THREE.MeshLambertMaterial({ color: '#7fa8c9' }), tx, CITY.tower.height / 2, tz);
+    const tower = box(18, CITY.tower.height, 18, new THREE.MeshLambertMaterial({ color: '#4a8ac0' }), tx, CITY.tower.height / 2, tz);
     tower.castShadow = true;
     box(20, 2, 20, new THREE.MeshLambertMaterial({ color: PALETTE.roof }), tx, CITY.tower.height + 1, tz);
     const spire = new THREE.Mesh(

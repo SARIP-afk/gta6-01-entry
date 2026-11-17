@@ -2,12 +2,16 @@
 // steps (several in a slow frame, none in a fast one), and the renderer paints what is
 // there. The game moves between three screens: title, play and paused.
 //
-// ?seed=N fixes the city and the staged scenes. ?shot=start|play|end (with &seed=N)
-// stages that scene instead of running the loop, paints it twice and sets
+// ?seed=N fixes the city and the staged scenes. ?shot=start|play|end|cover (with
+// &seed=N) stages that scene instead of running the loop, paints it twice and sets
 // window.__shotReady for a screenshot. window.__solmarina exposes the live state
-// (mode, speed, position) for automated play tests, plus the scene and a few
-// diagnostics (render info, city visibility, flat materials) used to hunt the
-// headless frame-rate bottleneck in Phase 1 — the shipped game never calls them.
+// (mode, speed, position, wanted, cash, objective) for automated play tests, plus the
+// scene and a few diagnostics (render info, city visibility, flat materials) used to
+// hunt the headless frame-rate bottleneck in Phase 1 — the shipped game never calls them.
+//
+// Phase 2: the HUD (hud.js) owns the readouts, the minimap and the title/pause
+// screens; the START and CONTINUE buttons start the same loop Enter does, and the
+// best-run record (cash banked between runs) is saved when the tab closes or hides.
 import * as THREE from 'three';
 import { DEFAULT_SEED, STEP } from './config.js';
 import { createRandom } from './random.js';
@@ -15,6 +19,7 @@ import { buildCity } from './city.js';
 import { createWorld, EVENT_HIT } from './world.js';
 import { ACTION_CONFIRM, ACTION_ENTER, ACTION_PAUSE, createInput } from './input.js';
 import { createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import { createHud, loadBest, saveBest } from './hud.js';
 import { stageShot } from './shots.js';
 
 /** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
@@ -27,16 +32,15 @@ const seed = Number.isInteger(seedParam) ? seedParam : DEFAULT_SEED;
 
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
-const hud = {
-  speed: document.getElementById('hud-speed'),
-  mode: document.getElementById('hud-mode'),
-  hint: document.getElementById('hud-hint'),
-};
 
 const city = buildCity(THREE, createRandom(seed));
 const world = createWorld(city);
+const hud = createHud(city.map);
 const renderer = createRenderer(canvas, hud);
 renderer.scene.add(city.group);
+
+// Distance driven this session (metres), for the pause screen and the best-run record.
+let distanceDriven = 0;
 
 window.__solmarina = {
   get state() {
@@ -49,9 +53,18 @@ window.__solmarina = {
       playerX: world.state.player.x,
       playerZ: world.state.player.z,
       time: world.state.time,
+      wanted: world.state.wanted,
+      cash: world.state.cash,
+      health: world.state.health,
+      objective: world.state.objective.text,
+      extras: world.state.extras.length,
       buildings: city.buildingCount,
       palms: city.palmCount,
     };
+  },
+  /** Distance driven and time played this session, for the pause screen and saves. */
+  get stats() {
+    return { distance: distanceDriven, time: world.state.time, cash: world.state.cash };
   },
   /** The live three.js scene, for automated play tests. */
   scene: renderer.scene,
@@ -113,24 +126,41 @@ function runGame() {
     status.textContent = message;
   }
 
-  function startGame() {
+  function startGame(fresh) {
     world.reset();
+    distanceDriven = 0;
+    if (!fresh) {
+      // CONTINUE: Rio keeps the cash he banked in the best-run record.
+      const best = loadBest();
+      if (best) world.state.cash = best.cash;
+    }
     accumulator = 0;
     screen = SCREEN_PLAY;
+    hud.hideOverlays();
     announce('Playing. Drive with W A S D. Press E to leave the car.');
   }
+
+  function pauseGame() {
+    screen = SCREEN_PAUSED;
+    hud.showPause({ cash: world.state.cash, distance: distanceDriven, time: world.state.time, wanted: world.state.wanted });
+    announce('Paused.');
+  }
+
+  hud.onStart((fresh) => {
+    if (screen === SCREEN_TITLE) startGame(fresh);
+  });
 
   function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && screen === SCREEN_TITLE) startGame();
+    if (actions & ACTION_CONFIRM && screen === SCREEN_TITLE) startGame(true);
     else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
+      pauseGame();
     } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
       screen = SCREEN_PLAY;
+      hud.hideOverlays();
       announce('Playing.');
     }
     if (screen === SCREEN_PLAY) {
@@ -142,6 +172,7 @@ function runGame() {
         held.enter = enterPending;
         enterPending = false;
         const events = world.step(STEP, held, renderer.cameraYaw());
+        if (world.state.mode === 'car') distanceDriven += Math.abs(world.state.car.speed) * STEP;
         if (events & EVENT_HIT) announce('Hit.');
         accumulator -= STEP;
       }
@@ -149,14 +180,21 @@ function runGame() {
     renderer.draw(world.state, screen, dt);
   }
 
-  // Leaving the tab pauses a running game rather than letting the car drive unseen.
+  // Leaving the tab pauses a running game rather than letting the car drive unseen,
+  // and banks the session's cash in the best-run record.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
+      pauseGame();
+    }
+    if (document.hidden) {
+      saveBest({ cash: world.state.cash, distance: distanceDriven, time: world.state.time });
     }
   });
+  window.addEventListener('beforeunload', () => {
+    saveBest({ cash: world.state.cash, distance: distanceDriven, time: world.state.time });
+  });
 
+  hud.showTitle(loadBest());
   announce('Solmarina. Press Enter to start.');
   requestAnimationFrame(frame);
 }

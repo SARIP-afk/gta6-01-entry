@@ -14,9 +14,12 @@
 // Solmarina (12x12 blocks, downtown/marina/suburb, tower, stadium, channel + bridge,
 // pier + lighthouse), arcade driving with speed-capped steering, E to enter/exit the
 // car, camera-relative walking, three.js r160 vendored, deterministic seeded build.
-// Later phases add the HUD/minimap + cover, traffic/pedestrians/wanted/police,
-// missions, combat/activities/save/sound, then polish. This file itself only copies
-// the game and writes the dossier; the game lives in game/src/.
+// Phase 2 (v2-cover-reads): the HUD + live minimap + cover chase are in — wanted
+// stars, cash, objective banner, speed, health, in-game clock, start screen with a
+// best-run record and a staged ?shot=cover (police cruisers + traffic around the
+// player's car, wanted 3, all real game state). Later phases add traffic/pedestrians/
+// wanted/police AI, missions, combat/activities/save/sound, then polish. This file
+// itself only copies the game and writes the dossier; the game lives in game/src/.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

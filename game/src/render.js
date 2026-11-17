@@ -7,8 +7,12 @@
 // no tone mapping — all three were measured and cost frames in software rendering
 // without buying anything on this flat, sun-soaked look. setFog() exists only so play
 // tests can measure what the distance haze costs; the shipped game keeps it on.
+// Phase 2: the HUD itself lives in hud.js (this file only calls hud.draw); the
+// renderer also draws `state.extras` — visual-only police cruisers and traffic cars
+// staged for the cover shot, with flashing light bars. Extras have no AI (Phase 3);
+// they are placed by the shot stager and painted like any other mesh.
 import * as THREE from 'three';
-import { CAMERA, CAR, GAME, PALETTE, PLAYER } from './config.js';
+import { CAMERA, CAR, EXTRA_CAR, GAME, PALETTE, PLAYER } from './config.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -49,6 +53,56 @@ function buildCarMesh() {
     car.add(lamp);
   }
   return { group: car, wheels };
+}
+
+/** A visual-only car: same silhouette as Rio's, another paint job. Police get a roof light bar. */
+function buildExtraCarMesh(kind, colorIndex) {
+  const car = new THREE.Group();
+  car.name = `extra-${kind}`;
+  const bodyColor = kind === 'police'
+    ? EXTRA_CAR.policeBody
+    : EXTRA_CAR.trafficColors[colorIndex % EXTRA_CAR.trafficColors.length];
+  const bodyMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const glassMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.cabinColor });
+  const wheelMat = new THREE.MeshLambertMaterial({ color: EXTRA_CAR.wheelColor });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(CAR.width, 0.55, CAR.length), bodyMat);
+  body.position.y = 0.55;
+  car.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.2), glassMat);
+  cabin.position.set(0, 1.05, -0.2);
+  car.add(cabin);
+  if (kind === 'police') {
+    // White roof band, then the light bar: red left, blue right.
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(1.7, 0.12, 2.2),
+      new THREE.MeshLambertMaterial({ color: EXTRA_CAR.policeRoof }),
+    );
+    roof.position.set(0, 1.32, -0.2);
+    car.add(roof);
+  }
+  for (const [x, z] of [[-0.85, 1.45], [0.85, 1.45], [-0.85, -1.45], [0.85, -1.45]]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12), wheelMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(x, 0.36, z);
+    car.add(wheel);
+  }
+  let redLamp = null;
+  let blueLamp = null;
+  if (kind === 'police') {
+    const redMat = new THREE.MeshLambertMaterial({
+      color: 0x881111, emissive: EXTRA_CAR.policeLightRed, emissiveIntensity: 1.6,
+    });
+    const blueMat = new THREE.MeshLambertMaterial({
+      color: 0x112288, emissive: EXTRA_CAR.policeLightBlue, emissiveIntensity: 0.15,
+    });
+    redLamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.5), redMat);
+    redLamp.position.set(-0.45, 1.5, -0.2);
+    car.add(redLamp);
+    blueLamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.5), blueMat);
+    blueLamp.position.set(0.45, 1.5, -0.2);
+    car.add(blueLamp);
+  }
+  return { group: car, redLamp, blueLamp };
 }
 
 function buildPlayerMesh() {
@@ -116,9 +170,22 @@ export function createRenderer(canvas, hud) {
   const rio = buildPlayerMesh();
   scene.add(rio.group);
 
+  // Extra-car pool: 3 police cruisers + 3 traffic cars, hidden until a shot stages them.
+  const policePool = [];
+  const trafficPool = [];
+  for (let i = 0; i < 3; i += 1) {
+    const p = buildExtraCarMesh('police', i);
+    p.group.visible = false;
+    scene.add(p.group);
+    policePool.push(p);
+    const t = buildExtraCarMesh('traffic', i);
+    t.group.visible = false;
+    scene.add(t.group);
+    trafficPool.push(t);
+  }
+
   const titleScreen = document.getElementById('title-screen');
   const pauseScreen = document.getElementById('pause-screen');
-  let lastHud = '';
 
   function resize() {
     const width = window.innerWidth;
@@ -132,20 +199,6 @@ export function createRenderer(canvas, hud) {
     // Golden hour from the west: low sun, long shadows, warm light.
     sun.position.set(target.x - 180, 140, target.z + 60);
     sun.target.position.set(target.x, 0, target.z);
-  }
-
-  function drawHud(state) {
-    const speedKmh = Math.round(Math.abs(state.car.speed) * 3.6);
-    const mode = state.mode === 'car' ? 'Driving' : 'On foot';
-    const hint = state.mode === 'car'
-      ? 'WASD drive · Space handbrake · E exit car · P pause'
-      : 'WASD walk · Shift run · E enter car · P pause';
-    const text = `${mode}|${speedKmh}|${hint}`;
-    if (text === lastHud) return;
-    lastHud = text;
-    hud.speed.textContent = state.mode === 'car' ? `${speedKmh} km/h` : '—';
-    hud.mode.textContent = mode;
-    hud.hint.textContent = hint;
   }
 
   /**
@@ -223,12 +276,35 @@ export function createRenderer(canvas, hud) {
       rio.legs[1].rotation.x = 0;
     }
 
+    // Extras: place the staged cars, flash the police light bars. The flash phase
+    // follows game time, so a staged shot (fixed time) shows one steady phase.
+    let policeSeen = 0;
+    let trafficSeen = 0;
+    const flashRed = Math.floor(state.time * 4) % 2 === 0;
+    for (const extra of state.extras) {
+      const pool = extra.kind === 'police' ? policePool : trafficPool;
+      const slot = extra.kind === 'police' ? policeSeen : trafficSeen;
+      if (slot >= pool.length) continue;
+      if (extra.kind === 'police') policeSeen += 1;
+      else trafficSeen += 1;
+      const mesh = pool[slot];
+      mesh.group.visible = true;
+      mesh.group.position.set(extra.x, 0, extra.z);
+      mesh.group.rotation.y = extra.heading;
+      if (mesh.redLamp && mesh.blueLamp) {
+        mesh.redLamp.material.emissiveIntensity = flashRed ? 1.6 : 0.15;
+        mesh.blueLamp.material.emissiveIntensity = flashRed ? 0.15 : 1.6;
+      }
+    }
+    for (let i = policeSeen; i < policePool.length; i += 1) policePool[i].group.visible = false;
+    for (let i = trafficSeen; i < trafficPool.length; i += 1) trafficPool[i].group.visible = false;
+
     setSun(active);
     placeCamera(state, screen, false, dt);
 
     if (titleScreen) titleScreen.style.display = screen === SCREEN_TITLE ? 'flex' : 'none';
     if (pauseScreen) pauseScreen.style.display = screen === SCREEN_PAUSED ? 'flex' : 'none';
-    drawHud(state);
+    hud.draw(state, screen);
     renderer.render(scene, camera);
   }
 

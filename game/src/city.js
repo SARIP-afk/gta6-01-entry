@@ -5,6 +5,8 @@
 // Instanced meshes are named, so play tests can hide a layer (roads, crosswalks, ...)
 // when hunting the frame-rate bottleneck. Phase 1: the bridge over the marina channel
 // is one deck spanning the channel along the east-west road at z -6.
+// Phase 2: buildCity also returns `map`, a flat 2D summary (roads, building footprints,
+// water, landmarks, route) that the HUD draws as the minimap — no 3D data needed there.
 import { CITY, PALETTE, districtOf } from './config.js';
 
 /** Road centre lines, each way: 11 internal roads plus the perimeter ring. */
@@ -451,5 +453,21 @@ export function buildCity(THREE, random) {
     spawn: { car: { x: -58, z: -6, heading: Math.PI / 2 }, player: { x: -58, z: -1 } },
     buildingCount: buildings.length,
     palmCount: palms.length,
+    // Flat 2D summary for the minimap (Phase 2): footprints, not meshes.
+    map: {
+      roads: lines,
+      buildings: buildings.map((b) => ({ x: b.x, z: b.z, w: b.w, d: b.d })),
+      channel: { ...CITY.channel },
+      bridge: { ...CITY.bridge },
+      tower: { x: blockCentre(CITY.tower.bx), z: blockCentre(CITY.tower.bz) },
+      stadium: {
+        x: blockCentre(CITY.stadium.bx),
+        z: blockCentre(CITY.stadium.bz),
+        r: CITY.stadium.radius,
+      },
+      pier: { ...CITY.pier },
+      seaX: CITY.seaX,
+      route,
+    },
   };
 }

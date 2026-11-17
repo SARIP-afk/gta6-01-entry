@@ -5,7 +5,12 @@
 // (south), PI/2 faces +x (east). Nothing here allocates after createWorld returns.
 // Phase 1: steering is capped by yaw rate at speed (CAR.steerYawCap), so the car holds
 // a line at 30+ m/s instead of spinning off the road.
-import { CAR, CITY, PLAYER, STEP } from './config.js';
+// Phase 2: the state also carries the HUD's numbers — wanted level (display-only
+// until Phase 3 builds the wanted/police systems), cash, health, the current story
+// objective, and `extras`: visual-only cars (police cruisers, traffic) that the cover
+// shot stages around the player. Extras never move or collide; they are scenery with
+// wheels, placed by the shot stager.
+import { CAR, CITY, HUD, PLAYER, STEP } from './config.js';
 
 export const EVENT_HIT = 1;
 
@@ -64,6 +69,15 @@ export function createWorld(city) {
     time: 0,
     car: { x: 0, z: 0, heading: 0, speed: 0, steer: 0, hit: false },
     player: { x: 0, z: 0, heading: 0, moving: false, running: false },
+    // Phase 2 HUD state. Wanted is display-only for now (the system is Phase 3);
+    // cash and health change only when later phases add jobs and combat.
+    wanted: 0,
+    cash: 0,
+    health: HUD.healthMax,
+    objective: { ...HUD.objective },
+    // Visual-only cars, staged by shots.js (cover): { kind: 'police'|'traffic',
+    // x, z, heading }. Never simulated, never collided with.
+    extras: [],
   };
 
   function reset() {
@@ -80,6 +94,11 @@ export function createWorld(city) {
     state.player.heading = city.spawn.car.heading;
     state.player.moving = false;
     state.player.running = false;
+    state.wanted = 0;
+    state.cash = 0;
+    state.health = HUD.healthMax;
+    state.objective = { ...HUD.objective };
+    state.extras = [];
   }
 
   function distanceToCar() {

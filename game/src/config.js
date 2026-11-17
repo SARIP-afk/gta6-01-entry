@@ -89,6 +89,51 @@ export const CAMERA = {
   smoothing: 5,
 };
 
+/**
+ * HUD + minimap (Phase 2). The wanted level is display-only until Phase 3 builds
+ * the wanted/police systems: live play starts at 0 stars, the cover shot stages 3.
+ * The objective is the story thread the banner and the minimap waypoint point at;
+ * missions (Phase 4) will replace it with per-mission objectives.
+ */
+export const HUD = {
+  wantedMax: 5,
+  // The in-game clock starts at golden hour and runs one game minute per 2 real seconds.
+  clockStartMinutes: 17 * 60 + 40,
+  clockMinutesPerSecond: 0.5,
+  healthMax: 100,
+  // First story objective: Rio's first job ends at the marina pier.
+  objective: { text: 'Reach the marina pier', x: 400, z: -6 },
+};
+
+/** Staged chase values for ?shot=cover: a real game state, scripted, not a mockup. */
+export const COVER = {
+  wanted: 3,
+  cash: 1250,
+  objective: { text: 'Lose the cops — reach the pier', x: 400, z: -6 },
+  driveSeconds: 6,
+};
+
+/** Visual-only cars for the cover shot (no AI until Phase 3): police cruisers and traffic. */
+export const EXTRA_CAR = {
+  policeBody: 0x22303f,
+  policeRoof: 0xf2ede2,
+  policeLightRed: 0xff2a1e,
+  policeLightBlue: 0x2a6bff,
+  trafficColors: [0x9aa0a6, 0xd8c9a8, 0x5a7a9a, 0xb8b0a0],
+  cabinColor: 0x2a3140,
+  wheelColor: 0x14161a,
+};
+
+/** Minimap: a 2D canvas, north-up, drawn from the city's map data. */
+export const MINIMAP = {
+  size: 180,
+  // World bounds drawn: x -340..334, z -340..340.
+  minX: -340,
+  maxX: 334,
+  minZ: -340,
+  maxZ: 340,
+};
+
 export const PALETTE = {
   skyTop: '#6ea8dd',
   skyHorizon: '#ffd9a0',

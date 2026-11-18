@@ -25,7 +25,7 @@
 // pools. The staged extras keep dedicated pools of their own, so a live cruiser
 // never steals a staged one's slot in the cover shot.
 import * as THREE from 'three';
-import { CAMERA, CAR, EXTRA_CAR, GAME, LIGHT, PALETTE, PLAYER } from './config.js';
+import { CAMERA, CAR, EXTRA_CAR, GAME, LIGHT, PALETTE, PLAYER, SIREN } from './config.js';
 import { buildCar } from './car.js';
 
 export const SCREEN_TITLE = 'title';
@@ -205,6 +205,22 @@ export function createRenderer(canvas, hud, options = {}) {
     scene.environment = envRT.texture;
     pmrem.dispose();
   }
+  // Siren S2a: one shared radial-gradient texture (white centre -> transparent
+  // edge), drawn once at load, shared by every halo + pool sprite. Deterministic
+  // (no random), no external asset, no per-frame upload.
+  const sirenTexture = (() => {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.4, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
 
   const sun = new THREE.DirectionalLight(new THREE.Color(PALETTE.sun), LIGHT.sunIntensity);
   sun.castShadow = true;
@@ -352,6 +368,53 @@ export function createRenderer(canvas, hud, options = {}) {
     scene.add(t.group);
     extraTrafficPool.push(t);
   }
+  // Siren S2b: one halo + one pool per cruiser (3 live + 2 staged), following
+  // the blob pattern (MeshBasicMaterial, transparent, depthWrite off,
+  // renderOrder 1) — only the blending is additive and the colour follows the
+  // flash phase. Each sprite has its own material (opacity fades per cruiser)
+  // but all share the one gradient texture. Halo: a yaw-only billboard over
+  // the light bar. Pool: a flat ellipse on the asphalt under the cruiser,
+  // long axis along the car (poolSize [length, width]: the plane's local Y
+  // becomes world Z after the X-rotation, so scale.y carries the length).
+  const sirenHaloGeo = new THREE.PlaneGeometry(SIREN.haloSize, SIREN.haloSize);
+  const sirenPoolGeo = new THREE.PlaneGeometry(1, 1);
+  const makeSirenSprite = (isPool) => {
+    const mat = new THREE.MeshBasicMaterial({
+      map: sirenTexture,
+      transparent: true,
+      opacity: isPool ? SIREN.poolOpacity : SIREN.haloOpacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+    });
+    const m = new THREE.Mesh(isPool ? sirenPoolGeo : sirenHaloGeo, mat);
+    if (isPool) {
+      m.rotation.x = -Math.PI / 2;
+      m.scale.set(SIREN.poolSize[1], SIREN.poolSize[0], 1);
+    }
+    m.renderOrder = 1;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  };
+  const policeHalos = policePool.map(() => makeSirenSprite(false));
+  const policePools = policePool.map(() => makeSirenSprite(true));
+  const extraPoliceHalos = extraPolicePool.map(() => makeSirenSprite(false));
+  const extraPolicePools = extraPolicePool.map(() => makeSirenSprite(true));
+  // Siren S1 scratch: each police car owns its lens materials, so the OFF
+  // colour scale is cached per material (first use) and never compounds.
+  const lampBaseColor = new Map();
+  const sirenColor = new THREE.Color();
+  const setLamp = (lamp, on) => {
+    let base = lampBaseColor.get(lamp.material);
+    if (!base) {
+      base = lamp.material.color.clone();
+      lampBaseColor.set(lamp.material, base);
+    }
+    lamp.material.emissiveIntensity = on ? SIREN.onEmissive : SIREN.offEmissive;
+    if (on) lamp.material.color.copy(base);
+    else lamp.material.color.copy(base).multiplyScalar(SIREN.offColorScale);
+  };
 
   const titleScreen = document.getElementById('title-screen');
   const pauseScreen = document.getElementById('pause-screen');
@@ -499,11 +562,42 @@ export function createRenderer(canvas, hud, options = {}) {
         if (lensMesh.instanceColor) lensMesh.instanceColor.needsUpdate = true;
       }
     }
+    // Siren S1: lens contrast — the OFF lens reads dark (emissive 0.05 +
+    // diffuse colour x0.35) and the ON lens hot (emissive 2.2). The 2 Hz
+    // pattern and synchronous phase are unchanged.
     const flash = (mesh) => {
       if (mesh.redLamp && mesh.blueLamp) {
-        mesh.redLamp.material.emissiveIntensity = flashRed ? 1.6 : 0.15;
-        mesh.blueLamp.material.emissiveIntensity = flashRed ? 0.15 : 1.6;
+        setLamp(mesh.redLamp, flashRed);
+        setLamp(mesh.blueLamp, !flashRed);
       }
+    };
+    // Siren S2c: halo + pool follow one cruiser. Colour = the current flash
+    // phase (shared by all cruisers — synchronous 2 Hz); opacity fades
+    // linearly with cruiser–camera distance (full to 40 m, zero at 90 m).
+    // Positions/colours update in place — no allocation per frame. The halo
+    // sits on the light bar (roof 1.30 + 0.28, peak 1.69 m) as a yaw-only
+    // billboard; a plane's +Z normal must point AT the camera, i.e. opposite
+    // the look direction, so rotation.y = cameraYaw() + PI (not cameraYaw()
+    // itself — that would face the normal away and backface-cull the halo).
+    const updateSiren = (halo, pool, x, z, heading) => {
+      sirenColor.setHex(flashRed ? EXTRA_CAR.policeLightRed : EXTRA_CAR.policeLightBlue);
+      const dist = Math.hypot(x - camera.position.x, z - camera.position.z);
+      const fade = dist <= SIREN.fadeNear ? 1 : dist >= SIREN.fadeFar ? 0
+        : 1 - (dist - SIREN.fadeNear) / (SIREN.fadeFar - SIREN.fadeNear);
+      halo.position.set(x - 0.35 * Math.sin(heading), 1.7, z - 0.35 * Math.cos(heading));
+      halo.rotation.y = cameraYaw() + Math.PI;
+      halo.material.color.copy(sirenColor);
+      halo.material.opacity = SIREN.haloOpacity * fade;
+      halo.visible = fade > 0;
+      pool.position.set(x, groundY(x, z) + 0.02, z);
+      pool.rotation.z = -heading;
+      pool.material.color.copy(sirenColor);
+      pool.material.opacity = SIREN.poolOpacity * fade;
+      pool.visible = fade > 0;
+    };
+    const hideSiren = (halo, pool) => {
+      halo.visible = false;
+      pool.visible = false;
     };
     // Live cruisers (Phase 3): chase, ram, search — from state.police.
     const livePolice = state.police || [];
@@ -511,7 +605,7 @@ export function createRenderer(canvas, hud, options = {}) {
       const mesh = policePool[i];
       const p = livePolice[i];
       // F4 V4: cruiser blob follows the cruiser; hidden with it.
-      if (!p) { mesh.group.visible = false; policeBlobs[i].visible = false; continue; }
+      if (!p) { mesh.group.visible = false; policeBlobs[i].visible = false; hideSiren(policeHalos[i], policePools[i]); continue; }
       mesh.group.visible = true;
       mesh.group.position.set(p.x, 0, p.z);
       mesh.group.rotation.y = p.heading;
@@ -519,6 +613,7 @@ export function createRenderer(canvas, hud, options = {}) {
       policeBlobs[i].position.set(p.x, groundY(p.x, p.z), p.z);
       policeBlobs[i].rotation.z = -p.heading;
       flash(mesh);
+      updateSiren(policeHalos[i], policePools[i], p.x, p.z, p.heading);
     }
     // Live traffic (Phase 3): from state.traffic. Each live car takes the
     // first free pool slot of the same silhouette kind (a van gets a van
@@ -582,8 +677,9 @@ export function createRenderer(canvas, hud, options = {}) {
       mesh.group.position.set(extra.x, 0, extra.z);
       mesh.group.rotation.y = extra.heading;
       flash(mesh);
+      if (extra.kind === 'police') updateSiren(extraPoliceHalos[slot], extraPolicePools[slot], extra.x, extra.z, extra.heading);
     }
-    for (let i = extraPoliceSeen; i < extraPolicePool.length; i += 1) extraPolicePool[i].group.visible = false;
+    for (let i = extraPoliceSeen; i < extraPolicePool.length; i += 1) { extraPolicePool[i].group.visible = false; hideSiren(extraPoliceHalos[i], extraPolicePools[i]); }
     for (let i = extraTrafficSeen; i < extraTrafficPool.length; i += 1) extraTrafficPool[i].group.visible = false;
 
     setSun(active);

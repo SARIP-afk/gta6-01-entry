@@ -184,6 +184,42 @@ export const EXTRA_CAR = {
   wheelColor: 0x14161a,
 };
 
+/**
+ * Police siren glow (S0–S2, visual-only). All values here are VISUAL
+ * constants — no sim parameter lives in this block. S0 (white door panels)
+ * was already fixed by F4 V1 in car.js, so this block only carries S1 (lens
+ * contrast) + S2 (halo + pool sprites). Opacities are tuning knobs: changing
+ * them tunes the glow without touching logic. Calibration (mockup, proposal
+ * §12): halo peak 120, pool peak 110, spill peak 12, lens ON add
+ * (60,150,140), lens OFF x0.42 — the red/blue spill asymmetry on sunlit warm
+ * surfaces (additive clipping) was accepted by the Game Director 12:58 WIB;
+ * do not chase it by changing scene lighting.
+ */
+export const SIREN = {
+  // S1 — lens contrast: ON emissive / OFF emissive / OFF diffuse colour scale.
+  // Tuning 18 Nov (allowed: SIREN constants): offColorScale 0.35 -> 0.25 ->
+  // 0.12. At 0.35 the OFF lens measured 100-103 lum (gate OFF <= 90); at 0.25
+  // it measured 93-96 — the bulk of the OFF lens (not just its sunlit top
+  // face) sits ~95, driven by the diffuse under sun 2.4 plus the phase halo
+  // spilling over the bar. Slope measured: ~7 lum per 0.10 of scale, so 0.12
+  // lands the OFF lens at ~83-87 — about the mockup's OFF level (71-76) —
+  // while the lens stays readable as a dark lens. ON values are untouched.
+  onEmissive: 2.2,
+  offEmissive: 0.05,
+  offColorScale: 0.12,
+  // S2 — halo billboard over the light bar + pool ellipse on the asphalt.
+  haloOpacity: 0.55,
+  poolOpacity: 0.35,
+  haloSize: 2.2,
+  // Pool footprint in metres: [length along the car, width across].
+  poolSize: [6.4, 4.0],
+  // Distance fade (cruiser–camera): full up to fadeNear, zero at fadeFar.
+  fadeNear: 40,
+  fadeFar: 90,
+  // Flash rate — documents the 2 Hz already in render.js flash().
+  flashHz: 2,
+};
+
 /** Minimap: a 2D canvas, north-up, drawn from the city's map data. */
 export const MINIMAP = {
   size: 180,

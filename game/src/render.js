@@ -26,7 +26,7 @@
 // never steals a staged one's slot in the cover shot.
 import * as THREE from 'three';
 import { CAMERA, CAR, EXTRA_CAR, GAME, LIGHT, PALETTE, PLAYER, SIREN } from './config.js';
-import { buildCar } from './car.js';
+import { buildCar, mergeParts } from './car.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -80,6 +80,10 @@ function buildPedMesh(shirtColor) {
 }
 
 function buildPlayerMesh() {
+  // Rio P1 (rio-visual): skeleton proportions per RIO-AUDIT §2.1 — 1.80 m
+  // envelope, head 1:7.5, hip-pivot legs, shoes as leg children. Render-only;
+  // animation (draw) untouched — legs[] now holds pivot GROUPs, which the
+  // existing rio.legs[i].rotation.x code already drives.
   const rio = new THREE.Group();
   rio.name = 'rio';
   const skin = new THREE.MeshLambertMaterial({ color: 0xe8b98a });
@@ -88,65 +92,207 @@ function buildPlayerMesh() {
   const cap = new THREE.MeshLambertMaterial({ color: PLAYER.color });
   const shoeMat = new THREE.MeshLambertMaterial({ color: PLAYER.shoeColor });
   const jacketMat = new THREE.MeshLambertMaterial({ color: PLAYER.jacketColor });
+  // Rio P2: hair brown (pedestrian palette) + light sole (hubColor).
+  const hairMat = new THREE.MeshLambertMaterial({ color: 0x2a2018 });
+  const soleMat = new THREE.MeshLambertMaterial({ color: 0xc8ccd2 });
+  // Helper for mergeParts(): a box part placed at (x, y, z) in the parent
+  // group's space. Merging per material keeps the detail at 1 draw call.
+  const part = (w, h, d, x, y, z) => ({
+    geometry: new THREE.BoxGeometry(w, h, d),
+    matrix: new THREE.Matrix4().makeTranslation(x, y, z),
+  });
   const legs = [];
-  for (const x of [-0.14, 0.14]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.26), pants);
-    leg.position.set(x, 0.4, 0);
-    leg.castShadow = true;
-    rio.add(leg);
-    legs.push(leg);
-    // Shoes: dark, slightly proud of the leg, so the feet read on the asphalt.
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.36), shoeMat);
-    shoe.position.set(x, 0.06, 0.04);
+  for (const x of [-0.09, 0.09]) {
+    // Leg pivot at the hip (y=0.95): the mesh hangs below the pivot, so the
+    // swing rotates about the hip instead of the middle of the box.
+    const leg = new THREE.Group();
+    leg.position.set(x, 0.95, 0);
+    // Rio P4: the leg is split at the knee (y=-0.475 rel hip) so the shin can
+    // flex (kneeFlex, RIO-AUDIT §2.4). Thigh + shin are the same 0.14x0.95x0.16
+    // column as P1 while the knee is straight — one extra mesh per leg.
+    const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.475, 0.16), pants);
+    thigh.position.y = -0.2375;
+    thigh.castShadow = true;
+    leg.add(thigh);
+    const knee = new THREE.Group();
+    knee.position.set(0, -0.475, 0);
+    leg.add(knee);
+    const shin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.475, 0.16), pants);
+    shin.position.y = -0.2375;
+    shin.castShadow = true;
+    knee.add(shin);
+    // Shoe as a CHILD of the knee (was a child of the hip pivot in P1/P2):
+    // it now follows the knee flex instead of staying rigid with the thigh.
+    // Offsets are the P2 ones shifted +0.475 into knee space; the bottom of
+    // the stack still touches the ground exactly when the leg is straight.
+    const shoe = new THREE.Mesh(mergeParts([
+      part(0.15, 0.10, 0.28, 0, -0.395, 0.05),
+      part(0.13, 0.08, 0.05, 0, -0.405, 0.195), // S3/S4 toe cap, front-proud
+    ]), shoeMat);
     shoe.castShadow = true;
-    rio.add(shoe);
+    knee.add(shoe);
+    // Rio P2 (P1): light sole under the shoe — bottom flush with the ground,
+    // top flush with the shoe bottom (sandwiched faces, no z-fighting).
+    const sole = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.28), soleMat);
+    sole.position.set(0, -0.46, 0.05);
+    knee.add(sole);
+    rio.add(leg);
+    leg.knee = knee;
+    legs.push(leg);
   }
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.72, 0.32), shirt);
-  torso.position.y = 1.16;
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.54, 0.24), shirt);
+  torso.position.y = 1.22;
   torso.castShadow = true;
   rio.add(torso);
   // Yellow jacket panel over the shirt: Rio's signature colour, visible at range.
-  const jacket = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 0.08), jacketMat);
-  jacket.position.set(0, 1.18, 0.19);
+  // Resized to the new torso (front face z=+0.12): panel back sits flush at
+  // z=0.12, front at z=0.16.
+  // Rio P2: the jacket is ONE merged mesh (front panel + back/side panels +
+  // buckle, same yellow material — one draw call instead of five).
+  const jacket = new THREE.Mesh(mergeParts([
+    part(0.30, 0.42, 0.04, 0, 1.22, 0.14),   // front panel (P1, unchanged)
+    part(0.30, 0.42, 0.04, 0, 1.22, -0.14),  // J1 back panel (P0)
+    part(0.06, 0.42, 0.20, -0.21, 1.22, 0),  // J2 side panel L (P1)
+    part(0.06, 0.42, 0.20, 0.21, 1.22, 0),   // J3 side panel R (P1)
+    part(0.08, 0.05, 0.02, 0, 0.97, 0.14),   // B1 buckle on the belt (P2)
+  ]), jacketMat);
   rio.add(jacket);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.34), skin);
-  head.position.y = 1.72;
+  // Rio P2 (P1): blue front pockets, one merged mesh.
+  const pockets = new THREE.Mesh(mergeParts([
+    part(0.10, 0.12, 0.02, -0.09, 1.08, 0.17),
+    part(0.10, 0.12, 0.02, 0.09, 1.08, 0.17),
+  ]), shirt);
+  rio.add(pockets);
+  // Rio P2 (P2): dark zipper down the middle of the front panel — embedded
+  // 0.005 m, protruding 0.015 m.
+  const zipper = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.36, 0.02), shoeMat);
+  zipper.position.set(0, 1.22, 0.165);
+  rio.add(zipper);
+  // NEW neck: bridges torso top (1.49) to head bottom (1.53).
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.09), skin);
+  neck.position.y = 1.53;
+  rio.add(neck);
+  // Rio P3: ears merge into the head mesh (same skin material, RIO-AUDIT
+  // §2.3: 0.018x0.06x0.04 at (+/-0.103, 1.65, 0) — 1 mm embedded in the head
+  // side so no faces are coplanar).
+  const head = new THREE.Mesh(mergeParts([
+    part(0.19, 0.24, 0.21, 0, 1.65, 0),
+    part(0.018, 0.06, 0.04, -0.103, 1.65, 0),
+    part(0.018, 0.06, 0.04, 0.103, 1.65, 0),
+  ]), skin);
   head.castShadow = true;
   rio.add(head);
-  const capMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.38), cap);
-  capMesh.position.y = 1.94;
+  // Rio P2 (P0): the temporary slab cap is REPLACED by a dome + brim
+  // (mockup dims). Dome: sphere r 0.105, scaleY 0.43, centre y 1.755 —
+  // peak 1.80 m; its lower half hides inside the head. One merged mesh.
+  const capMesh = new THREE.Mesh(mergeParts([
+    {
+      geometry: new THREE.SphereGeometry(0.105, 8, 4),
+      matrix: new THREE.Matrix4().compose(
+        new THREE.Vector3(0, 1.755, 0),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, 0.43, 1)),
+    },
+    part(0.16, 0.015, 0.08, 0, 1.745, 0.13), // C2 brim
+  ]), cap);
   rio.add(capMesh);
-  // Batch 2, Phase C: Rio stops being a wooden figure — a minimal face (two
-  // eyes), a belt and a collar, and two sleeved arms (yellow jacket, skin
-  // hands) pivoted at the shoulders, swinging against the legs on the
-  // existing walk phase. Same size, same speed, same hitbox — visual only.
-  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
-  for (const x of [-0.08, 0.08]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.02), eyeMat);
-    eye.position.set(x, 1.76, 0.18);
-    rio.add(eye);
-  }
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.34), shoeMat);
-  belt.position.y = 0.82;
+  // Rio P2 (P0): brown hair — back mass + sideburns + fringe, one merged
+  // mesh (mockup dims; the back mass is the gameplay read from behind).
+  const hair = new THREE.Mesh(mergeParts([
+    part(0.20, 0.18, 0.05, 0, 1.66, -0.13),   // H1 back mass
+    part(0.02, 0.12, 0.06, -0.10, 1.62, 0.02), // H2 sideburn L
+    part(0.02, 0.12, 0.06, 0.10, 1.62, 0.02),  // H3 sideburn R
+    part(0.19, 0.03, 0.02, 0, 1.755, 0.11),   // H4 fringe
+  ]), hairMat);
+  rio.add(hair);
+  // Rio P3: geometric face (RIO-AUDIT §2.3, rescaled for the new head
+  // 0.19x0.24x0.21, front z=+0.105). All MeshLambertMaterial, no castShadow.
+  // The two temporary P1 eye boxes are REPLACED, not stacked. Merged per
+  // material (pattern from car.js / P2) so the face costs 5 meshes, not 10.
+  // Deviations from the audit table (1-5 mm, anti-z-fight + fringe):
+  // - brow y 1.735 -> 1.73: fringe H4 bottom is y=1.74, so the audit brow
+  //   top (1.7415) would tuck 1.5 mm under the fringe; at 1.73 the brow
+  //   top (1.7365) clears it by 3.5 mm and stays readable in close-up.
+  // - brow/mouth z 0.111 -> 0.110: their backs would sit exactly coplanar
+  //   with the head front (z=0.105); 1 mm embed, same as the P2 zipper.
+  // - ear x +/-0.104 -> +/-0.103: inner face would sit exactly on the head
+  //   side plane (x=+/-0.095); 1 mm embed. Ears merge into the head mesh
+  //   (same skin material) — no extra draw call.
+  const whiteMat = new THREE.MeshLambertMaterial({ color: 0xf5f2ea });
+  const faceWhites = new THREE.Mesh(mergeParts([
+    part(0.045, 0.04, 0.012, -0.048, 1.68, 0.11),
+    part(0.045, 0.04, 0.012, 0.048, 1.68, 0.11),
+  ]), whiteMat);
+  rio.add(faceWhites);
+  const pupilMat = new THREE.MeshLambertMaterial({ color: 0x14100c });
+  const facePupils = new THREE.Mesh(mergeParts([
+    part(0.02, 0.026, 0.008, -0.048, 1.68, 0.117),
+    part(0.02, 0.026, 0.008, 0.048, 1.68, 0.117),
+  ]), pupilMat);
+  rio.add(facePupils);
+  const browMat = new THREE.MeshLambertMaterial({ color: 0x2a1a10 });
+  const faceBrows = new THREE.Mesh(mergeParts([
+    part(0.055, 0.013, 0.012, -0.048, 1.73, 0.11),
+    part(0.055, 0.013, 0.012, 0.048, 1.73, 0.11),
+  ]), browMat);
+  rio.add(faceBrows);
+  const noseMat = new THREE.MeshLambertMaterial({ color: 0xc98f5f });
+  const faceNose = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.03), noseMat);
+  faceNose.position.set(0, 1.645, 0.115);
+  rio.add(faceNose);
+  const mouthMat = new THREE.MeshLambertMaterial({ color: 0x7a2e22 });
+  const faceMouth = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.016, 0.012), mouthMat);
+  faceMouth.position.set(0, 1.585, 0.11);
+  rio.add(faceMouth);
+  // Belt resized to the new torso (old 0.60 did not fit torso 0.40): sits at
+  // the hip, y=0.97, overlapping the torso bottom (0.95) slightly.
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.07, 0.26), shoeMat);
+  belt.position.y = 0.97;
   rio.add(belt);
-  const collar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.34), jacketMat);
-  collar.position.y = 1.5;
+  // Collar resized to the new torso (top now 1.49): 0.26 x 0.08 x 0.28 at
+  // y=1.48, wrapping the neck base; slightly deeper than the torso (0.24)
+  // so it reads as a rim.
+  const collar = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.28), jacketMat);
+  collar.position.y = 1.48;
   rio.add(collar);
   const arms = [];
-  for (const x of [-0.37, 0.37]) {
+  for (const x of [-0.21, 0.21]) {
     const arm = new THREE.Group();
-    arm.position.set(x, 1.45, 0);
-    const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.56, 0.18), jacketMat);
-    sleeve.position.y = -0.28;
-    sleeve.castShadow = true;
-    arm.add(sleeve);
-    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), skin);
-    hand.position.y = -0.6;
-    arm.add(hand);
+    arm.position.set(x, 1.44, 0);
+    // Rio P4: split at the elbow (y=-0.345 rel shoulder) so the forearm can
+    // flex (elbow 0.55 +/- 0.25, RIO-AUDIT §2.4). Same 0.13x0.69x0.15 sleeve
+    // as P1 while the elbow is straight — one extra mesh per arm.
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.345, 0.15), jacketMat);
+    upper.position.y = -0.1725;
+    upper.castShadow = true;
+    arm.add(upper);
+    const elbow = new THREE.Group();
+    elbow.position.set(0, -0.345, 0);
+    arm.add(elbow);
+    const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.345, 0.15), jacketMat);
+    forearm.position.y = -0.1725;
+    forearm.castShadow = true;
+    elbow.add(forearm);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.11), skin);
+    hand.position.y = -0.40;
+    elbow.add(hand);
+    // Rio P2 (P1): blue cuff at the wrist — 0.005 m below the sleeve bottom
+    // so no faces are coplanar with the sleeve/hand.
+    const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.14), shirt);
+    cuff.position.y = -0.31;
+    elbow.add(cuff);
     rio.add(arm);
+    arm.elbow = elbow;
     arms.push(arm);
   }
-  return { group: rio, legs, arms };
+  // Rio P4: the head meshes, as one turnable set for the idle head-turn.
+  // Every part is centred on the rio Y axis, so rotation.y spins each in
+  // place — no head group or geometry move needed.
+  const headParts = [head, capMesh, hair, faceWhites, facePupils, faceBrows, faceNose, faceMouth];
+  // Lean (rotation.x) must act in the body's own frame after the heading:
+  // YXZ composes Ry * Rx, so the forward lean follows the facing direction.
+  rio.rotation.order = 'YXZ';
+  return { group: rio, legs, arms, head: headParts };
 }
 
 export function createRenderer(canvas, hud, options = {}) {
@@ -496,6 +642,20 @@ export function createRenderer(canvas, hud, options = {}) {
     }
   }
 
+  // Rio P4 (RIO-AUDIT §2.4): phase-from-distance animation state. It lives
+  // HERE, in render.js, accumulated from the player position each frame —
+  // never in world.js — so the sim (S0–S7) cannot change. The gait cycle is
+  // derived from the sim speeds (walk 5 / run 9 m/s, config.js, read-only):
+  // jog cycle = 2π·5/13 = 2.416 m, sprint cycle = 2π·9/19 = 2.977 m.
+  // cycle >= 2·step (audit condition): jog 2.416 >= 2.300, sprint 2.977 >= 2.590.
+  const RIO_CYCLE_JOG = (2 * Math.PI * PLAYER.walkSpeed) / 13;
+  const RIO_CYCLE_SPRINT = (2 * Math.PI * PLAYER.runSpeed) / 19;
+  let rioPhase = 0;
+  let rioBlend = 0;
+  let rioPrevX = null;
+  let rioPrevZ = null;
+  let rioPrevMode = null;
+
   /** Paint one frame: meshes, chase camera, HUD, overlays. `dt` is the real frame time. */
   function draw(state, screen, dt) {
     const active = state.mode === 'car' ? state.car : state.player;
@@ -522,19 +682,71 @@ export function createRenderer(canvas, hud, options = {}) {
     rio.group.rotation.y = state.player.heading;
     rioBlob.visible = state.mode === 'foot';
     rioBlob.position.set(state.player.x, groundY(state.player.x, state.player.z), state.player.z);
-    if (state.player.moving) {
-      const phase = state.time * (state.player.running ? 11 : 7);
-      rio.legs[0].rotation.x = Math.sin(phase) * 0.5;
-      rio.legs[1].rotation.x = -Math.sin(phase) * 0.5;
-      // Batch 2, Phase C: the arms swing against the legs on the same phase.
-      rio.arms[0].rotation.x = -Math.sin(phase) * 0.4;
-      rio.arms[1].rotation.x = Math.sin(phase) * 0.4;
+    // Rio P4 (RIO-AUDIT §2.4): phase from DISTANCE, not time. The phase
+    // advances with the ground the player actually covers, so the stride
+    // stays in sync with the body at any frame rate; the old time-based
+    // phase (7/11 rad/s) slid 3.29/6.31 m/s. A mode change (enter/exit,
+    // bust respawn, shot staging) teleports the player, so the old position
+    // baseline is discarded on it; a single-frame jump longer than
+    // runSpeed * dt is a teleport the mode change did not catch and is
+    // ignored instead of spinning the phase.
+    const rioRunning = state.player.running;
+    const rioCycle = rioRunning ? RIO_CYCLE_SPRINT : RIO_CYCLE_JOG;
+    let rioDist = 0;
+    if (state.mode !== rioPrevMode) {
+      rioPrevMode = state.mode;
+      rioPrevX = state.player.x;
+      rioPrevZ = state.player.z;
+    } else if (state.mode === 'foot' && state.player.moving && rioPrevX !== null) {
+      rioDist = Math.hypot(state.player.x - rioPrevX, state.player.z - rioPrevZ);
+      const rioMaxStep = PLAYER.runSpeed * Math.max(dt, 1 / 60) + 0.05;
+      if (rioDist > rioMaxStep) rioDist = 0;
+      rioPrevX = state.player.x;
+      rioPrevZ = state.player.z;
     } else {
-      rio.legs[0].rotation.x = 0;
-      rio.legs[1].rotation.x = 0;
-      rio.arms[0].rotation.x = 0;
-      rio.arms[1].rotation.x = 0;
+      rioPrevX = state.player.x;
+      rioPrevZ = state.player.z;
     }
+    rioPhase += (rioDist * 2 * Math.PI) / rioCycle;
+    // moveBlend eases 0 <-> 1 so stopping never snaps the limbs (the old
+    // code reset 0.376 rad in one frame). tau = 0.30 s: the audit's ~=0.125 s
+    // would step the knee 0.11 rad in one 60 fps frame, failing gate 6.9
+    // (<=0.05 rad/frame); 0.30 s keeps the largest joint step (knee 0.9 rad)
+    // at 0.9 * (1 - exp(-1/(60*0.30))) = 0.049 rad/frame.
+    const rioTarget = state.mode === 'foot' && state.player.moving ? 1 : 0;
+    rioBlend += (rioTarget - rioBlend) * (1 - Math.exp(-Math.max(dt, 1 / 60) / 0.30));
+    const ph = rioPhase;
+    const b = rioBlend;
+    const s = Math.sin(ph);
+    const c = Math.cos(ph);
+    // Jog (5 m/s) vs sprint (9 m/s): same formulas, gait constants differ.
+    const A = rioRunning ? 0.75 : 0.65;      // leg swing amplitude (rad)
+    const K = rioRunning ? 0.9 : 0.6;        // knee flex (rad)
+    const bobA = rioRunning ? 0.04 : 0.025;  // vertical bob (m)
+    const leanA = rioRunning ? 0.16 : 0.08;  // forward lean (rad)
+    rio.legs[0].rotation.x = b * A * s;
+    rio.legs[1].rotation.x = -b * A * s;
+    // Knee flexes only while its leg swings forward (foot off the ground);
+    // straight through stance, so the foot plants instead of dragging.
+    rio.legs[0].knee.rotation.x = b * K * Math.max(0, -c);
+    rio.legs[1].knee.rotation.x = b * K * Math.max(0, c);
+    // Arms swing against the legs (Batch 2, Phase C); elbows stay bent and
+    // flex more while the arm swings forward. 0.08 rad of bend at idle so
+    // the arms never hang perfectly straight.
+    rio.arms[0].rotation.x = -b * 0.4 * s;
+    rio.arms[1].rotation.x = b * 0.4 * s;
+    rio.arms[0].elbow.rotation.x = -(0.08 + b * (0.47 + 0.25 * s));
+    rio.arms[1].elbow.rotation.x = -(0.08 + b * (0.47 - 0.25 * s));
+    // Bob peaks at double support (|cos|); breathing lifts the body 0–8 mm
+    // at 0.25 Hz when idle — one-sided so the feet never sink below ground.
+    const t = state.time;
+    const bob = b * bobA * Math.abs(c);
+    const breath = (1 - b) * 0.008 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 0.25 * t));
+    rio.group.position.y = bob + breath;
+    rio.group.rotation.x = b * leanA;
+    // Idle head-turn: slow look-around, 0.3 rad at 0.5 rad/s (12.6 s period).
+    const headTurn = (1 - b) * 0.3 * Math.sin(0.5 * t);
+    for (let i = 0; i < rio.head.length; i += 1) rio.head[i].rotation.y = headTurn;
 
     // Police light bars flash on game time, so a staged shot (fixed time) shows
     // one steady phase. The same phase drives live cruisers and staged ones.

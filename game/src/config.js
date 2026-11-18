@@ -262,8 +262,18 @@ export const PALETTE = {
   // building shadow stops rendering near-black — the facade gate. Still a
   // warm worn grey, not concrete; the speckle/crack colours in
   // makeAsphaltTexture are lifted to match.
-  asphalt: '#5d5850',
-  sidewalk: '#cfc3ab',
+  // F3 (S1): base goes neutral-cool #4c4e55 (was #5d5850, R-G +13) — the
+  // warm base was half of the road's +20 R-G in render. The darker base
+  // costs facade-gate headroom, so the gate is re-measured every pass.
+  // F3 pass 2: the first S1 tile (#4c4e55, R-G -1.8) still rendered +10
+  // R-G in the sunlit cover patch and pushed the facade gate to 14.24%
+  // (road region 22.42%) — the tile was too warm AND too dark. Base is
+  // now #505961 (R-G -9, lum ~89): colder to land the render inside
+  // +/-6, lighter to give the gate back its headroom. Material lever
+  // (a) of the gate protocol; the gate is re-measured after this change.
+  asphalt: '#505961',
+  // F3: sidewalk base goes neutral #c9bda6 (was #cfc3ab, R-G +12).
+  sidewalk: '#c9bda6',
   crosswalk: '#f5efe0',
   laneDash: '#f2c94c',
   sea: '#2e7fa8',

@@ -41,7 +41,14 @@ const seed = Number.isInteger(seedParam) ? seedParam : DEFAULT_SEED;
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
 
-const city = buildCity(THREE, createRandom(seed));
+const city = buildCity(
+  THREE,
+  createRandom(seed),
+  // F3: the asphalt + paving tile painters draw from their own seeded
+  // stream (seed ^ golden-ratio constant), so the tile rewrite cannot shift
+  // the city layout or the sim trace (S7). See buildCity in city.js.
+  createRandom(seed ^ 0x9e3779b9),
+);
 const world = createWorld(city, seed);
 const hud = createHud(city.map);
 const renderer = createRenderer(canvas, hud, { antialias: params.get('aa') !== '0' });

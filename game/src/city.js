@@ -45,6 +45,7 @@
 // meshes use fixed colours or the stored building colour — the seeded stream,
 // the city layout and the sim trace (S7) stay byte-identical to v3.7.
 import { CITY, PALETTE, districtOf } from './config.js';
+import { createRandom } from './random.js';
 
 /** Road centre lines, each way: 11 internal roads plus the perimeter ring. */
 export function roadLines() {
@@ -155,41 +156,132 @@ function cloneTexture(tex, repeatX, repeatY) {
   return t;
 }
 
-function makeAsphaltTexture(THREE, random) {
-  // One tile = one 24 m road segment, so the grain reads at driving scale.
-  // Batch 1: canvas 256 → 512 (10.7 → 21.4 px/m) with the SAME random-call
-  // count (speckle 2600, cracks 14) — every size/position doubled, so the
-  // seeded stream and the city layout are unchanged from v3.6.
+function makeAsphaltTexture(THREE, visual, random) {
+  // F3 (S1): one tile = one 12 m road segment, square (no more 2:1 UV
+  // stretch). Base is neutral-cool #4c4e55; grain is ~14,000 1-2 px dots
+  // (72% 1 px) in six cool greys (brightest 3%); 12 soft blotches + 2
+  // repair patches give large-scale variation; the 14 long horizontal
+  // cracks are gone (4 micro-cracks at most, random orientation).
+  // The tile is painted from `visual`, the isolated stream (see
+  // buildCity). The `consume` call below is the stream guard: v3.8 drew
+  // 10,442 main-stream values here (speckle 2,600x4 + cracks 14x3), and
+  // every later main-stream draw — buildings, palms, lamps, props — must
+  // keep its v3.8 value, or the city layout and S7 shift. Verified by
+  // experiment: painting from `visual` alone (no guard) moved palms
+  // 173 -> 162, windows 8,279 -> 8,005 and changed S7 to c5b123d6...
   const { ctx, texture } = canvasTexture(THREE, 512, 512);
   ctx.fillStyle = PALETTE.asphalt;
   ctx.fillRect(0, 0, 512, 512);
-  // Batch 2, Phase D: the speckle palette is lifted with the asphalt base
-  // (same random-call count — only the colour literals change, so the seeded
-  // stream and the city layout are untouched).
-  speckle(ctx, random, 512, 512, 2600, ['#4a4642', '#5a554e', '#413d3a', '#5f5950'], 2, 6);
-  // Hairline cracks: thin dark rects, mostly along the driving direction.
-  ctx.fillStyle = '#38342f';
-  for (let i = 0; i < 14; i += 1) {
-    ctx.fillRect(random() * 512, random() * 512, 40 + random() * 120, 2);
+  // Soft blotches: large low-contrast ellipses, blurred, +/-6-10 lightness.
+  for (let i = 0; i < 12; i += 1) {
+    const bx = visual() * 512;
+    const by = visual() * 512;
+    const rx = 50 + visual() * 80;
+    const ry = 50 + visual() * 80;
+    const light = visual() < 0.5;
+    ctx.save();
+    if ('filter' in ctx) ctx.filter = 'blur(50px)';
+    ctx.fillStyle = light ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+    ctx.beginPath();
+    if (ctx.ellipse) ctx.ellipse(bx, by, rx, ry, 0, 0, Math.PI * 2);
+    else ctx.fillRect(bx - rx, by - ry, rx * 2, ry * 2);
+    ctx.fill();
+    ctx.restore();
+    if ('filter' in ctx) ctx.filter = 'none';
   }
+  // Grain: ~14,000 dots, 72% 1 px, the rest 2 px, six cool greys.
+  // F3 pass 2: the first S1 greys rendered too warm and too dark
+  // (tile R-G -1.8, mean lum 75.3; cover road +10, gate 14.24%).
+  // These are colder (B up ~3) and lighter (lum up ~5) so the tile
+  // lands near R-G -9 / lum ~89.
+  // F3 pass 4: the pass-3 widening barely moved the tile (edge>25 1.0%
+  // -> 1.3%; lum std 10.6 vs the reference tile's 17.8) because a 1 px
+  // grain's gradient is Delta/2 — only grains with Delta>50 from the
+  // base cross the >25 threshold. The spec's own grey values cannot
+  // meet F3.4's >=15% mid-field proxy (see the builder report). This
+  // pass widens ONLY the grey values (counts, 1-2 px sizes, 72% 1 px,
+  // blotches, patches unchanged): dark greys to Delta~-54/-43, light
+  // to Delta~+71/+110, so ~42% of grains cross >25 while the tile
+  // mean (lum ~89) and R-G (-8) — and the facade gate — stay put.
+  const grainColors = ['#232529', '#2e3036', '#5e626a', '#686c74', '#9aa0a8', '#c2c6cd'];
+  for (let i = 0; i < 14000; i += 1) {
+    const r = visual();
+    ctx.fillStyle = r < 0.03
+      ? grainColors[5]
+      : grainColors[Math.floor(visual() * 5)];
+    const s = visual() < 0.72 ? 1 : 2;
+    ctx.fillRect(visual() * 512, visual() * 512, s, s);
+  }
+  // 2 repair patches: darker rounded rects (~150x100 px, -10 lightness),
+  // soft edge (blur 10 px).
+  for (let i = 0; i < 2; i += 1) {
+    const pw = 120 + visual() * 60;
+    const ph = 80 + visual() * 40;
+    const px = visual() * (512 - pw);
+    const py = visual() * (512 - ph);
+    const r = 18;
+    ctx.save();
+    if ('filter' in ctx) ctx.filter = 'blur(10px)';
+    ctx.fillStyle = 'rgba(0,0,0,0.13)';
+    ctx.beginPath();
+    ctx.moveTo(px + r, py);
+    ctx.lineTo(px + pw - r, py);
+    ctx.arcTo(px + pw, py, px + pw, py + r, r);
+    ctx.lineTo(px + pw, py + ph - r);
+    ctx.arcTo(px + pw, py + ph, px + pw - r, py + ph, r);
+    ctx.lineTo(px + r, py + ph);
+    ctx.arcTo(px, py + ph, px, py + ph - r, r);
+    ctx.lineTo(px, py + r);
+    ctx.arcTo(px, py, px + r, py, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    if ('filter' in ctx) ctx.filter = 'none';
+  }
+  // 4 micro-cracks at most: short (12-35 px), 1 px, random orientation,
+  // low contrast — never a long straight run.
+  ctx.fillStyle = '#3e3f45';
+  for (let i = 0; i < 4; i += 1) {
+    const len = 12 + visual() * 23;
+    const ang = visual() * Math.PI;
+    ctx.save();
+    ctx.translate(visual() * 512, visual() * 512);
+    if (ctx.rotate) ctx.rotate(ang);
+    ctx.fillRect(-len / 2, 0, len, 1);
+    ctx.restore();
+  }
+  consume(random, 10442);
   return texture;
 }
 
-function makePavingTexture(THREE, random) {
-  // One tile = one 40 m sidewalk slab, repeated 4x4: pavers read ~2.5 m.
-  // Batch 1: canvas 256 → 512, same random-call count (16 cell shades,
-  // speckle 500) — sizes doubled, city layout unchanged.
+/** Advance `random` by `n` draws, discarding the values. F3 stream guard:
+ * keeps the main stream's consumption identical to v3.8 after the tile
+ * painters moved to the isolated visual stream (see makeAsphaltTexture). */
+function consume(random, n) {
+  for (let i = 0; i < n; i += 1) random();
+}
+
+function makePavingTexture(THREE, visual, random) {
+  // F3: one tile = one 10 m sidewalk slab (repeat 4x4 on the 40 m slab):
+  // 20x20 pavers of 0.5 m, dark grout #6a6258 (not black — facade-gate
+  // guard), per-cell shade 0.90-1.10, 6% darker replacement pavers,
+  // speckle 900. Reference: rv-compare-paving-tile.png.
+  // Stream guard (see makeAsphaltTexture): v3.8 drew 2,016 main-stream
+  // values here (16 cell shades + speckle 500x4).
   const { ctx, texture } = canvasTexture(THREE, 512, 512, 4, 4);
-  ctx.fillStyle = PALETTE.sidewalk;
+  ctx.fillStyle = '#6a6258';
   ctx.fillRect(0, 0, 512, 512);
-  const cell = 128;
-  for (let gy = 0; gy < 4; gy += 1) {
-    for (let gx = 0; gx < 4; gx += 1) {
-      ctx.fillStyle = shade(PALETTE.sidewalk, 0.92 + random() * 0.16);
-      ctx.fillRect(gx * cell + 4, gy * cell + 4, cell - 8, cell - 8);
+  const cell = 512 / 20;
+  for (let gy = 0; gy < 20; gy += 1) {
+    for (let gx = 0; gx < 20; gx += 1) {
+      let f = 0.90 + visual() * 0.20;
+      if (visual() < 0.06) f *= 0.80;
+      ctx.fillStyle = shade(PALETTE.sidewalk, f);
+      ctx.fillRect(gx * cell + 1, gy * cell + 1, cell - 2, cell - 2);
     }
   }
-  speckle(ctx, random, 512, 512, 500, ['#b8ab8d', '#d8ccb4'], 2, 4);
+  speckle(ctx, visual, 512, 512, 900, ['#b3a586', '#d8ccb4'], 1, 2);
+  consume(random, 2016);
   return texture;
 }
 
@@ -265,7 +357,16 @@ function makeSignTexture(THREE, text, bg) {
   return texture;
 }
 
-export function buildCity(THREE, random) {
+export function buildCity(THREE, random, visualRandom = null) {
+  // F3 stream isolation: the asphalt + paving tile painters are the first
+  // main-stream callers, and their rewrite changes the draw count by an
+  // order of magnitude (~12.5k -> ~60k+). They paint from `visual` instead,
+  // and each painter's `consume` call keeps the main stream's consumption
+  // byte-identical to v3.8 (see makeAsphaltTexture) — so the city layout,
+  // the building/palm/lamp/prop draws and S7 are untouched. Callers that
+  // pass only the main stream (the Node logic test) get a fixed-seed
+  // visual stream, which is equally deterministic and equally isolated.
+  const visual = visualRandom ?? createRandom(0x9e3779b9);
   const group = new THREE.Group();
   group.name = 'solmarina-city';
   const colliders = [];
@@ -321,12 +422,17 @@ export function buildCity(THREE, random) {
   const lamps = [];
   const dashes = [];
   const crosswalks = [];
+  // F3: curb ramps + tactile paving + manholes + tree pit grates.
+  const curbRamps = [];
+  const tactiles = [];
+  const manholes = [];
+  const grates = [];
 
   const lines = roadLines();
   // Phase 3.5: textured materials. The map already carries the base colour, so
   // the material colour stays white (it multiplies the map).
-  const asphaltTex = makeAsphaltTexture(THREE, random);
-  const pavingTex = makePavingTexture(THREE, random);
+  const asphaltTex = makeAsphaltTexture(THREE, visual, random);
+  const pavingTex = makePavingTexture(THREE, visual, random);
   const sandTex = makeSandTexture(THREE, random);
   const seaTex = makeSeaTexture(THREE, random);
   const woodTex = makeWoodTexture(THREE, random);
@@ -398,20 +504,22 @@ export function buildCity(THREE, random) {
   group.add(sky);
 
   // --- roads: asphalt strips on the ground ------------------------------------
-  // Phase 3.5: each strip is cut into 24 m segments, one texture tile each —
-  // a single 648 m strip would stretch the asphalt grain 54:1. Still one
-  // InstancedMesh (one draw call); the segments tile edge to edge, no gaps.
+  // F3: each strip is cut into 12 m segments, one square texture tile each —
+  // a single 648 m strip would stretch the asphalt grain 54:1, and the old
+  // 24 m segments stretched the square tile 2:1 (every grain a 2:1 brick).
+  // Still one InstancedMesh (one draw call); the segments tile edge to
+  // edge, no gaps. 702 -> 1,404 instances.
   const roadGeoms = [];
   for (const c of lines) {
-    for (let p = -324; p < 324; p += 24) {
-      roadGeoms.push({ x: c, z: p + 12, w: CITY.road, d: 24 });
-      roadGeoms.push({ x: p + 12, z: c, w: 24, d: CITY.road });
+    for (let p = -324; p < 324; p += 12) {
+      roadGeoms.push({ x: c, z: p + 6, w: CITY.road, d: 12 });
+      roadGeoms.push({ x: p + 6, z: c, w: 12, d: CITY.road });
     }
   }
   for (const edge of [-312, 312]) {
-    for (let p = -324; p < 324; p += 24) {
-      roadGeoms.push({ x: edge, z: p + 12, w: CITY.road, d: 24 });
-      roadGeoms.push({ x: p + 12, z: edge, w: 24, d: CITY.road });
+    for (let p = -324; p < 324; p += 12) {
+      roadGeoms.push({ x: edge, z: p + 6, w: CITY.road, d: 12 });
+      roadGeoms.push({ x: p + 6, z: edge, w: 12, d: CITY.road });
     }
   }
   const roadMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), asphaltMat, roadGeoms.length);
@@ -481,6 +589,27 @@ export function buildCity(THREE, random) {
         stopLines.push({ x: cx - 2.75, z: cz + 11, w: 5.5, d: 0.6, h: 0.12 });
         stopLines.push({ x: cx - 11, z: cz + 2.75, w: 0.6, d: 5.5, h: 0.12 });
         stopLines.push({ x: cx + 11, z: cz - 2.75, w: 0.6, d: 5.5, h: 0.12 });
+      }
+    }
+    // F3: curb ramps + tactile paving + manholes. One ramp per zebra-band
+    // end, 4 per intersection (484): the ramp sits flush in the curb gap
+    // (its outer edge meets the curb end at exactly +/-8 m, so no curb
+    // tooth pokes through) and tilts ~5 deg down toward the road; the
+    // tactile strip sits 0.9 m further out on the sidewalk. Manholes sit
+    // in the intersection centres (two end up under the bridge deck —
+    // invisible, harmless). All fixed/hash — no random() calls.
+    const rampTilt = Math.atan(0.1 / 1.2);
+    for (const cx of lines) {
+      for (const cz of lines) {
+        curbRamps.push({ x: cx - 8.6, z: cz - 6.075, y: 0.09, rot: ['x', rampTilt] });
+        tactiles.push({ x: cx - 8.6, z: cz - 6.975, y: 0.2 });
+        curbRamps.push({ x: cx + 8.6, z: cz + 6.075, y: 0.09, rot: ['x', -rampTilt] });
+        tactiles.push({ x: cx + 8.6, z: cz + 6.975, y: 0.2 });
+        curbRamps.push({ x: cx - 6.075, z: cz - 8.6, y: 0.09, rot: ['z', -rampTilt] });
+        tactiles.push({ x: cx - 6.975, z: cz - 8.6, y: 0.2, rot: ['y', Math.PI / 2] });
+        curbRamps.push({ x: cx + 6.075, z: cz + 8.6, y: 0.09, rot: ['z', rampTilt] });
+        tactiles.push({ x: cx + 6.975, z: cz + 8.6, y: 0.2, rot: ['y', Math.PI / 2] });
+        manholes.push({ x: cx, z: cz, w: 0.8, d: 0.8, h: 0.06, y: 0.11 });
       }
     }
     // Traffic lights on the two main avenues (x = -6 north-south, z = -6
@@ -799,9 +928,32 @@ export function buildCity(THREE, random) {
           palms.push({ x: xr.min + 3 + random() * 6, z: zr.min + 3 + random() * 6 });
         }
       }
-      if (random() < 0.5) {
-        lamps.push({ x: xr.min + 2, z: zr.min + 2 });
-      }
+      // F3: one lamp per block, at the NW corner (the v3.8 corner — the 60
+      // existing lamp positions do not move). The draw stays: it is part of
+      // the main stream's call order (removing it would shift every later
+      // building/prop draw and change the city layout + S7); its value is
+      // intentionally unused. Uniform corner on purpose: alternating the
+      // corner by (bx+bz)%2 was measured to open 86-88 m gaps along a
+      // street side, breaking F3.8's 52 m max gap; the uniform corner gives
+      // a 52 m pitch on every served street side. No new random() call.
+      random();
+      lamps.push({ x: xr.min + 2, z: zr.min + 2 });
+    }
+  }
+  // F3: the 16 blocks the building loop skips (9 stadium, 1 tower,
+  // 6 waterfront park) still need their street lamp, or the streets
+  // bordering them open 104-208 m gaps (F3.8). Added in a separate loop
+  // AFTER the building loop, with no random() calls, so the main stream
+  // is untouched; positions are the same NW corner as the rest.
+  for (let bx = 0; bx < CITY.blocks; bx += 1) {
+    for (let bz = 0; bz < CITY.blocks; bz += 1) {
+      const skipped = stadiumBlocks.has(`${bx},${bz}`)
+        || (bx === CITY.tower.bx && bz === CITY.tower.bz)
+        || (Math.abs(blockCentre(bz)) < 60 && blockCentre(bx) > 150);
+      if (!skipped) continue;
+      const xr = blockRange(bx);
+      const zr = blockRange(bz);
+      lamps.push({ x: xr.min + 2, z: zr.min + 2 });
     }
   }
   instancedBoxes(sidewalks, walkMat, 0.1, 'sidewalks');
@@ -1098,6 +1250,10 @@ export function buildCity(THREE, random) {
     mesh.castShadow = true;
     group.add(mesh);
   }
+  // F3: one tree pit grate under each palm (1.2x1.2 m, dark, flush with
+  // the sidewalk slab top at 0.2). The broadleaf grates are added with
+  // the broadleaf trees below (different ground height).
+  for (const p of palms) grates.push({ x: p.x, z: p.z, w: 1.2, d: 1.2, h: 0.05, y: 0.2 });
   // Batch 2, Phase C: segmented frond palm — 5 stacked trunk cylinders
   // (tapering 0.42 -> 0.16, banded shades like stacked rings) + a crown of
   // 7 axis-aligned fronds (4 cardinal, each a horizontal base + a drooping
@@ -1221,6 +1377,29 @@ export function buildCity(THREE, random) {
     group.add(pole);
     group.add(arm);
     group.add(head);
+    // F3: light pools — one transparent 2 m disc (16 segments) on the road
+    // under each lamp head. One InstancedMesh (+1 call, +16 tri per lamp).
+    // CircleGeometry in the browser; the Node stub has no CircleGeometry,
+    // so it falls back to a flat PlaneGeometry there (same count, same
+    // positions — the stub never renders).
+    const poolGeo = THREE.CircleGeometry
+      ? new THREE.CircleGeometry(1, 16)
+      : new THREE.PlaneGeometry(2, 2);
+    if (poolGeo.rotateX) poolGeo.rotateX(-Math.PI / 2);
+    const pools = new THREE.InstancedMesh(
+      poolGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.22, depthWrite: false }),
+      lamps.length,
+    );
+    pools.name = 'lamp-pools';
+    for (let i = 0; i < lamps.length; i += 1) {
+      const l = lamps[i];
+      m.makeScale(1, 1, 1);
+      m.setPosition(l.x - 2.5, 0.13, l.z);
+      pools.setMatrixAt(i, m);
+    }
+    pools.receiveShadow = true;
+    group.add(pools);
   }
 
   // Phase 3.6: street props, seeded, on the sidewalks — benches, planters,
@@ -1302,6 +1481,9 @@ export function buildCity(THREE, random) {
       const x = 341 + ((t * 5) % 3 - 1) * 1.5;
       const trunkH = 3 + ((t * 7) % 3) * 0.5;
       broadleafTrunks.push({ x, z, w: 0.5, d: 0.5, h: trunkH, y: trunkH / 2 });
+      // F3: tree pit grate under each broadleaf. y -0.2: these trees stand
+      // on the promenade beach (top -0.25), not on a sidewalk slab.
+      grates.push({ x, z, w: 1.2, d: 1.2, h: 0.05, y: -0.2 });
       for (let b = 0; b < 3; b += 1) {
         const r = 1.6 + ((t + b * 3) % 3) * 0.3;
         broadleafBlobs.push({
@@ -1427,6 +1609,37 @@ export function buildCity(THREE, random) {
     mesh.castShadow = true;
     group.add(mesh);
   }
+  // F3: curb ramps + tactile paving. One InstancedMesh each; per-instance
+  // rotation goes through the real Matrix4 API in the browser and is
+  // skipped under the Node stub (no rotation methods there) — same
+  // instance counts and positions either way. The geometry carries the
+  // size (ramps 1.2x0.12x1.2, tactile 1.2x0.06x0.6), so the matrix is
+  // rotation + translation only.
+  function instancedBoxesRot(list, geometry, mat, name) {
+    if (list.length === 0) return;
+    const mesh = new THREE.InstancedMesh(geometry, mat, list.length);
+    mesh.name = name;
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < list.length; i += 1) {
+      const b = list[i];
+      let rotated = false;
+      if (b.rot) {
+        const [axis, ang] = b.rot;
+        const fn = axis === 'x' ? m.makeRotationX
+          : axis === 'z' ? m.makeRotationZ : m.makeRotationY;
+        if (typeof fn === 'function') { fn.call(m, ang); rotated = true; }
+      }
+      if (!rotated) m.makeScale(1, 1, 1);
+      m.setPosition(b.x, b.y, b.z);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  instancedBoxesRot(curbRamps, new THREE.BoxGeometry(1.2, 0.12, 1.2),
+    new THREE.MeshLambertMaterial({ color: 0xa39a8a }), 'curb-ramps');
+  instancedBoxesRot(tactiles, new THREE.BoxGeometry(1.2, 0.06, 0.6),
+    new THREE.MeshLambertMaterial({ color: 0xe8c94c }), 'tactile-paving');
   instancedBoxes(curbs, new THREE.MeshLambertMaterial({ color: 0x9a9a96 }), 0.15, 'curbs');
   instancedBoxes(edgeLines, new THREE.MeshLambertMaterial({ color: 0xd8d8d8 }), 0.12, 'edge-lines');
   instancedBoxes(stopLines, new THREE.MeshLambertMaterial({ color: 0xe8e8e8 }), 0.12, 'stop-lines');
@@ -1437,6 +1650,12 @@ export function buildCity(THREE, random) {
   instancedPrim(bollards, new THREE.CylinderGeometry(0.5, 0.5, 1, 8), new THREE.MeshLambertMaterial({ color: 0x8a8f96 }), 'bollards');
   instancedPrim(broadleafTrunks, new THREE.CylinderGeometry(0.5, 0.5, 1, 6), new THREE.MeshLambertMaterial({ color: 0x6a4a30 }), 'broadleaf-trunks');
   instancedPrim(broadleafBlobs, new THREE.SphereGeometry(1, 6, 5), new THREE.MeshLambertMaterial({ color: 0xffffff }), 'broadleaf-blobs');
+  // F3: manholes (one per intersection) + tree pit grates (one per street
+  // tree, 173 palms + 27 broadleaf). The broadleaf grates sit at y -0.2:
+  // those trees stand on the promenade beach (top -0.25), not on a
+  // sidewalk slab (top 0.2).
+  instancedPrim(manholes, new THREE.CylinderGeometry(0.5, 0.5, 1, 8), new THREE.MeshLambertMaterial({ color: 0x2a2c30 }), 'manholes');
+  instancedBoxesY(grates, new THREE.MeshLambertMaterial({ color: 0x3f4246 }), 'tree-grates');
 
   // Phase 3.6: rooftop landmarks — generic signs and food stacks, our own
   // shapes, no brand. HOTEL board on the tallest marina roof, SOLMARINA board

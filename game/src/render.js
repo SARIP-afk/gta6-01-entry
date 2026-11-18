@@ -219,7 +219,7 @@ export function createRenderer(canvas, hud, options = {}) {
   sun.shadow.normalBias = 0.15;
   scene.add(sun);
   scene.add(sun.target);
-  const hemi = new THREE.HemisphereLight(0xbcd8f0, 0xe8c9a0, LIGHT.hemiIntensity);
+  const hemi = new THREE.HemisphereLight(0xbcd8f0, 0xb8c4d8, LIGHT.hemiIntensity);
   scene.add(hemi);
   // Batch 1: a weak fill light from the east (opposite the western sun), no
   // shadow map — it lifts the faces the sun never reaches, so the shadowed
@@ -342,12 +342,16 @@ export function createRenderer(canvas, hud, options = {}) {
   }
 
   function setSun(target) {
-    // Golden hour from the west: low sun, long shadows, warm light.
-    sun.position.set(target.x - 180, 140, target.z + 60);
+    // F1 (L1): sun swung ~40 deg south so it crosses the E-W streets
+    // diagonally instead of running parallel to them — shadows fall
+    // DIAGONAL across the road (pattern, not mass). Elevation ~37 deg,
+    // unchanged in spirit (36.4 -> 37.2 deg); target, shadow map,
+    // frustum and bias untouched.
+    sun.position.set(target.x - 120, 140, target.z + 140);
     sun.target.position.set(target.x, 0, target.z);
-    // Batch 1 iter-2: the fill is HIGHER (63 deg) so it lifts horizontal
-    // surfaces (roads) more than vertical ones; intensity 0.7.
-    fill.position.set(target.x + 90, 180, target.z - 30);
+    // F1 (L2): the fill is now LOW (~31 deg) and COOL, modelling walls
+    // rather than flooding the road from 62 deg; intensity 0.45.
+    fill.position.set(target.x + 140, 90, target.z - 60);
     fill.target.position.set(target.x, 0, target.z);
   }
 
@@ -589,4 +593,34 @@ export function createRenderer(canvas, hud, options = {}) {
       cameraHold = null;
     },
   };
+}
+
+/**
+ * F1 (glass swap): replace the city's Lambert window/storefront glass with
+ * MeshStandardMaterial so the panes can reflect the PMREM environment.
+ * Browser-only (render.js never loads in the Node stub, which has no
+ * MeshStandardMaterial) — city.js stays 100% Lambert. Idempotent: a mesh
+ * whose material is already Standard is left alone, so calling this twice
+ * is a no-op. instanceColor is NOT touched (it lives on the InstancedMesh,
+ * not the material), so the per-pane lit/unlit colours survive the swap.
+ * Called exactly once from main.js, after the city group joins the scene.
+ */
+export function applyGlassMaterials(scene) {
+  const windows = scene.getObjectByName('windows');
+  if (windows && !windows.material.isMeshStandardMaterial) {
+    const old = windows.material;
+    windows.material = new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.12, metalness: 0.1, envMapIntensity: 1.2,
+    });
+    old.dispose();
+  }
+  const storefront = scene.getObjectByName('storefront-glass');
+  if (storefront && !storefront.material.isMeshStandardMaterial) {
+    const old = storefront.material;
+    storefront.material = new THREE.MeshStandardMaterial({
+      color: 0x4a6a8a, roughness: 0.12, metalness: 0.1, envMapIntensity: 1.2,
+      transparent: true, opacity: 0.45,
+    });
+    old.dispose();
+  }
 }

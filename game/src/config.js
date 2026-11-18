@@ -94,15 +94,23 @@ export const PLAYER = {
 export const CAMERA = {
   driveDistance: 11,
   driveHeight: 4.6,
-  footDistance: 7,
-  footHeight: 3.4,
+  // F1 (L9): narrower + further cover, lower/slower on-foot — less
+  // toy-like. coverDistance/coverFov only affect ?shot=cover; live
+  // play keeps driveDistance/driveHeight above.
+  footDistance: 6,
+  footHeight: 3.0,
   fovBase: 60,
-  fovSpeed: 15,
+  fovSpeed: 10,
   smoothing: 5,
   // Cover shot only (Phase 3.5 visual pass): closer and lower than live play,
   // narrower FOV, so the car fills ~15% of the frame instead of ~5%. Live play
   // keeps driveDistance/driveHeight above — the cover override lives in
   // shots.js (world.state.cameraOverride) and never touches live play.
+  // F1 (L9) — REVERT SELEKTIF 18 Nov: coverFov/coverDistance kembali ke
+  // v3.8 (A/B: cover lebih buruk — 5.1 pita tetap 22,4% -> 0,6%, mobil
+  // lebih kecil di frame; kontras arah pindah ke atas frame). Nilai
+  // on-foot (footDistance 6, footHeight 3.0) DIPERTAHANKAN — A/B: Rio
+  // ~195 px -> ~260 px, framing jalan kaki jelas lebih baik.
   coverDistance: 8.5,
   coverHeight: 4.0,
   coverFov: 55,
@@ -124,10 +132,15 @@ export const LIGHT = {
   // Standard, no clearcoat, no env was still pink). The facade gate is
   // carried by the lifted asphalt albedo, not by the light, so the light
   // reverts and the gate is re-measured.
+  // F1 (L2) + kompensasi §9-G tuas (b) langkah 2: hemi 1,10 -> 1,15
+  // (langkah 1 hanya memulihkan ke 16,37% — gate masih gagal).
   hemiIntensity: 1.15,
-  fillIntensity: 0.7,
-  fillColor: '#ffe8cc',
-  exposure: 1.15,
+  fillIntensity: 0.45,
+  fillColor: '#cfe0f2',
+  // F1 (L8): exposure 1,15 -> 1,20 — hanya setelah L2: total cahaya di
+  // bayangan sudah turun, jadi exposure naik mengembalikan mid-tone
+  // tanpa mendorong merah ke clip.
+  exposure: 1.20,
 };
 
 /**
@@ -299,6 +312,9 @@ export const PALETTE = {
   // Phase 3.6: striped-shop colours for the awnings over ground-floor doors.
   awningColors: ['#c94a3a', '#2a6a9a', '#3a7a4a', '#e8a83a', '#f2f6f2'],
   window: '#2a3547',
+  // F1: unlit window panes move to the glass blue, so the Standard swap in
+  // render.js reflects the sky instead of rendering near-black Lambert.
+  windowGlass: '#4a6a8a',
   windowLit: '#ffd27a',
   palmTrunk: '#7a5a3a',
   palmLeaf: '#3f7a3a',

@@ -1061,7 +1061,7 @@ export function buildCity(THREE, random, visualRandom = null) {
       m.makeScale(w.w, w.h, w.d);
       m.setPosition(w.x, w.y, w.z);
       mesh.setMatrixAt(i, m);
-      mesh.setColorAt(i, color.set(w.lit ? PALETTE.windowLit : PALETTE.window));
+      mesh.setColorAt(i, color.set(w.lit ? PALETTE.windowLit : PALETTE.windowGlass));
     }
     group.add(mesh);
   }

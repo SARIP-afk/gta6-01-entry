@@ -51,7 +51,12 @@ const city = buildCity(
 );
 const world = createWorld(city, seed);
 const hud = createHud(city.map);
-const renderer = createRenderer(canvas, hud, { antialias: params.get('aa') !== '0' });
+const renderer = createRenderer(canvas, hud, {
+  antialias: params.get('aa') !== '0',
+  // F2.11: traffic-signal cycle metadata (avenue + lens per instance),
+  // so render.js can cycle the lenses on game time.
+  trafficLensMeta: city.trafficLensMeta,
+});
 renderer.scene.add(city.group);
 // F1 (glass swap): windows + storefront glass become MeshStandardMaterial
 // so the panes reflect the PMREM env — exactly once, right after the city

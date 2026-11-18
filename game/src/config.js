@@ -134,7 +134,12 @@ export const LIGHT = {
   // reverts and the gate is re-measured.
   // F1 (L2) + kompensasi §9-G tuas (b) langkah 2: hemi 1,10 -> 1,15
   // (langkah 1 hanya memulihkan ke 16,37% — gate masih gagal).
-  hemiIntensity: 1.15,
+  // F2 (§9-G tuas (b) langkah 3): hemi 1,15 -> 1,20 — gate fasad F2
+  // 15,78% (>15% keras); diagnosis: jalanan berbayang F1+F3 sudah
+  // 27,81% di baseline merge, gutter F2 menambah +4,03 poin; tuas (a)
+  // pada gutter tidak mampu (di bayangan, albedo hanya menggeser
+  // ~3 level — tidak membalik piksel <32 tanpa merusak baca gutter).
+  hemiIntensity: 1.20,
   fillIntensity: 0.45,
   fillColor: '#cfe0f2',
   // F1 (L8): exposure 1,15 -> 1,20 — hanya setelah L2: total cahaya di

@@ -232,6 +232,13 @@ export function createRenderer(canvas, hud, options = {}) {
   const camera = new THREE.PerspectiveCamera(CAMERA.fovBase, 1, 0.1, 3000);
   const camPos = new THREE.Vector3(0, 10, -20);
   const camLook = new THREE.Vector3(0, 0, 0);
+  // F2.11: traffic-signal cycle metadata (avenue A/B + lens 0/1/2 per
+  // instance, in traffic-lenses order) + the cached lens mesh + a scratch
+  // colour. The mesh is looked up lazily in draw() — the city joins the
+  // scene after createRenderer returns, so it is not there yet here.
+  const lensMeta = options.trafficLensMeta || null;
+  let lensMesh = null;
+  const lensColor = new THREE.Color();
   // Batch 2 (test-only): a held camera pose for proof frames (e.g. the
   // 3/4-front car shot the cover never shows). Only the automated driver
   // sets it; the shipped game never calls holdCamera.
@@ -452,6 +459,29 @@ export function createRenderer(canvas, hud, options = {}) {
     // Police light bars flash on game time, so a staged shot (fixed time) shows
     // one steady phase. The same phase drives live cruisers and staged ones.
     const flashRed = Math.floor(state.time * 4) % 2 === 0;
+    // F2.11: traffic signals cycle on game time (12 s): Avenue A green
+    // 0-5, yellow 5-6, red 6-12; Avenue B is the opposite phase (red 0-6,
+    // green 6-11, yellow 11-12). Pure function of state.time, so staged
+    // shots are deterministic; 126 setColorAt per frame, one buffer upload.
+    if (lensMeta) {
+      if (!lensMesh) lensMesh = scene.getObjectByName('traffic-lenses');
+      if (lensMesh) {
+        const t = ((state.time % 12) + 12) % 12;
+        for (let i = 0; i < lensMeta.length; i += 1) {
+          const m = lensMeta[i];
+          // Phase per avenue: 0 red, 1 yellow, 2 green.
+          const phase = m.avenue === 'A'
+            ? (t < 5 ? 2 : t < 6 ? 1 : 0)
+            : (t < 6 ? 0 : t < 11 ? 2 : 1);
+          const lit = m.lens === phase;
+          lensColor.setHex(lit
+            ? (m.lens === 0 ? 0xff3a2a : m.lens === 1 ? 0xffb020 : 0x2aff5a)
+            : 0x1a1a1a);
+          lensMesh.setColorAt(i, lensColor);
+        }
+        if (lensMesh.instanceColor) lensMesh.instanceColor.needsUpdate = true;
+      }
+    }
     const flash = (mesh) => {
       if (mesh.redLamp && mesh.blueLamp) {
         mesh.redLamp.material.emissiveIntensity = flashRed ? 1.6 : 0.15;
@@ -619,7 +649,12 @@ export function applyGlassMaterials(scene) {
     const old = storefront.material;
     storefront.material = new THREE.MeshStandardMaterial({
       color: 0x4a6a8a, roughness: 0.12, metalness: 0.1, envMapIntensity: 1.2,
-      transparent: true, opacity: 0.45,
+      // F2 (§10 Q2, opsi b): opacity 0,45 -> 0,35 — emissive interior 0,9
+      // saja TIDAK cukup (pane sunlit R-B +19 -> +9, shaded -2 -> -8);
+      // kaca 0,45 memudarkan interior hangat jadi abu-hijau netral.
+      // Hanya mesh storefront-glass yang transparan (windows opaque),
+      // jadi perubahan ini tidak menyentuh kaca jendela / kriteria 5.8.
+      transparent: true, opacity: 0.35,
     });
     old.dispose();
   }

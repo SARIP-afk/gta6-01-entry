@@ -299,17 +299,33 @@ export function createRenderer(canvas, hud, options = {}) {
   };
   const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false });
   const blobGeo = new THREE.CircleGeometry(1, 16);
-  const makeBlob = (r) => {
+  // F4 V4: makeBlob takes separate X/Z radii so the hero blob can be an
+  // ellipse (1.15 x 2.5 m = 2.3 x 5.0 m) instead of a 4.8 m disc.
+  // Orientation: scale is applied in the circle's local XY plane BEFORE
+  // rotation.x = -PI/2 lays it flat, so scale (1.15, 2.5) puts the LONG
+  // axis along world Z. The blob mesh is scene-level (not a child of the
+  // car group), so it must be spun to the car's heading itself: with
+  // Euler order XYZ the rotation.z spins the ellipse in its own plane
+  // before the X-rotation, and rotation.z = -heading aligns the 2.5 m
+  // axis with the car's forward direction (verified: heading PI/2 ->
+  // long axis along +X). The per-frame rotation.z assignments live in
+  // draw() next to each blob's position.set. Circular blobs (Rio, peds)
+  // need no rotation.
+  const makeBlob = (rx, rz = rx) => {
     const b = new THREE.Mesh(blobGeo, blobMat);
     b.rotation.x = -Math.PI / 2;
-    b.scale.set(r, r, 1);
+    b.scale.set(rx, rz, 1);
     b.renderOrder = 1;
     scene.add(b);
     return b;
   };
-  const carBlob = makeBlob(2.4);
+  const carBlob = makeBlob(1.15, 2.5);
   const rioBlob = makeBlob(0.55);
   const pedBlobs = pedPool.map(() => makeBlob(0.45));
+  // F4 V4: one blob per live police cruiser + live traffic car (11),
+  // same shared geometry/material as the other blobs (16 tri each).
+  const policeBlobs = policePool.map(() => makeBlob(1.15, 2.5));
+  const trafficBlobs = trafficPool.map(() => makeBlob(1.15, 2.5));
   // Staged extras (cover shot): their own pools, so they never fight the live
   // cars for a slot. 2 police cruisers + 3 traffic cars, as the cover stages.
   // The staged traffic trio shows three silhouettes (sedan, hatch, van) so
@@ -428,6 +444,7 @@ export function createRenderer(canvas, hud, options = {}) {
     car.group.position.set(state.car.x, 0, state.car.z);
     car.group.rotation.y = state.car.heading;
     carBlob.position.set(state.car.x, groundY(state.car.x, state.car.z), state.car.z);
+    carBlob.rotation.z = -state.car.heading;
     const wheelSpin = (state.car.speed * dt) / 0.36;
     for (let i = 0; i < car.wheels.length; i += 1) {
       const w = car.wheels[i];
@@ -493,10 +510,14 @@ export function createRenderer(canvas, hud, options = {}) {
     for (let i = 0; i < policePool.length; i += 1) {
       const mesh = policePool[i];
       const p = livePolice[i];
-      if (!p) { mesh.group.visible = false; continue; }
+      // F4 V4: cruiser blob follows the cruiser; hidden with it.
+      if (!p) { mesh.group.visible = false; policeBlobs[i].visible = false; continue; }
       mesh.group.visible = true;
       mesh.group.position.set(p.x, 0, p.z);
       mesh.group.rotation.y = p.heading;
+      policeBlobs[i].visible = true;
+      policeBlobs[i].position.set(p.x, groundY(p.x, p.z), p.z);
+      policeBlobs[i].rotation.z = -p.heading;
       flash(mesh);
     }
     // Live traffic (Phase 3): from state.traffic. Each live car takes the
@@ -516,12 +537,16 @@ export function createRenderer(canvas, hud, options = {}) {
       mesh.group.visible = true;
       mesh.group.position.set(t.x, 0, t.z);
       mesh.group.rotation.y = t.heading;
+      // F4 V4: traffic blob follows the slot's car.
+      trafficBlobs[slot].visible = true;
+      trafficBlobs[slot].position.set(t.x, groundY(t.x, t.z), t.z);
+      trafficBlobs[slot].rotation.z = -t.heading;
       mesh.paintMat.color.setHex(t.kind === 'taxi'
         ? 0xf2c94c
         : EXTRA_CAR.trafficColors[t.colorIndex % EXTRA_CAR.trafficColors.length]);
     }
     for (let i = 0; i < trafficPool.length; i += 1) {
-      if (!usedSlots.has(i)) trafficPool[i].group.visible = false;
+      if (!usedSlots.has(i)) { trafficPool[i].group.visible = false; trafficBlobs[i].visible = false; }
     }
     // Pedestrians (Phase 3): from state.peds. A knocked-down pedestrian is
     // hidden until it walks again elsewhere (it respawns after 2 seconds).

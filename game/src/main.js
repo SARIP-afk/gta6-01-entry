@@ -26,7 +26,7 @@ import { createRandom } from './random.js';
 import { buildCity } from './city.js';
 import { createWorld, EVENT_BUST, EVENT_HIT } from './world.js';
 import { ACTION_CONFIRM, ACTION_ENTER, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import { applyGlassMaterials, createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { createHud, loadBest, saveBest } from './hud.js';
 import { stageShot } from './shots.js';
 
@@ -46,6 +46,10 @@ const world = createWorld(city, seed);
 const hud = createHud(city.map);
 const renderer = createRenderer(canvas, hud, { antialias: params.get('aa') !== '0' });
 renderer.scene.add(city.group);
+// F1 (glass swap): windows + storefront glass become MeshStandardMaterial
+// so the panes reflect the PMREM env — exactly once, right after the city
+// joins the scene (see applyGlassMaterials in render.js).
+applyGlassMaterials(renderer.scene);
 // Batch 1 (v3.7-sharp): anisotropic filtering at the GPU's capability
 // (capped at 8) on every procedural texture in the city — canvasTexture()
 // already defaults to 8 at creation; this sets the exact supported value

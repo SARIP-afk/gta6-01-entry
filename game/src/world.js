@@ -167,6 +167,19 @@ export function createWorld(random) {
     if (Math.abs(heroCar.speed) < 0.05) heroCar.speed = 0;
     const rate = CAR.steerRate * Math.min(1, Math.abs(heroCar.speed) / 8);
     heroCar.heading += steer * rate * dt * Math.sign(heroCar.speed || 1);
+    // Don't rear-end the car ahead: ease off when traffic is close in front.
+    const fx = Math.cos(heroCar.heading);
+    const fz = -Math.sin(heroCar.heading);
+    for (const c of traffic.cars) {
+      const dx = c.x - heroCar.x;
+      const dz = c.z - heroCar.z;
+      const along = dx * fx + dz * fz;
+      const side = Math.abs(dx * fz - dz * fx);
+      if (along > 0 && along < 10 && side < 2.5) {
+        heroCar.speed = Math.min(heroCar.speed, Math.max(0, c.speed));
+        break;
+      }
+    }
     const vx = Math.cos(heroCar.heading) * heroCar.speed;
     const vz = -Math.sin(heroCar.heading) * heroCar.speed;
     const nx = heroCar.x + vx * dt;

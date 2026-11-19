@@ -24,7 +24,9 @@ const seed = Number.isInteger(seedParam) ? seedParam : 1;
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
 const world = createWorld(createRandom(seed));
+window.__world = world;
 const renderer = createRenderer(canvas, world.state.city);
+window.__renderer = renderer;
 const radio = createRadio();
 
 function readBest() {
@@ -66,12 +68,26 @@ function enrichState() {
 function runShot(name) {
   const scene = stageShot(name, world);
   enrichState();
+  // The cover pulls the camera back for a wider chase frame.
+  if (name === 'cover') renderer.setFollow(17, 8.5);
+  // The HUD is DOM, so a shot without it would show a bare city: build it too.
+  const shotHud = createHud({ onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {} });
+  if (name === 'start') {
+    shotHud.fillTitle(listSlots(), readBest());
+    shotHud.showScreen('title');
+  } else {
+    shotHud.showScreen('play');
+  }
   let painted = 0;
   let ledger = null;
+  const t0 = performance.now();
   function paint() {
     ledger = renderer.draw(world.state, scene.screen, world.state.time);
+    shotHud.update(world.state, scene.screen, ledger, renderer.project, world.state.time);
     painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
+    // Keep painting: the follow camera needs frames to settle behind the car.
+    // Ready after ~120 frames, or 3.5 s of wall time on a slow software renderer.
+    if (painted < 120 && performance.now() - t0 < 3500) requestAnimationFrame(paint);
     else {
       window.__shotReady = true;
       window.__ledger = ledger;

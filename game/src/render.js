@@ -50,31 +50,35 @@ function roadTexture(city) {
   cv.width = S;
   cv.height = S;
   const g = cv.getContext('2d');
-  const span = CITY.gridMax - CITY.gridMin + 104;
-  const toPx = (v) => ((v - CITY.gridMin + 52) / span) * S;
+  // The plane spans x -364..476 (the pier and the sea sit east of the grid)
+  // and z -364..364. The square texture maps each axis to its own span.
+  const X0 = -364;
+  const Z0 = -364;
+  const toX = (v) => ((v - X0) / 840) * S;
+  const toZ = (v) => ((v - Z0) / 728) * S;
   g.fillStyle = '#8a7a5c';
   g.fillRect(0, 0, S, S);
   // Beach sand on the south strip, sea blue past the pier.
   g.fillStyle = '#d9b380';
-  g.fillRect(0, toPx(208), S, S - toPx(208));
+  g.fillRect(0, toZ(208), S, S - toZ(208));
   g.fillStyle = '#2e6f8e';
-  g.fillRect(toPx(CITY.pier.x - 10), 0, S - toPx(CITY.pier.x - 10), S);
+  g.fillRect(toX(CITY.pier.x + 10), 0, S - toX(CITY.pier.x + 10), S);
   // Asphalt roads with centre dashes.
   for (const r of city.roads) {
     g.fillStyle = '#3a3f46';
-    g.fillRect(0, toPx(r) - 6 / span * S, S, 12 / span * S);
-    g.fillRect(toPx(r) - 6 / span * S, 0, 12 / span * S, S);
+    g.fillRect(0, toZ(r) - 6 / 728 * S, S, 12 / 728 * S);
+    g.fillRect(toX(r) - 6 / 840 * S, 0, 12 / 840 * S, S);
     g.fillStyle = '#f2c94c';
     for (let v = CITY.gridMin; v < CITY.gridMax; v += 16) {
-      g.fillRect(toPx(v), toPx(r) - 1, 8 / span * S, 2);
-      g.fillRect(toPx(r) - 1, toPx(v), 2, 8 / span * S);
+      g.fillRect(toX(v), toZ(r) - 1, 8 / 840 * S, 2);
+      g.fillRect(toX(r) - 1, toZ(v), 2, 8 / 728 * S);
     }
   }
   // Causeway to the pier.
   g.fillStyle = '#3a3f46';
-  g.fillRect(toPx(CITY.gridMax), toPx(-6) - 6 / span * S, toPx(CITY.pier.x + 20) - toPx(CITY.gridMax), 12 / span * S);
+  g.fillRect(toX(CITY.gridMax), toZ(-6) - 6 / 728 * S, toX(CITY.pier.x + 20) - toX(CITY.gridMax), 12 / 728 * S);
   g.fillStyle = '#7a6a4c';
-  g.fillRect(toPx(CITY.pier.x - 14), toPx(-22), 28 / span * S, 44 / span * S);
+  g.fillRect(toX(CITY.pier.x - 14), toZ(-22), 28 / 840 * S, 44 / 728 * S);
   const tex = new THREE.CanvasTexture(cv);
   tex.anisotropy = 4;
   return tex;
@@ -106,7 +110,7 @@ export function createRenderer(canvas, city) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(PALETTE.sky);
-  scene.fog = new THREE.Fog(PALETTE.fog, 220, 900);
+  scene.fog = new THREE.Fog(PALETTE.fog, 260, 1100);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
 
   const hemi = new THREE.HemisphereLight(0xffe0b3, 0x8a6a4a, 1.15);
@@ -115,13 +119,13 @@ export function createRenderer(canvas, city) {
   sun.position.set(-120, 180, 60);
   scene.add(sun);
 
-  // Ground: one road-textured plane over the whole playable area.
+  // Ground: one road-textured plane over the whole playable area, pier included.
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(CITY.gridMax - CITY.gridMin + 104, CITY.gridMax - CITY.gridMin + 104),
+    new THREE.PlaneGeometry(840, 728),
     new THREE.MeshLambertMaterial({ map: roadTexture(city) }),
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, 0, 0);
+  ground.position.set(56, 0, 0);
   scene.add(ground);
 
   // Buildings: solid boxes + a lit-window layer, both merged to one mesh each.
@@ -350,6 +354,12 @@ export function createRenderer(canvas, city) {
   const camYaw = { value: 0 };
   const camPos = new THREE.Vector3(-70, 8, 10);
   const camLook = new THREE.Vector3();
+  // Follow distance/height override (the cover shot pulls back for a wider frame).
+  const follow = { dist: 0, height: 0 };
+  function setFollow(dist, height) {
+    follow.dist = dist;
+    follow.height = height;
+  }
 
   function resize() {
     const w = window.innerWidth;
@@ -380,18 +390,45 @@ export function createRenderer(canvas, city) {
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;
     camYaw.value += d * Math.min(1, 0.06);
-    const dist = player.mode === 'car' ? 12 : 7.5;
-    const height = player.mode === 'car' ? 5 : 3.4;
-    const wantX = focus.x - Math.cos(camYaw.value) * dist;
-    const wantZ = focus.z + Math.sin(camYaw.value) * dist;
+    const dist = follow.dist || (player.mode === 'car' ? 11 : 7.5);
+    const height = follow.height || (player.mode === 'car' ? 5.5 : 3.6);
+    // Pull the camera in when the spot behind the car is inside a building, so
+    // the car stays in frame instead of the camera climbing onto the roofs.
+    function insideBuilding(x, z) {
+      for (const b of city.buildings) {
+        if (Math.abs(x - b.x) < b.w / 2 + 1 && Math.abs(z - b.z) < b.d / 2 + 1) return b.h;
+      }
+      return 0;
+    }
+    let camDist = dist;
+    let camHeight = height;
+    for (const d of [dist, 8, 5.5, 3.5]) {
+      const cx = focus.x - Math.cos(camYaw.value) * d;
+      const cz = focus.z + Math.sin(camYaw.value) * d;
+      if (insideBuilding(cx, cz) === 0) {
+        camDist = d;
+        break;
+      }
+      camDist = d;
+    }
+    const blockedHeight = insideBuilding(focus.x - Math.cos(camYaw.value) * camDist, focus.z + Math.sin(camYaw.value) * camDist);
+    if (blockedHeight > 0) camHeight = blockedHeight + 3;
+    const wantX = focus.x - Math.cos(camYaw.value) * camDist;
+    const wantZ = focus.z + Math.sin(camYaw.value) * camDist;
     if (screen === SCREEN_TITLE) {
       const a = time * 0.05;
       camPos.set(Math.cos(a) * 260, 120, Math.sin(a) * 260);
       camLook.set(0, 0, 0);
     } else {
-      camPos.x += (wantX - camPos.x) * 0.12;
-      camPos.y += (height - camPos.y) * 0.12;
-      camPos.z += (wantZ - camPos.z) * 0.12;
+      // A big jump (fresh load, a save, a staged shot) snaps; small moves ease.
+      if (Math.hypot(wantX - camPos.x, wantZ - camPos.z) > 50) {
+        camPos.set(wantX, camHeight, wantZ);
+        camYaw.value = heading;
+      } else {
+        camPos.x += (wantX - camPos.x) * 0.12;
+        camPos.y += (camHeight - camPos.y) * 0.12;
+        camPos.z += (wantZ - camPos.z) * 0.12;
+      }
       camLook.set(focus.x + Math.cos(heading) * 8, 1.5, focus.z - Math.sin(heading) * 8);
     }
     camera.position.copy(camPos);
@@ -557,5 +594,5 @@ export function createRenderer(canvas, city) {
     renderer.dispose();
   }
 
-  return { draw, project, screenToGround, dispose, cameraHeading: () => camYaw.value };
+  return { draw, project, screenToGround, dispose, setFollow, cameraHeading: () => camYaw.value, debugCam: () => ({ pos: [camPos.x, camPos.y, camPos.z], look: [camLook.x, camLook.y, camLook.z], yaw: camYaw.value }) };
 }

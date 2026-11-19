@@ -307,7 +307,7 @@ export function createHud(callbacks) {
   }
 
   function fillTitle(slots, best) {
-    el('best-line').textContent = best > 0 ? `BEST CASH $${best.toLocaleString('en-US')}` : 'A COURIER. A DEBT. A CITY THAT NEVER SLOWS DOWN.';
+    el('best-line').textContent = best > 0 ? `BEST CASH $${best.toLocaleString('en-US')}` : '';
     const wrap = el('slots');
     wrap.innerHTML = '';
     slots.forEach((slot, i) => {

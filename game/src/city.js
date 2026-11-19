@@ -93,7 +93,7 @@ export function buildCity(random) {
     { x: -58, z: -176, text: 'DOWNTOWN', sub: 'NIGHT MARKET' },
     { x: -162, z: 132, text: 'SOLMARINA STADIUM', sub: 'HOME OF THE WAVES' },
     { x: 254, z: 82, text: 'MARINA', sub: 'BOATS · MONEY' },
-    { x: 380, z: -24, text: 'THE PIER', sub: 'END OF THE ROAD' },
+    { x: 380, z: 22, text: 'THE PIER', sub: 'END OF THE ROAD' },
     { x: -280, z: -280, text: 'OLD HARBOR', sub: 'FISH · SALT · RUST' },
     { x: 120, z: 280, text: 'PALM BEACH', sub: 'SURF · SUNSET' },
     { x: 0, z: -300, text: 'SOLMARINA', sub: 'A CITY THAT NEVER SLOWS DOWN' },

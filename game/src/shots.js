@@ -6,7 +6,7 @@ import { CITY, STEP } from './config.js';
 import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
 const START_SECONDS = 5;
-const PLAY_SECONDS = 40;
+const PLAY_SECONDS = 26;
 const END_SECONDS = 60;
 const COVER_SECONDS = 3;
 
@@ -96,22 +96,48 @@ export function stageShot(name, world) {
     s.missions.state.stage = 0;
     s.missions.state.started = true;
     s.missions.state.missionTime = 0;
+    s.missions.state.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
+    s.missions.state.dialogTimer = 6;
     s.player.mode = 'car';
     s.heroCar.x = 296;
     s.heroCar.z = -6;
     s.heroCar.heading = 0;
     s.heroCar.speed = 12;
     s.police.setWanted(3, s.events);
-    for (let i = 0; i < 4; i += 1) {
+    // Traffic ahead on the causeway, in the other lane — visible, not rammed.
+    const coverCars = [[344, -1], [362, -11], [382, -1]];
+    for (let i = 0; i < coverCars.length; i += 1) {
       const c = s.traffic.cars[i];
-      c.x = 260 + i * 14;
-      c.z = -6 + (i % 2 === 0 ? 0 : 0);
+      c.x = coverCars[i][0];
+      c.z = coverCars[i][1];
       c.heading = 0;
       c.tx = 400;
       c.tz = -6;
     }
     for (let i = 0; i < COVER_SECONDS / STEP; i += 1) {
       world.step(STEP, driveInput(world, CITY.pier.x, CITY.pier.z));
+    }
+    // Stage, not sim: the cover shows wanted 3 and a clean car.
+    s.police.setWanted(3, []);
+    s.heroCar.damage = 0;
+    // Flank two cruisers into the frame ahead of the hero: a chase reads
+    // only when the pursuit is visible, not just on the dispatch panel.
+    if (s.police.units[0]) {
+      s.police.units[0].x = s.heroCar.x + 22;
+      s.police.units[0].z = s.heroCar.z - 9;
+      s.police.units[0].heading = Math.PI;
+    }
+    if (s.police.units[1]) {
+      s.police.units[1].x = s.heroCar.x + 16;
+      s.police.units[1].z = s.heroCar.z + 10;
+      s.police.units[1].heading = Math.PI;
+    }
+    // Keep pedestrians out of the hero's personal space for the frame.
+    for (const p of s.traffic.peds) {
+      if (Math.hypot(p.x - s.heroCar.x, p.z - s.heroCar.z) < 20) {
+        p.x += 45;
+        p.z += 45;
+      }
     }
     return { screen: SCREEN_PLAY };
   }
@@ -126,6 +152,8 @@ export function stageShot(name, world) {
     s.missions.state.active = 3;
     s.missions.state.stage = 0;
     s.missions.state.started = true;
+    s.missions.state.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
+    s.missions.state.dialogTimer = 6;
     s.police.setWanted(3, s.events);
     s.player.mode = 'car';
   }
@@ -139,5 +167,13 @@ export function stageShot(name, world) {
     world.step(STEP, input);
     if (s.player.health <= 0) break;
   }
+  // Stage, not sim: play shows a working chase at most wanted 2, end shows wanted 3.
+  if (name === 'end') {
+    s.police.setWanted(3, []);
+    s.heroCar.damage = 0;
+  } else if (s.police.state.wanted > 2) {
+    s.police.setWanted(2, []);
+  }
+  s.heroCar.damage = Math.min(s.heroCar.damage, 15);
   return { screen: s.player.health <= 0 ? SCREEN_OVER : SCREEN_PLAY };
 }

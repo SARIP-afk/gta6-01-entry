@@ -41,30 +41,61 @@ export const SCREEN_PAUSED = 'paused';
 /** A pedestrian: two legs, torso, head, hair, and two sleeved arms that swing
  * while walking (Batch 2, Phase C — the old ped was 3 boxes and glided).
  * The arms are groups pivoted at the shoulder, so rotation.x swings them
- * like Rio's legs. Same size, same speed, same hitbox — visual only. */
+ * like Rio's legs. Same size, same speed, same hitbox — visual only.
+ * P4-0: the 5 static parts (2 legs + torso + head + hair) are merged into
+ * ONE mesh with per-vertex colours (same pattern as car.js mergeParts, but
+ * one mesh can't carry 4 materials — vertex colours carry the 4 colours
+ * instead, written through THREE.Color so the linear-sRGB values match the
+ * old materials exactly). The 2 arm groups stay separate meshes so the walk
+ * swing still works. Result: 3 meshes (3 draw calls) per ped instead of 7,
+ * same 84 tri. The torso's vertex colours are repainted when the live ped's
+ * shirt changes (draw loop, via torsoStart/torsoCount). */
+function mergeColoredParts(parts) {
+  // parts: { geometry, matrix, color } — like mergeParts() plus a 'color'
+  // attribute holding the part's colour (THREE.Color linear components) at
+  // every vertex. ranges[i] = [startVertex, vertexCount] of part i, for
+  // later repainting.
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const ranges = [];
+  for (const { geometry, matrix, color } of parts) {
+    const geo = geometry.index ? geometry.toNonIndexed() : geometry;
+    geo.applyMatrix4(matrix);
+    const start = positions.length / 3;
+    positions.push(...geo.attributes.position.array);
+    normals.push(...geo.attributes.normal.array);
+    const n = geo.attributes.position.count;
+    for (let i = 0; i < n; i += 1) colors.push(color.r, color.g, color.b);
+    ranges.push([start, n]);
+  }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  return { geometry: merged, ranges };
+}
+
 function buildPedMesh(shirtColor) {
   const ped = new THREE.Group();
   ped.name = 'pedestrian';
   const shirt = new THREE.MeshLambertMaterial({ color: shirtColor });
-  const skin = new THREE.MeshLambertMaterial({ color: 0xe8b98a });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x33302a });
-  const hairMat = new THREE.MeshLambertMaterial({ color: 0x2a2018 });
-  const legs = [];
-  for (const x of [-0.09, 0.09]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.7, 0.26), pants);
-    leg.position.set(x, 0.35, 0);
-    ped.add(leg);
-    legs.push(leg);
-  }
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.68, 0.3), shirt);
-  torso.position.y = 1.04;
-  ped.add(torso);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.32), skin);
-  head.position.y = 1.56;
-  ped.add(head);
-  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.34), hairMat);
-  hair.position.y = 1.78;
-  ped.add(hair);
+  const part = (w, h, d, x, y, z, color) => ({
+    geometry: new THREE.BoxGeometry(w, h, d),
+    matrix: new THREE.Matrix4().makeTranslation(x, y, z),
+    color,
+  });
+  // Static parts, in order: 2 legs, torso, head, hair — same boxes, same
+  // positions, same colours as before, now one mesh. The torso range is
+  // kept so draw() can repaint its vertex colours when the shirt changes.
+  const { geometry: staticGeo, ranges } = mergeColoredParts([
+    part(0.15, 0.7, 0.26, -0.09, 0.35, 0, new THREE.Color(0x33302a)),
+    part(0.15, 0.7, 0.26, 0.09, 0.35, 0, new THREE.Color(0x33302a)),
+    part(0.56, 0.68, 0.3, 0, 1.04, 0, new THREE.Color(shirtColor)),
+    part(0.34, 0.34, 0.32, 0, 1.56, 0, new THREE.Color(0xe8b98a)),
+    part(0.36, 0.1, 0.34, 0, 1.78, 0, new THREE.Color(0x2a2018)),
+  ]);
+  ped.add(new THREE.Mesh(staticGeo, new THREE.MeshLambertMaterial({ vertexColors: true })));
   const arms = [];
   for (const x of [-0.35, 0.35]) {
     const arm = new THREE.Group();
@@ -76,7 +107,9 @@ function buildPedMesh(shirtColor) {
     arms.push(arm);
   }
   // Repainted every frame from the live pedestrian's shirt, like traffic cars.
-  return { group: ped, shirtMat: shirt, legs, arms };
+  // shirtMat drives the arm sleeves; the torso lives in the merged mesh, so
+  // draw() repaints its vertex colours (torsoStart/torsoCount) on change.
+  return { group: ped, shirtMat: shirt, arms, staticGeo, torsoStart: ranges[2][0], torsoCount: ranges[2][1], shirtHex: shirtColor };
 }
 
 function buildPlayerMesh() {
@@ -907,7 +940,21 @@ export function createRenderer(canvas, hud, options = {}) {
       mesh.group.visible = true;
       mesh.group.position.set(p.x, groundY(p.x, p.z), p.z);
       mesh.group.rotation.y = p.heading;
-      mesh.shirtMat.color.setHex(PALETTE.pedShirts[p.shirt % PALETTE.pedShirts.length]);
+      const shirtHex = PALETTE.pedShirts[p.shirt % PALETTE.pedShirts.length];
+      mesh.shirtMat.color.setHex(shirtHex);
+      // P4-0: the torso is inside the merged static mesh — repaint its
+      // vertex colours when the shirt changes (arm sleeves follow shirtMat).
+      // THREE.Color gives the same linear-sRGB values setHex() gives the
+      // material, so the torso matches the sleeves exactly.
+      if (mesh.shirtHex !== shirtHex) {
+        mesh.shirtHex = shirtHex;
+        const c = new THREE.Color(shirtHex);
+        const attr = mesh.staticGeo.attributes.color;
+        for (let v = mesh.torsoStart; v < mesh.torsoStart + mesh.torsoCount; v += 1) {
+          attr.setXYZ(v, c.r, c.g, c.b);
+        }
+        attr.needsUpdate = true;
+      }
       // Batch 2, Phase C: the peds' arms swing while they walk or flee —
       // same 7 Hz walk phase as Rio's, offset per ped so the crowd does not
       // march in lockstep.

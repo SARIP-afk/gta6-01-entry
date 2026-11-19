@@ -1,75 +1,75 @@
-// Keyboard and pointer input. Held keys give the driving/walking direction; one-shot
-// presses (start, enter/exit car, handbrake is held, pause) are queued as bit flags and
-// taken once by the loop, so a press between two frames is never lost or counted twice.
-// A key released while the tab is hidden never sends keyup: blur lets go of everything,
-// including any press queued while hidden, so a stale Enter can never fire later.
-
+// Keyboard and mouse input. Held keys are read every frame; one-shot presses
+// (start, pause, enter/exit, reload, radio, map) are queued as bit flags and taken
+// once by the loop, so a press between two frames is never lost or counted twice.
+// The mouse gives an aim point; the loop turns it into a world angle.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_ENTER = 4;
+export const ACTION_RELOAD = 8;
+export const ACTION_RADIO = 16;
+export const ACTION_MAP = 32;
 
-const FORWARD = new Set(['ArrowUp', 'KeyW']);
-const BACK = new Set(['ArrowDown', 'KeyS']);
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
 const CONFIRM = new Set(['Space', 'Enter']);
-const ENTER = new Set(['KeyE']);
 const PAUSE = new Set(['KeyP', 'Escape']);
-const RUN = new Set(['ShiftLeft', 'ShiftRight']);
+const ENTER = new Set(['KeyE']);
+const RELOAD = new Set(['KeyR']);
+const RADIO = new Set(['KeyT']);
+const MAP = new Set(['KeyM']);
 
 export function createInput(target) {
-  let forward = false;
-  let back = false;
-  let left = false;
-  let right = false;
-  let handbrake = false;
-  let run = false;
+  const held = new Set();
   let actions = 0;
+  const mouse = { x: 0, y: 0, down: false };
 
   window.addEventListener('keydown', (event) => {
-    if (FORWARD.has(event.code)) forward = true;
-    else if (BACK.has(event.code)) back = true;
-    else if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (event.code === 'Space') handbrake = true;
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (ENTER.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_ENTER;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else if (RUN.has(event.code)) run = true;
+    if (event.repeat) return;
+    held.add(event.code);
+    if (CONFIRM.has(event.code)) actions |= ACTION_CONFIRM;
+    else if (PAUSE.has(event.code)) actions |= ACTION_PAUSE;
+    else if (ENTER.has(event.code)) actions |= ACTION_ENTER;
+    else if (RELOAD.has(event.code)) actions |= ACTION_RELOAD;
+    else if (RADIO.has(event.code)) actions |= ACTION_RADIO;
+    else if (MAP.has(event.code)) actions |= ACTION_MAP;
     else return;
     event.preventDefault();
   });
   window.addEventListener('keyup', (event) => {
-    if (FORWARD.has(event.code)) forward = false;
-    else if (BACK.has(event.code)) back = false;
-    else if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-    else if (event.code === 'Space') handbrake = false;
-    else if (RUN.has(event.code)) run = false;
+    held.delete(event.code);
   });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
   window.addEventListener('blur', () => {
-    forward = false;
-    back = false;
-    left = false;
-    right = false;
-    handbrake = false;
-    run = false;
-    actions = 0;
+    held.clear();
+    mouse.down = false;
   });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
+  window.addEventListener('mousemove', (event) => {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
   });
+  target.addEventListener('mousedown', (event) => {
+    if (event.button === 0) {
+      mouse.down = true;
+      mouse.x = event.clientX;
+      mouse.y = event.clientY;
+    }
+  });
+  window.addEventListener('mouseup', (event) => {
+    if (event.button === 0) mouse.down = false;
+  });
+  target.addEventListener('contextmenu', (event) => event.preventDefault());
+
+  function axis() {
+    // Camera-space drive/walk axes: +forward is W, +right is D.
+    const f = (held.has('KeyW') || held.has('ArrowUp') ? 1 : 0) - (held.has('KeyS') || held.has('ArrowDown') ? 1 : 0);
+    const r = (held.has('KeyD') || held.has('ArrowRight') ? 1 : 0) - (held.has('KeyA') || held.has('ArrowLeft') ? 1 : 0);
+    return { forward: f, right: r };
+  }
 
   return {
-    /** The held driving/walking input, as the world step() reads it. */
-    read() {
-      return { forward, back, left, right, handbrake, run, enter: false };
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
+    held,
+    mouse,
+    axis,
+    run: () => held.has('ShiftLeft') || held.has('ShiftRight'),
+    boost: () => held.has('ShiftLeft') || held.has('ShiftRight'),
+    brake: () => held.has('Space'),
     takeActions() {
       const taken = actions;
       actions = 0;

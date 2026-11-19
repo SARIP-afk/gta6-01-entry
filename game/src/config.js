@@ -1,304 +1,167 @@
-// Every tuning number, name and colour in one place. Solmarina is a sun-soaked coastal
-// Finishing (v3.8-structural, recording #4): file re-written in this session; gates re-run on this exact content — see BATCH2-FINISH-REPORT.md.
-// city: golden-hour light, warm walls, a marina and a pier on the east sea edge.
-// The city is a 12x12 block grid (52 m pitch) centred on the origin; roads are the gaps.
-// All randomness comes from the seeded generator, so the same seed builds the same city.
+// Solmarina — every tuning number in one place. The city is a road grid: roads run
+// every 52 m from -312 to 312 on both axes, the marina causeway runs east from x=312
+// to the pier at (400, -6), and the beach strip closes the south edge. All numbers
+// here are sim constants: the renderer only reads them, it never re-tunes them.
 
-export const GAME = {
-  title: 'Solmarina',
-  city: 'Solmarina',
-  hero: 'Rio',
-  tagline: 'A courier. A debt. A city that never slows down.',
-};
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
 export const STEP = 1 / 60;
 
-/** Default seed when the URL gives none; ?seed=N fixes the city and the staged shots. */
-export const DEFAULT_SEED = 1;
+/** The fixed sim step, and the two trace lengths the determinism check hashes. */
+export const TRACE = { sampleEvery: 60, steps: 1800 };
 
 export const CITY = {
-  blocks: 12,
-  block: 40,
-  road: 12,
-  pitch: 52,
-  half: 312,
-  sidewalk: 3,
-  // East of this x the land ends: promenade, then the sea.
-  seaX: 336,
-  // The marina channel: water cut east-west along z in [-10, 10], from x 200 to the sea.
-  channel: { x0: 200, x1: 336, z0: -10, z1: 10 },
-  // The one bridge over the channel: a deck spanning it along the east-west road at
-  // z -6 (the road the car spawns on, facing east toward the bridge). It overlaps both
-  // banks by 2 m so the road reads as continuous; the water north of the deck still
-  // blocks cars and feet. (Phase 1 fix: the first build put two short slabs across
-  // the channel that touched neither bank, so the car could never cross.)
-  bridge: { x0: 198, x1: 338, z: -6, width: 12 },
-  // Landmarks, by block centre.
-  tower: { bx: 5, bz: 1, height: 112 },
-  stadium: { bx: 2, bz: 9, radius: 42 },
-  pier: { x0: 336, x1: 430, z: -6, width: 12 },
+  roadStep: 52,
+  gridMin: -312,
+  gridMax: 312,
+  roadHalf: 6,
+  pier: { x: 400, z: -6 },
+  spawn: { x: -58, z: -6, heading: 0 },
+  safehouse: { x: -58, z: 30, radius: 26 },
+  // Landmark blocks the missions and the cover stage around.
+  stadium: { x: -162, z: 150 },
+  marinaDrop: { x: 254, z: 98 },
+  downtownPickup: { x: -58, z: -162 },
 };
 
-/** Districts, by block column/row: downtown towers north-centre, marina east, suburbs elsewhere. */
-export function districtOf(bx, bz) {
-  if (bx >= 4 && bx <= 7 && bz <= 3) return 'downtown';
-  if (bx >= 8) return 'marina';
-  return 'suburb';
-}
-
-export const CAR = {
-  length: 4.4,
-  width: 1.9,
-  wheelbase: 2.8,
-  accel: 16,
-  brake: 30,
-  reverseAccel: 10,
-  maxSpeed: 34,
-  maxReverse: 10,
-  drag: 0.35,
-  steerMax: 0.55,
-  // Cap on the yaw rate (rad/s) at speed: full lock at low speed, but the wheel
-  // angle shrinks as speed grows so the car never spins at 30+ m/s. (Phase 1 fix:
-  // the old linear falloff still let the car yaw ~2.8 rad/s at 31 m/s.)
-  steerYawCap: 1.4,
-  handbrakeDecel: 22,
-  // Colour of the player's car: coral red, so it reads in a screenshot.
-  color: 0xe8543f,
-  cabinColor: 0x2a3140,
-  wheelColor: 0x14161a,
-  // Phase 3.5 visual pass: real glass (light, not the old solid dark cabin),
-  // dark trim for bumpers/grille, bright hubs so the wheels read on black asphalt.
-  glassColor: 0x8fb8cc,
-  glassBright: 0xc8e2f0,
-  trimColor: 0x2a2f36,
-  hubColor: 0xc8ccd2,
-  tailColor: 0xd8382a,
-};
+export const DISTRICTS = [
+  { name: 'DOWNTOWN', tag: 'Glass towers and the night market', color: '#f2c94c', x0: -156, z0: -260, x1: 52, z1: -52 },
+  { name: 'OLD HARBOR', tag: 'Warehouses and fish stalls', color: '#e07a5f', x0: -312, z0: -260, x1: -156, z1: -52 },
+  { name: 'NORTHGATE', tag: 'The high road out of town', color: '#8ecae6', x0: -312, z0: -312, x1: 312, z1: -260 },
+  { name: 'PALM BEACH', tag: 'Sand, surf and the long pier', color: '#90be6d', x0: -312, z0: 208, x1: 312, z1: 312 },
+  { name: 'STADIUM ROW', tag: 'Floodlights and cheap seats', color: '#f28482', x0: -312, z0: 52, x1: -104, z1: 208 },
+  { name: 'FOUNDRY', tag: 'Garages, yards and scrap', color: '#b08968', x0: 52, z0: -52, x1: 312, z1: 208 },
+  { name: 'MARINA', tag: 'Boats, money and the causeway', color: '#4fc3f7', x0: 208, z0: -104, x1: 420, z1: 104 },
+];
 
 export const PLAYER = {
-  radius: 0.55,
-  height: 1.8,
-  walkSpeed: 5,
-  runSpeed: 9,
-  accel: 40,
-  color: 0xf2c94c,
-  shirtColor: 0x2f6fb2,
-  pantsColor: 0x33302a,
-  // Phase 3.5 visual pass: shoes + a yellow jacket panel over the shirt, so Rio
-  // reads as a person (not three boxes) at close range.
-  shoeColor: 0x2a2622,
-  jacketColor: 0xf2c94c,
+  walkSpeed: 6.2,
+  runSpeed: 9.0,
+  turnRate: 9.0,
+  radius: 0.9,
+  health: 100,
+  regenDelay: 5,
+  regenRate: 6,
 };
 
-export const CAMERA = {
-  driveDistance: 11,
-  driveHeight: 4.6,
-  footDistance: 7,
-  footHeight: 3.4,
-  fovBase: 60,
-  fovSpeed: 15,
-  smoothing: 5,
-  // Cover shot only (Phase 3.5 visual pass): closer and lower than live play,
-  // narrower FOV, so the car fills ~15% of the frame instead of ~5%. Live play
-  // keeps driveDistance/driveHeight above — the cover override lives in
-  // shots.js (world.state.cameraOverride) and never touches live play.
-  coverDistance: 8.5,
-  coverHeight: 4.0,
-  coverFov: 55,
+export const CAR = {
+  accel: 15,
+  brake: 30,
+  reverseMax: 9,
+  topSpeed: 34,
+  boostTop: 42,
+  steerRate: 1.9,
+  grip: 0.94,
+  radius: 2.1,
+  length: 4.4,
+  width: 1.9,
+  damagePerHit: 7,
 };
 
-/**
- * Lighting (Batch 1, v3.7-sharp): the blur diagnosis measured street frames at
- * 46.6% near-black (luminance <32) vs 0.6% in the reference — hemisphere 0.85
- * could not lift the shadowed side after ACES. Hemi 1.15 + a weak east fill
- * (0.45, no shadow map) lift the shadows without touching exposure or the sun,
- * so contrast and depth survive. Targets (measured on re-rendered frames):
- * facade frame near-black <15%, cover <10%.
- */
-export const LIGHT = {
-  sunIntensity: 2.4,
-  // Batch 2, Phase D (pass 5): back to Batch 1 levels (1.15/0.7). Pass 1's
-  // lift (1.25/0.9) pushed the red hero car over ACES's knee — the red
-  // channel clipped and desaturated to pink (proven by the diagnostic: plain
-  // Standard, no clearcoat, no env was still pink). The facade gate is
-  // carried by the lifted asphalt albedo, not by the light, so the light
-  // reverts and the gate is re-measured.
-  hemiIntensity: 1.15,
-  fillIntensity: 0.7,
-  fillColor: '#ffe8cc',
-  exposure: 1.15,
-};
-
-/**
- * HUD + minimap (Phase 2). Phase 3: the wanted level is LIVE — the HUD stars
- * follow world.state.wanted, which the police system raises on crimes and lowers
- * when the player stays clean and unseen. The objective is the story thread the
- * banner and the minimap waypoint point at; missions (Phase 4) will replace it
- * with per-mission objectives.
- */
-export const HUD = {
-  wantedMax: 5,
-  // The in-game clock starts at golden hour and runs one game minute per 2 real seconds.
-  clockStartMinutes: 17 * 60 + 40,
-  clockMinutesPerSecond: 0.5,
-  healthMax: 100,
-  // First story objective: Rio's first job ends at the marina pier.
-  objective: { text: 'Reach the marina pier', x: 400, z: -6 },
-};
-
-/** Staged chase values for ?shot=cover: a real game state, scripted, not a mockup. */
-export const COVER = {
-  wanted: 3,
-  cash: 1250,
-  objective: { text: 'Lose the cops — reach the pier', x: 400, z: -6 },
-  driveSeconds: 6,
-};
-
-/** Visual-only cars for the cover shot (no AI until Phase 3): police cruisers and traffic. */
-export const EXTRA_CAR = {
-  policeBody: 0x22303f,
-  policeRoof: 0xf2ede2,
-  policeLightRed: 0xff2a1e,
-  policeLightBlue: 0x2a6bff,
-  trafficColors: [0x9aa0a6, 0xd8c9a8, 0x5a7a9a, 0xb8b0a0],
-  cabinColor: 0x2a3140,
-  wheelColor: 0x14161a,
-};
-
-/** Minimap: a 2D canvas, north-up, drawn from the city's map data. */
-export const MINIMAP = {
-  size: 180,
-  // World bounds drawn: x -340..334, z -340..340.
-  minX: -340,
-  maxX: 334,
-  minZ: -340,
-  maxZ: 340,
-};
-
-/**
- * Traffic + pedestrians (Phase 3). Cars follow the road grid, keep their lane,
- * brake for the car ahead, and turn at intersections; pedestrians walk the
- * sidewalks and flee danger. Everything is seeded, so the same seed gives the
- * same city traffic.
- */
 export const TRAFFIC = {
-  count: 8,
-  pedCount: 14,
-  // Cruise speeds of traffic cars (m/s): slower than Rio's 34, so the player
-  // can overtake — and so a chase can outrun them.
-  speedMin: 8,
-  speedMax: 14,
-  // Lane offset from the road centre: right-hand side for the direction of travel.
-  lane: 3,
-  // A car ahead closer than this makes a traffic car brake.
-  brakeDistance: 14,
-  // A car that wants to move but sits still this long is stuck: respawn it.
-  stuckSeconds: 8,
-  // Pedestrians walk the sidewalk strip just outside the asphalt (road half-width
-  // 6 m); they run at this speed when they flee danger.
-  sidewalkOffset: 7.5,
-  pedWalkMin: 1.2,
-  pedWalkMax: 2,
-  pedFleeSpeed: 4.5,
-  // A pedestrian this close to a moving car runs away from it.
-  pedFleeDistance: 9,
-  pedFleeSeconds: 2,
+  cars: 30,
+  peds: 50,
+  carSpeedMin: 7,
+  carSpeedMax: 13,
+  pedSpeedMin: 1.1,
+  pedSpeedMax: 1.9,
+  spawnMin: 55,
+  spawnMax: 190,
+  despawn: 230,
 };
 
-/**
- * Wanted + police (Phase 3). Crimes raise the wanted level; staying clean and
- * unseen lowers it. The police chase on the road grid, ram the player's car,
- * and can LOSE the player: out of sight long enough and they search, then give
- * up — and only then does the wanted level start to decay. Escaping is always
- * possible: police top speed (30 m/s) is below Rio's (34 m/s).
- *
- * Crimes (each +1 star, per-kind cooldown so one incident is one star):
- * - hit-ped: the player's car hits a pedestrian.
- * - hit-traffic: the player's car hits a traffic car.
- * - hit-police: the player's car hits a police cruiser at over 15 m/s.
- * Stealing a car is not a crime here: Rio's red car is his own.
- */
-export const POLICE = {
-  // Police on the road per wanted level (index = stars): 1 star brings 1 cruiser.
-  capByWanted: [0, 1, 2, 2, 3, 3],
-  maxSpeed: 30,
-  accel: 14,
-  // A cruiser sees the player this far, and only with a clear line of sight
-  // (buildings block it — hiding behind a block is real).
-  sightRange: 90,
-  // Out of every cruiser's sight this long: they switch to searching.
-  loseSeconds: 6,
-  // Searching this long without regaining sight: they give up and leave.
-  searchSeconds: 12,
-  // How often each cruiser re-checks line of sight (seconds of game time).
-  losCheckSeconds: 0.25,
-  // A ram lands this close; each cruiser waits this long between rams.
-  ramDistance: 3.6,
-  ramCooldown: 1.5,
-  ramDamage: 5,
-  // Busted: the player (car or on foot) sits still this long with a cruiser
-  // this close — cash is lost and Rio respawns at the start.
-  bustDistance: 8,
-  bustSeconds: 3,
-  // Clean time (no crime, unseen) that burns one star.
-  decaySeconds: 15,
-  // One incident of one kind is one star: a kind cannot fire again this soon.
-  crimeCooldown: 3,
-  // Cruisers spawn in this distance band from the player (metres).
-  spawnMinDistance: 60,
-  spawnMaxDistance: 100,
+// One pistol: the only weapon. Mag 12, reserve 48, 34 damage a hit, 3 hits drop a gunman.
+export const WEAPON = {
+  name: 'SOL-9 PISTOL',
+  mag: 12,
+  reserve: 48,
+  damage: 34,
+  range: 70,
+  fireInterval: 0.22,
+  reloadTime: 1.1,
+  spread: 0.012,
 };
+
+export const ENEMY = { health: 100, shootInterval: 1.3, damage: 8, range: 55, reward: 150 };
+
+export const WANTED_TIERS = [
+  { stars: 0, label: 'CLEAR', cruisers: 0, loseTime: 0, searchTime: 0 },
+  { stars: 1, label: 'PATROL ON ALERT', cruisers: 1, loseTime: 6, searchTime: 10 },
+  { stars: 2, label: 'UNITS RESPONDING', cruisers: 2, loseTime: 7, searchTime: 11 },
+  { stars: 3, label: 'CORDON ACTIVE', cruisers: 3, loseTime: 8, searchTime: 12 },
+  { stars: 4, label: 'AIR SUPPORT', cruisers: 3, loseTime: 9, searchTime: 13 },
+  { stars: 5, label: 'MAXIMUM FORCE', cruisers: 4, loseTime: 10, searchTime: 14 },
+];
+export const WANTED_MAX = 5;
+export const WANTED_DECAY_SECONDS = 15;
+export const BUST_CASH_LOSS = 0.25;
+
+export const MISSIONS = [
+  {
+    id: 'M1', name: 'FIRST DROP', reward: 500, par: 150,
+    brief: 'DANTE: "One package. Pier. Don\'t keep me waiting."',
+    stages: [
+      { name: 'PICK UP THE PACKAGE', text: 'Pick up the package downtown', x: -58, z: -162, radius: 10, footOnly: false },
+      { name: 'DELIVER TO THE PIER', text: 'Deliver to the pier', x: 400, z: -6, radius: 70, footOnly: false },
+    ],
+  },
+  {
+    id: 'M2', name: 'THE HANDOFF', reward: 800, par: 180,
+    brief: 'DANTE: "Sana only trusts a face she can see. Get out and walk."',
+    stages: [
+      { name: 'MEET SANA', text: 'Meet Sana at the stadium — on foot', x: -162, z: 150, radius: 8, footOnly: true },
+      { name: 'DROP AT THE MARINA', text: 'Drop the package at the marina', x: 254, z: 98, radius: 10, footOnly: false },
+    ],
+  },
+  {
+    id: 'M3', name: 'TAIL THE VAN', reward: 1200, par: 240,
+    brief: 'DANTE: "My van runs downtown to the marina. Stay on it. Don\'t be seen losing it."',
+    stages: [
+      { name: 'FIND DANTE\'S VAN', text: 'Close in on the gold van', vanDist: 40 },
+      { name: 'STAY ON IT', text: 'Stay within 80 m of the van', vanDist: 80, loseSeconds: 5 },
+    ],
+  },
+  {
+    id: 'M4', name: 'LOSE THE HEAT', reward: 2000, par: 300, title: 'WHEELMAN',
+    brief: 'DANTE: "It\'s a trap. Lose them — then bring it home."',
+    stages: [
+      { name: 'LOSE THE COPS', text: 'Lose the cordon — wanted back to zero', wantedZero: true },
+      { name: 'RUN TO THE PIER', text: 'Run to the pier before the clock dies', x: 400, z: -6, radius: 70, footOnly: false, timeLimit: 120 },
+    ],
+  },
+];
+
+export const RADIO = [
+  { name: 'SOL 98.1 — COAST FM', desc: 'Island pop', bpm: 112, root: 220 },
+  { name: 'BASS 94.6 — HARBOR', desc: 'Harbor bass', bpm: 96, root: 110 },
+  { name: 'LO-FI 88.9 — TIDE', desc: 'Lo-fi lagoon', bpm: 76, root: 164.81 },
+];
+
+export const SHELLS = 20;
+export const EXPORT_MODELS = ['VELA GT', 'CORTO', 'BRISA', 'MARLIN', 'TIDE RUNNER'];
+
+export const CAR_MODELS = [
+  { name: 'VELA GT', color: 0xd94f3d, top: 36 },
+  { name: 'CORTO', color: 0x4fc3f7, top: 32 },
+  { name: 'BRISA', color: 0xf2c94c, top: 31 },
+  { name: 'MARLIN', color: 0x90be6d, top: 33 },
+  { name: 'TIDE RUNNER', color: 0xe8e8e8, top: 30 },
+];
 
 export const PALETTE = {
-  skyTop: '#6ea8dd',
-  skyHorizon: '#ffd9a0',
-  // Phase 3.5 visual pass: fog is cool blue-grey now, not warm cream — the city
-  // gets depth instead of drowning in a beige haze.
-  fog: '#b8c8d8',
-  sun: '#ffb46b',
-  groundSand: '#d9b380',
-  // Batch 2, Phase D: the asphalt base is lifted (was #4a4642) so the road in
-  // building shadow stops rendering near-black — the facade gate. Still a
-  // warm worn grey, not concrete; the speckle/crack colours in
-  // makeAsphaltTexture are lifted to match.
-  asphalt: '#5d5850',
-  sidewalk: '#cfc3ab',
-  crosswalk: '#f5efe0',
-  laneDash: '#f2c94c',
-  sea: '#2e7fa8',
-  seaDeep: '#1f5f86',
-  pierWood: '#8a6a4a',
-  // Phase 3.5 visual pass: each district keeps its warm base, but gains cooler /
-  // stronger entries so the three districts read apart at a glance. The accent
-  // lists are picked ~22% of the time (city.js) for buildings that break the
-  // beige monopoly: glass blue downtown, teal/white marina, terracotta suburb.
-  // Phase 3.6 (visual pass 2): the bold colours move INTO the base lists too —
-  // the reference city is ~half strong colour, not a beige city with a few
-  // accents. Accent chance in city.js is now ~50%, and the base lists carry
-  // glass blue, brick orange, sage green and clean white alongside the warm
-  // bases, so no street reads as one beige wall.
-  buildingDowntown: ['#e8dcc8', '#d9c9a8', '#5a8ab0', '#3a6a9a', '#e8e8e8', '#8fa8c0', '#c96a4a', '#6a8ab0'],
-  buildingDowntownAccent: ['#2a5a8a', '#1a4a7a', '#d84a35', '#f2f6f2', '#e8a83a'],
-  buildingMarina: ['#f2e6d0', '#e8cfae', '#2e8a9a', '#f2f6f2', '#d84a35', '#cfe0dc', '#e8a83a', '#9fc4c8'],
-  buildingMarinaAccent: ['#1a7a8a', '#d84a35', '#f2c94c', '#2e8a9a'],
-  buildingSuburb: ['#f5ead6', '#e8d5b0', '#c96a4a', '#7a9a5a', '#b85a3a', '#a8b89a', '#e8e8e8', '#d9c39a'],
-  buildingSuburbAccent: ['#a84a2a', '#5a8a4a', '#c94a3a', '#3a6a9a'],
-  roof: '#8a6a4a',
-  roofColors: ['#8a6a4a', '#6a5a4a', '#a8a88a', '#7a6a5a', '#b85a3a', '#4a6a8a'],
-  // Phase 3.6: striped-shop colours for the awnings over ground-floor doors.
-  awningColors: ['#c94a3a', '#2a6a9a', '#3a7a4a', '#e8a83a', '#f2f6f2'],
-  window: '#2a3547',
-  windowLit: '#ffd27a',
-  palmTrunk: '#7a5a3a',
-  palmLeaf: '#3f7a3a',
-  lampPole: '#3a3f46',
-  lampGlow: '#ffd27a',
-  // Pedestrian shirts: a few muted colours so walkers read as different people.
-  pedShirts: [0xc96a5a, 0x5a7a9a, 0x7a9a5a, 0x9a7ab8, 0xd8c9a8, 0x8a6a4a],
+  sky: 0xffb36b,
+  horizon: 0xffd9a0,
+  fog: 0xf7b98a,
+  ground: 0x9c8a6a,
+  sand: 0xd9b380,
+  sea: 0x2e6f8e,
+  asphalt: 0x3a3f46,
+  building: [0xe8b48c, 0xd98a7a, 0xc9a06a, 0x9db4c8, 0xb5a6c9, 0xe0cfa8],
+  glass: 0x2c3e50,
+  windowLit: 0xffd27a,
+  palmTrunk: 0x8a6a4a,
+  palmLeaf: 0x4e8a4a,
 };
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-
-/** Where the best drive is kept between visits (this browser only). */
 export const BEST_KEY = 'solmarina.best';
+export const SAVE_KEY = 'solmarina.save';
+export const MISSION_KEY = 'solmarina.missions';

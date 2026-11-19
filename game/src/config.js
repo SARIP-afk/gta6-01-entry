@@ -283,6 +283,10 @@ export const MINIMAP = {
   maxX: 334,
   minZ: -340,
   maxZ: 340,
+  // Player -> pier route line (visual only): solid gold, drawn over the map
+  // after the faint circuit route, before the blips.
+  routeColor: '#f2c94c',
+  routeWidth: 2.5,
 };
 
 /**

@@ -192,10 +192,61 @@ export function createHud(cityMap) {
     mapCtx.stroke();
   }
 
+  // Route from the player to the pier objective, Manhattan along the road
+  // grid (cityMap.roads holds the road centre lines, both ways). From the
+  // player position, snap to the nearest road (the shorter snap first), then
+  // along the grid to the bridge road (z = -6), then east along it to the
+  // pier. On foot the route starts at the player blip, not the car. The
+  // endpoint pins to the canvas edge exactly like the objective blip
+  // (clamp [6, size-6]). Drawn AFTER the bridge/pier fills so the gold line
+  // stays visible where the route crosses them, and BEFORE the blips so the
+  // waypoint diamond stays on top. The faint gold circuit (cityMap.route)
+  // is untouched — this is a second, solid line.
+  function drawRouteToPier(state) {
+    const pos = state.mode === 'foot' ? state.player : state.car;
+    const lines = cityMap.roads;
+    const nearestLine = (v) => lines.reduce(
+      (a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a),
+    );
+    const zx = nearestLine(pos.x); // nearest north-south road
+    const zh = nearestLine(pos.z); // nearest east-west road
+    const obj = state.objective; // pier, (400, -6)
+    const pts = [{ x: pos.x, z: pos.z }];
+    // Snap to the grid on the shorter leg first, then follow the grid.
+    if (Math.abs(pos.z - zh) <= Math.abs(pos.x - zx)) {
+      pts.push({ x: pos.x, z: zh }, { x: zx, z: zh });
+    } else {
+      pts.push({ x: zx, z: pos.z }, { x: zx, z: zh });
+    }
+    pts.push({ x: zx, z: obj.z }, { x: obj.x, z: obj.z });
+    // Drop zero-length legs (e.g. already on the bridge road, zh === -6).
+    const clean = pts.filter((p, i) => i === 0 || p.x !== pts[i - 1].x || p.z !== pts[i - 1].z);
+    mapCtx.strokeStyle = MINIMAP.routeColor;
+    mapCtx.lineWidth = MINIMAP.routeWidth;
+    mapCtx.lineJoin = 'round';
+    mapCtx.lineCap = 'round';
+    mapCtx.beginPath();
+    clean.forEach((p, i) => {
+      const cx = Math.max(6, Math.min(MINIMAP.size - 6, px(p.x)));
+      const cy = Math.max(6, Math.min(MINIMAP.size - 6, py(p.z)));
+      if (i === 0) mapCtx.moveTo(cx, cy);
+      else mapCtx.lineTo(cx, cy);
+    });
+    mapCtx.stroke();
+  }
+
   function drawMinimap(state) {
     const w = MINIMAP.size;
     const h = MINIMAP.size;
     mapCtx.clearRect(0, 0, w, h);
+    // Round minimap: clip everything (land, sea, roads, route, buildings,
+    // labels, N, blips) to the inscribed circle. The CSS border-radius: 50%
+    // rounds the element; the clip rounds the drawn map itself so the four
+    // corners show no map land colour.
+    mapCtx.save();
+    mapCtx.beginPath();
+    mapCtx.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2);
+    mapCtx.clip();
     // Ground.
     mapCtx.fillStyle = 'rgba(24, 20, 14, 0.82)';
     mapCtx.fillRect(0, 0, w, h);
@@ -271,6 +322,8 @@ export function createHud(cityMap) {
     mapCtx.fillStyle = 'rgba(255,255,255,0.95)';
     mapCtx.font = 'bold 10px system-ui, sans-serif';
     mapCtx.fillText('N', w / 2, 12);
+    // Player -> pier route (solid gold), before the blips.
+    drawRouteToPier(state);
     // Blips: objective, staged cars, live police + traffic (Phase 3), then the
     // player (always on top). A live cruiser is a blue dot; a traffic car white.
     drawBlip(state.objective.x, state.objective.z, 'objective', 0, state.time);
@@ -289,6 +342,7 @@ export function createHud(cityMap) {
     } else {
       drawBlip(state.car.x, state.car.z, 'player', state.car.heading, state.time);
     }
+    mapCtx.restore();
   }
 
   function clockText(time) {

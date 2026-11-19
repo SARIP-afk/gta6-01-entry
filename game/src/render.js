@@ -338,21 +338,30 @@ export function createRenderer(canvas, hud, options = {}) {
     // mid-bright env washes the red hero car pink through the diffuse
     // irradiance. The direct sun + hemi + fill do the main lighting; the env
     // only adds a subtle clearcoat sheen.
+    // F5-S (L4): env MATCHED to the authored sky — the dim ball capped the
+    // building glass at ~70 lum (5.8) because a reflection cannot be brighter
+    // than its source. Sky #4a6a8a -> #6ea8dd (= PALETTE.skyTop), disc
+    // #ffd890 -> #ffd27a, radius 8 -> 12, ground #8a6a45 -> #e8c9a0.
+    // Pink-wash guard: the red paint's R-G was +140 at the F5 base (F1's
+    // pink came from hemi 1.25 + fill 0.9 LIGHT, not from the env — the env
+    // was already present in Batch 2 pass 5 at these light levels without
+    // pink); F5.2 re-measures it after this change. Hemi/fill/exposure are
+    // NOT touched here.
     const skyBall = new THREE.Mesh(
       new THREE.SphereGeometry(50, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0x4a6a8a, side: THREE.BackSide }),
+      new THREE.MeshBasicMaterial({ color: 0x6ea8dd, side: THREE.BackSide }),
     );
     envScene.add(skyBall);
     const sunDisc = new THREE.Mesh(
-      new THREE.CircleGeometry(8, 24),
-      new THREE.MeshBasicMaterial({ color: 0xffd890 }),
+      new THREE.CircleGeometry(12, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffd27a }),
     );
     sunDisc.position.set(-30, 18, -30);
     sunDisc.lookAt(0, 0, 0);
     envScene.add(sunDisc);
     const groundDisc = new THREE.Mesh(
       new THREE.CircleGeometry(45, 24),
-      new THREE.MeshBasicMaterial({ color: 0x8a6a45 }),
+      new THREE.MeshBasicMaterial({ color: 0xe8c9a0 }),
     );
     groundDisc.rotation.x = -Math.PI / 2;
     groundDisc.position.y = -8;
@@ -1006,7 +1015,13 @@ export function applyGlassMaterials(scene) {
   if (windows && !windows.material.isMeshStandardMaterial) {
     const old = windows.material;
     windows.material = new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.12, metalness: 0.1, envMapIntensity: 1.2,
+      // F5-S (L4): envMapIntensity 1.2 -> 1.5 — the building glass takes more
+      // of the (now brighter, matched) environment; this is the 5.8 lever.
+      // The audit's "kaca 1,0 -> 1,5" is v3.8-relative: the F5 base already
+      // has the CAR glass at 1.5 (F4, opacity 0.80 — left untouched, see
+      // car.js: the audit's 0.45 opacity would resurrect the F4 aquarium
+      // M-6 and 5.8 is about BUILDING glass, not car glass).
+      color: 0xffffff, roughness: 0.12, metalness: 0.1, envMapIntensity: 1.5,
     });
     old.dispose();
   }
@@ -1014,6 +1029,10 @@ export function applyGlassMaterials(scene) {
   if (storefront && !storefront.material.isMeshStandardMaterial) {
     const old = storefront.material;
     storefront.material = new THREE.MeshStandardMaterial({
+      // F5-S (L4): storefront stays at envMapIntensity 1.2 — its warm
+      // emissive interior (F2) must stay readable through the pane, and a
+      // stronger reflection would wash it out. Only the opaque windows go
+      // to 1.5.
       color: 0x4a6a8a, roughness: 0.12, metalness: 0.1, envMapIntensity: 1.2,
       // F2 (§10 Q2, opsi b): opacity 0,45 -> 0,35 — emissive interior 0,9
       // saja TIDAK cukup (pane sunlit R-B +19 -> +9, shaded -2 -> -8);

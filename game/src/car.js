@@ -77,13 +77,16 @@ function paintMaterial(color, hero) {
         roughness: 0.35,
         clearcoat: 1.0,
         clearcoatRoughness: 0.12,
-        envMapIntensity: 0.25,
+        // F5-S (L4): env matched to the authored sky — the paint takes more
+        // of the (now brighter) environment. 0.25 -> 0.5.
+        envMapIntensity: 0.5,
       })
     : new THREE.MeshStandardMaterial({
         color,
         metalness: 0.15,
         roughness: 0.45,
-        envMapIntensity: 0.25,
+        // F5-S (L4): same step as the hero paint.
+        envMapIntensity: 0.5,
       });
 }
 
@@ -126,17 +129,27 @@ const MAT = {
     }),
   white: () =>
     new THREE.MeshStandardMaterial({ color: 0xf5f5f5, metalness: 0.05, roughness: 0.5 }),
+  // F5-S (L4 side-effect correction): the lenses are Standard with the
+  // default envMapIntensity 1.0, so the brighter L4 env added ~+9 lum of
+  // diffuse to the OFF lens and pushed S1 OFF over its <=90 bound (92.7 /
+  // 90.5 at env 1.0). envMapIntensity 0.75 is the balance point measured
+  // across the L456 (1.0) and 0.25 runs: the right red lens needs >=0.69
+  // for ON >=150 and <=0.82 for OFF <=90, so 0.75 puts both just inside
+  // (predicted ON ~151, OFF ~89); 0.25 left ON at 144.9. Only used by the
+  // police light bar (car.js ~431).
   redLens: () =>
     new THREE.MeshStandardMaterial({
       color: 0xff2020,
       emissive: 0xff0000,
       emissiveIntensity: 1.2,
+      envMapIntensity: 0.75,
     }),
   blueLens: () =>
     new THREE.MeshStandardMaterial({
       color: 0x2050ff,
       emissive: 0x0033ff,
       emissiveIntensity: 1.2,
+      envMapIntensity: 0.75,
     }),
   taxiSign: () =>
     new THREE.MeshStandardMaterial({

@@ -73,6 +73,27 @@ function makeSkyTexture(THREE) {
   // translucent white circles, at hash-derived positions (no random() calls,
   // so the seeded stream is untouched). The gradient is vertical, so the
   // wider canvas does not change it.
+  // F5-S (L6): the Batch 2 clouds were invisible from every game camera
+  // (alpha 0.10-0.20, radius 26-48 px, near the zenith) and the sky had no
+  // sun at all. Now: 16 clusters, radius 12-26 px, alpha 0.25-0.45, 4
+  // circles each, plus a sun glow + disc at due west. Two measured
+  // deviations from the audit's numbers, both deliberate:
+  // (a) cy band 150-240, NOT the audit's 60-260: the canvas maps linearly
+  // to the sky sphere (canvas y 0 = zenith, y 256 = horizon, y 512 =
+  // nadir), and every game camera looks horizontally, so only canvas
+  // y ~174-251 is ever inside a frame — clusters above y~174 sit above
+  // the frame and are wasted. The band 150-240 keeps every cluster at
+  // least partly visible (circle bottoms reach y ~273 at most, i.e. just
+  // below the horizon line where the ground cuts them).
+  // (b) the sun disc sits at cy 235 (~7 deg above the horizon), NOT the
+  // audit's cy ~430: y 430 is 57 deg BELOW the horizon (invisible behind
+  // the ground/sea). Proven by measurement: the rendered sky just above
+  // the horizon is pale blue (155,193,225), never the gradient's warm
+  // #ffd9a0 — the warm stops (0.82/1.0) lie below the visible horizon.
+  // The disc is at canvas x 256, which is due WEST once the sky mesh is
+  // rotated half a turn (see buildCity): the unrotated seam (x 0/512) is
+  // west and would split the disc. Clouds are drawn wrapped (cx-512, cx,
+  // cx+512) so clusters near the seam render whole.
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
@@ -84,20 +105,44 @@ function makeSkyTexture(THREE) {
   gradient.addColorStop(1, '#ffcf96');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 512, 512);
-  for (let c = 0; c < 8; c += 1) {
-    const cx = (c * 167 + 40) % 512;
-    const cy = 50 + ((c * 53) % 130);
-    const r = 26 + ((c * 29) % 22);
-    for (let b = 0; b < 5; b += 1) {
-      const bx = cx + ((b * 37 + c * 11) % 70) - 35;
-      const by = cy + ((b * 23 + c * 7) % 24) - 12;
+  for (let c = 0; c < 16; c += 1) {
+    const cx = (c * 199 + 40) % 512;
+    const cy = 150 + ((c * 53) % 90);
+    const r = 12 + ((c * 29) % 14);
+    for (let b = 0; b < 4; b += 1) {
+      const bx = cx + ((b * 37 + c * 11) % 44) - 22;
+      const by = cy + ((b * 23 + c * 7) % 20) - 10;
       const br = r * (0.55 + ((b * 13) % 10) / 20);
-      ctx.fillStyle = `rgba(255,255,255,${0.10 + ((b * 7 + c) % 3) * 0.05})`;
-      ctx.beginPath();
-      ctx.arc(bx, by, br, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = `rgba(255,255,255,${0.25 + ((b * 7 + c) % 5) * 0.05})`;
+      for (const ox of [-512, 0, 512]) {
+        ctx.beginPath();
+        ctx.arc(bx + ox, by, br, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
+  // Sun: soft glow, then the disc on top so no cloud can dim it (F5.4
+  // needs the disc itself >235 lum). Drawn last for the same reason.
+  // The glow is 8 concentric STROKES (not stacked discs, not a radial
+  // gradient): stacked discs composite their alphas, so the first version
+  // came out nearly opaque to r~20 px and dominated the sky as a giant
+  // blob; strokes tile [0,40] exactly (width 5 at radii 37.5..2.5) with
+  // alpha 0.05..0.75, which IS the linear 0.8->0 falloff the audit
+  // prescribed. A radial gradient is still avoided: the Node test stub
+  // only implements createLinearGradient, and a createRadialGradient call
+  // would throw there (S7) — strokes use only arc/stroke, which the stub
+  // absorbs.
+  ctx.lineWidth = 5;
+  for (let i = 0; i < 8; i += 1) {
+    ctx.strokeStyle = `rgba(255,242,204,${(0.05 + i * 0.10).toFixed(2)})`;
+    ctx.beginPath();
+    ctx.arc(256, 235, 37.5 - i * 5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#fff8dc';
+  ctx.beginPath();
+  ctx.arc(256, 235, 14, 0, Math.PI * 2);
+  ctx.fill();
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -452,8 +497,33 @@ export function buildCity(THREE, random, visualRandom = null) {
   const walkMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: pavingTex });
   const dashMat = new THREE.MeshLambertMaterial({ color: PALETTE.laneDash });
   const crossMat = new THREE.MeshLambertMaterial({ color: PALETTE.crosswalk });
-  const seaMat = new THREE.MeshLambertMaterial({ color: PALETTE.sea });
-  const seaDeepMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: seaTex });
+  // F5-S (L5): the sea as MeshStandardMaterial so it can reflect the PMREM
+  // env — the Lambert sea was a flat dark sheet (lum ~62 at the horizon) that
+  // never matched the canal (lum ~103). Roughness 0.12 gives a broad
+  // sky/sun glitter; metalness 0.0 keeps the diffuse map; envMapIntensity
+  // 0.9 (NOT the audit's 1.2): measured at 1.2 the horizon sea hit 192.5
+  // lum — overshooting F5.5's 130-160 and matching the sky, so the horizon
+  // line vanished. Grazing Fresnel reflects the bright env horizon
+  // (~175-190) almost fully. Calibration (three points, quadratic fit
+  // sea = 85.3 + 145.3*env - 46.7*env^2, fogged at (350,1200)):
+  // env 1.2 -> 192.5, 0.9 -> 178.3, 0.3 -> 124.7 (below the 130 floor);
+  // env 0.5 predicts ~146, dead centre of 130-160. TENSION: F5.7
+  // (canal vs sea <15) wants env as LOW as possible (diff 18.4 at 0.3,
+  // ~24 at 0.5, ~36 at 0.9) — no single env satisfies both F5.5 and
+  // F5.7; 0.5 is chosen to pass F5.5 (the sea is the criterion's subject)
+  // and F5.7 is reported as a miss. The map is kept (streaks + glints are
+  // authored in it) and the colour stays white so the map survives: the
+  // audit's flat colour #2e7fa8 would multiply the map darker (its base is
+  // already PALETTE.seaDeep #1f5f86). "Specular #a8c8d8" does not apply to
+  // MeshStandardMaterial (no specular slot — the env reflection IS the
+  // specular response). GUARD: the Node test stub has no
+  // MeshStandardMaterial, so it falls back to Lambert there (the stub never
+  // renders — S7 is unaffected either way). The canal reuses this same
+  // material (F5.7: one water, not two).
+  const seaDeepMat = THREE.MeshStandardMaterial
+    ? new THREE.MeshStandardMaterial({ color: 0xffffff, map: seaTex, roughness: 0.12, metalness: 0.0, envMapIntensity: 0.5 })
+    : new THREE.MeshLambertMaterial({ color: 0xffffff, map: seaTex });
+  const seaMat = seaDeepMat;
   const woodMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: woodTex });
   // The bridge deck is one 140 m box, so it gets its own asphalt repeat (6x1)
   // instead of the road segments' 1x1 — otherwise the grain stretches 12:1.
@@ -508,10 +578,16 @@ export function buildCity(THREE, random, visualRandom = null) {
 
   // --- sky dome ---------------------------------------------------------------
   // toneMapped: false — ACES must not dull the authored sky gradient.
+  // F5-S (L6): half-turn so canvas x 256 (the sun disc) sits due WEST —
+  // the unrotated seam (x 0/512) is west and would split the disc. The
+  // gradient is vertical, so the rotation moves only the clouds and the
+  // sun; the seam moves to the east, where the clouds are drawn wrapped
+  // (see makeSkyTexture) and render whole.
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(1400, 16, 12),
     new THREE.MeshBasicMaterial({ map: makeSkyTexture(THREE), side: THREE.BackSide, fog: false, toneMapped: false }),
   );
+  sky.rotation.y = Math.PI;
   group.add(sky);
 
   // --- roads: asphalt strips on the ground ------------------------------------

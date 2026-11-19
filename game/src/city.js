@@ -2166,6 +2166,10 @@ export function buildCity(THREE, random, visualRandom = null) {
     trafficLensMeta: trafficLenses.map((l) => ({ avenue: l.avenue, lens: l.lens })),
     // Flat 2D summary for the minimap (Phase 2): footprints, not meshes.
     map: {
+      // F5-H (R1): spawn copied here so the HUD can compute the mission
+      // progress denominator (spawn -> objective) from the map it already
+      // receives. Same values as `spawn` above; a view copy, not a new spawn.
+      spawn: { x: -58, z: -6 },
       roads: lines,
       buildings: buildings.map((b) => ({ x: b.x, z: b.z, w: b.w, d: b.d })),
       channel: { ...CITY.channel },

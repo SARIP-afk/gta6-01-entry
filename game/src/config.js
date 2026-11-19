@@ -163,6 +163,49 @@ export const HUD = {
   healthMax: 100,
   // First story objective: Rio's first job ends at the marina pier.
   objective: { text: 'Reach the marina pier', x: 400, z: -6 },
+  // F5-H HUD data (display only — no sim parameter lives in this block).
+  // Gear bands: display derivation from |speed| in km/h, NOT a transmission
+  // model — the game has no gearbox; the bands only label the speed readout.
+  // R = reversing (speed < -0.5 m/s); on foot the readout is '—'.
+  gearBands: [
+    { maxKmh: 25, label: 'G1' },
+    { maxKmh: 50, label: 'G2' },
+    { maxKmh: 75, label: 'G3' },
+    { maxKmh: 100, label: 'G4' },
+    { maxKmh: Infinity, label: 'G5' },
+  ],
+  // District anchor points for the minimap zone label — the SAME three
+  // points drawMinimap already labels. The zone is the nearest anchor, not
+  // an official district boundary (the game has none).
+  districts: [
+    { name: 'DOWNTOWN', x: -32, z: -200 },
+    { name: 'MARINA', x: 268, z: 90 },
+    { name: 'SUBURB', x: -190, z: 230 },
+  ],
+  // Zone anti-flicker: switch only if the new anchor is this much closer
+  // (metres) AND this much game time has passed since the last switch.
+  zoneHysteresisMetres: 20,
+  zoneMinIntervalSeconds: 20,
+  // System chatter (no named speaker — no dispatcher character exists yet;
+  // named dialogue waits for Phase 4). Times are game seconds (state.time).
+  chatterShowSeconds: 5,
+  chatterCooldownSeconds: 10,
+  chatter: {
+    wantedUp: 'COPS ON YOU — LOSE THEM',
+    wantedDown: 'CLEAN — THEY LOST YOU',
+    busted: 'BUSTED — CASH LOST',
+    healthLow: 'HEALTH LOW — BREAK LINE OF SIGHT',
+    toFoot: 'ON FOOT — CAR\u2019S PARKED NEARBY',
+    toCar: 'BACK BEHIND THE WHEEL',
+    nearPier: 'THE PIER IS AHEAD — ALMOST THERE',
+  },
+  // Distance (m) that counts as reaching the pier, and how long the
+  // OBJECTIVE COMPLETE banner shows (game seconds). Route D (F5 plan §3.4):
+  // the HUD latches this itself from the distance it already computes for
+  // H1 — no world.js hook, no sim state.
+  completeRadiusMetres: 70,
+  completeShowSeconds: 6,
+  nearPierMetres: 70,
 };
 
 /** Staged chase values for ?shot=cover: a real game state, scripted, not a mockup. */

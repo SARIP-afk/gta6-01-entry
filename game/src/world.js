@@ -15,10 +15,11 @@
 // cruisers chase, ram and can bust the player — and can lose him, search, give up,
 // and let the wanted level decay. The subsystems share one seeded generator, so
 // the same seed gives the same city, traffic and police.
-import { CAR, CITY, HUD, PLAYER, STEP } from './config.js';
+import { CAR, CITY, HUD, MISSIONS_KEY, PLAYER, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createTraffic } from './traffic.js';
 import { createPolice } from './police.js';
+import { createMissions } from './missions.js';
 
 export const EVENT_HIT = 1;
 export const EVENT_BUST = 2;
@@ -73,6 +74,7 @@ function resolveCircle(state, x, z, radius) {
 export function createWorld(city, seed) {
   const traffic = createTraffic(city);
   const police = createPolice(city);
+  const missions = createMissions();
   let random = createRandom(seed);
 
   const state = {
@@ -98,6 +100,9 @@ export function createWorld(city, seed) {
     police: [],
     busted: 0,
     crimes: {},
+    // Phase 4: filled in by reset() — the mission state and the last crime.
+    mission: null,
+    lastCrime: null,
   };
 
   function reset() {
@@ -128,6 +133,58 @@ export function createWorld(city, seed) {
     state.police = police.state.police;
     state.busted = 0;
     state.crimes = {};
+    // Phase 4: the mission chain (missions.js owns it; world.js only wires
+    // it in) and the last crime that raised wanted (the HUD crime feed's cause).
+    state.mission = missions.state;
+    state.lastCrime = null;
+    missions.reset(
+      readMissionProgress(),
+      0,
+      { x: city.spawn.car.x, z: city.spawn.car.z },
+      missionApi,
+    );
+  }
+
+  // The mission system's calls into the world: objective, wanted, reward,
+  // progress save. All of them are wrappers over things that already exist.
+  const missionApi = {
+    setObjective(text, x, z) {
+      state.objective = { text, x, z };
+    },
+    setWanted(n) {
+      police.setWanted(n, state.time, state.car.x, state.car.z);
+      state.wanted = police.state.wanted;
+    },
+    grantReward(n) {
+      state.cash += n;
+    },
+    saveProgress(unlocked, completed, title) {
+      try {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.setItem(MISSIONS_KEY, JSON.stringify({ unlocked, completed, title }));
+      } catch {
+        // No storage: the game plays on, the progress just doesn't stick.
+      }
+    },
+  };
+
+  /** Mission progress from storage (browser only; Node tests get a fresh M1). */
+  function readMissionProgress() {
+    const fresh = { unlocked: 1, completed: 0, title: null };
+    try {
+      if (typeof localStorage === 'undefined') return fresh;
+      const raw = localStorage.getItem(MISSIONS_KEY);
+      if (!raw) return fresh;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed !== 'object' || parsed === null) return fresh;
+      return {
+        unlocked: Math.min(4, Math.max(1, parsed.unlocked ?? 1)),
+        completed: Math.min(4, Math.max(0, parsed.completed ?? 0)),
+        title: typeof parsed.title === 'string' ? parsed.title : null,
+      };
+    } catch {
+      return fresh;
+    }
   }
 
   function distanceToCar() {
@@ -160,6 +217,8 @@ export function createWorld(city, seed) {
   function commitCrime(kind) {
     if (police.commitCrime(kind, state.time, state.car.x, state.car.z)) {
       state.crimes[kind] = (state.crimes[kind] ?? 0) + 1;
+      // Phase 4 (F-W3): the cause the HUD crime feed shows for this rise.
+      state.lastCrime = { kind, time: state.time };
     }
   }
 
@@ -180,6 +239,10 @@ export function createWorld(city, seed) {
     police.setWanted(0, state.time, state.car.x, state.car.z);
     state.wanted = 0;
     state.busted += 1;
+    // Phase 4: a bust fails the active mission back to its stage 1.
+    // Progress already banked (the next mission staying unlocked) survives;
+    // the cash — reward included — is lost with the rest, above.
+    missions.onBust(state.time, { x: state.car.x, z: state.car.z }, missionApi);
   }
 
   function stepCar(dt, input) {
@@ -305,6 +368,22 @@ export function createWorld(city, seed) {
       doBust();
       events |= EVENT_BUST;
     }
+    // Phase 4 (F-W4 safehouse guard, world.js only — police.js untouched):
+    // with a clean wanted level, no cruiser may sit within 40 m of the
+    // spawn. Cruisers only spawn while wanted > 0, so in practice this never
+    // fires; it is a guard, not a behaviour change. The splice mutates the
+    // shared police array in place, so the renderer keeps reading the same list.
+    if (state.wanted === 0 && state.police.length > 0) {
+      for (let i = state.police.length - 1; i >= 0; i -= 1) {
+        const p = state.police[i];
+        if (Math.hypot(p.x - city.spawn.car.x, p.z - city.spawn.car.z) < 40) {
+          state.police.splice(i, 1);
+        }
+      }
+    }
+    // Phase 4: the mission machine runs after traffic + police, so it reads
+    // the settled world (a bust above already restarted the mission).
+    missions.step(dt, state, missionApi);
     return events;
   }
 
@@ -431,12 +510,35 @@ export function createWorld(city, seed) {
         peds: traffic.state.peds.map((p) => ({ x: p.x, z: p.z, state: p.state, road: p.road, line: p.line, heading: p.heading })),
         trafficStats: { ...traffic.state.stats },
         policeStats: { ...police.state.stats },
+        mission: state.mission ? {
+          id: state.mission.missionId,
+          name: state.mission.missionName,
+          stage: state.mission.stage,
+          stageName: state.mission.stageName,
+          status: state.mission.status,
+          unlocked: state.mission.unlocked,
+          completed: state.mission.completed,
+          rating: state.mission.rating,
+          eventSeq: state.mission.eventSeq,
+          event: state.mission.event ? { ...state.mission.event } : null,
+        } : null,
+        lastCrime: state.lastCrime ? { ...state.lastCrime } : null,
       };
     },
   };
 
   reset();
-  return { state, reset, step, toggleEnter, autopilot, distanceToCar, debug };
+  return {
+    state, reset, step, toggleEnter, autopilot, distanceToCar, debug,
+    /** Phase 4: point the story objective at (text, x, z) — the missions do this per stage. */
+    setObjective(text, x, z) {
+      missionApi.setObjective(text, x, z);
+    },
+    /** Phase 4: set the wanted level (wrapper over the police system). */
+    setWanted(n) {
+      missionApi.setWanted(n);
+    },
+  };
 }
 
 // Re-export STEP so callers read the step size from one place.

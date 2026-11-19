@@ -277,7 +277,7 @@ export const SIREN = {
 
 /** Minimap: a 2D canvas, north-up, drawn from the city's map data. */
 export const MINIMAP = {
-  size: 180,
+  size: 120,
   // World bounds drawn: x -340..334, z -340..340.
   minX: -340,
   maxX: 334,
@@ -428,3 +428,10 @@ export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
 /** Where the best drive is kept between visits (this browser only). */
 export const BEST_KEY = 'solmarina.best';
+
+/**
+ * Phase 4: where the mission-chain progress is kept (this browser only).
+ * A string key only — not a sim parameter. The value is
+ * { unlocked, completed, title } (see missions.js / world.js).
+ */
+export const MISSIONS_KEY = 'solmarina.missions';

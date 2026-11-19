@@ -46,8 +46,15 @@
 // byte-identical, determinism, kit check, judge-view 768x480, no gameplay
 // regression — no checkpoint if any gate fails. Node S0-S7 byte-identical to
 // v3.7; dossier byte-identical across two runs.
-// Later phases add missions, combat/activities/save/sound, then polish. This file itself only copies the game and writes the
+// Later phases add combat/activities/save/sound, then polish. This file itself only copies the game and writes the
 // dossier; the game lives in game/src/.
+// Phase 4 (v4-missions, in progress): story missions — Rio pays off his debt
+// to DANTE, the fixer, one job at a time. M1 FIRST DROP is live: pick up a
+// package downtown, deliver it to the pier, $500, par time with a gold /
+// silver / bronze rating. The chain framework carries all four named missions
+// (M2 THE HANDOFF, M3 TAIL THE VAN, M4 LOSE THE HEAT, $4,500 in all) and the
+// HUD shows the mission banner, Dante's dialogue, named wanted tiers and a
+// crime feed. M2–M4 land in their own steps; this file claims nothing more.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

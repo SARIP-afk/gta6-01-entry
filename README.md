@@ -8,6 +8,8 @@ An original open-world crime game in the browser, built in the spirit of GTA 6: 
 
 Phase 3 (v3-police-wanted): the city lives — traffic and pedestrians on the road grid, a live wanted level, and police cruisers that chase, ram, bust, lose the player, search and give up.
 
+Phase 4 (v4-missions, in progress): story missions — Rio pays off his debt to DANTE, the fixer, one job at a time. M1 FIRST DROP is live (pick up a package downtown, deliver it to the pier, $500, par time + gold/silver/bronze rating); the chain framework carries all four named missions (M2 THE HANDOFF, M3 TAIL THE VAN, M4 LOSE THE HEAT). M2–M4 land in their own steps.
+
 ## Run it
 
 ```sh

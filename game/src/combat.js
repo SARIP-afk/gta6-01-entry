@@ -1,8 +1,8 @@
 // Combat: one pistol, three gunmen at most, and the feedback that makes a shot read
-// — damage numbers that float up, health bars over enemies, tracers, and a wanted
-// bump for firing in the street. Enemies stand their ground and trade shots; they
-// never chase across the map. Pure sim: positions and numbers only.
-import { WEAPON, ENEMY } from './config.js';
+// — blood that bursts from the wound, a splatter that stays on the ground, tracers,
+// and a wanted bump for firing in the street. Enemies stand their ground and trade
+// shots; they never chase across the map. Pure sim: positions and numbers only.
+import { WEAPON, ENEMY, BLOOD } from './config.js';
 
 export function createCombat(random) {
   const state = {
@@ -13,8 +13,29 @@ export function createCombat(random) {
     reloading: false,
     enemies: [],
     shots: [], // tracers: {x0,z0,x1,z1,life}
-    numbers: [], // damage numbers: {x,z,y,value,life}
+    blood: [], // blood particles: {x,y,z,vx,vy,vz,life,maxLife}
+    decals: [], // ground splatters: {x,z,life,size}
   };
+
+  /** Red burst at the wound plus a splatter on the ground beneath it. */
+  function spawnBlood(x, y, z, dirX, dirZ, big) {
+    const n = big ? BLOOD.particles * 2 : BLOOD.particles;
+    for (let i = 0; i < n; i += 1) {
+      if (state.blood.length >= BLOOD.maxParticles) state.blood.shift();
+      const a = random() * Math.PI * 2;
+      const sp = 1.5 + random() * 3.5;
+      state.blood.push({
+        x, y, z,
+        vx: Math.cos(a) * sp + dirX * 1.5,
+        vy: 1 + random() * 2.5,
+        vz: Math.sin(a) * sp + dirZ * 1.5,
+        life: BLOOD.life * (0.7 + random() * 0.5),
+        maxLife: BLOOD.life,
+      });
+    }
+    state.decals.push({ x, z, life: BLOOD.decalLife, size: (big ? 1.6 : 1.1) + random() * 0.7 });
+    if (state.decals.length > BLOOD.maxDecals) state.decals.shift();
+  }
 
   function spawnEnemies(near) {
     state.enemies = [];
@@ -57,7 +78,8 @@ export function createCombat(random) {
       const e = hit.enemy;
       e.health -= WEAPON.damage;
       e.hitFlash = 0.15;
-      state.numbers.push({ x: e.x, z: e.z, y: 2.2, value: WEAPON.damage, life: 0.9 });
+      // Blood straight out of the wound, spraying along the shot.
+      spawnBlood(ox + Math.cos(a) * hit.dist, 1.4, oz - Math.sin(a) * hit.dist, Math.cos(a), -Math.sin(a), e.health <= 0);
       if (e.health <= 0) {
         e.alive = false;
         if (events) events.push({ type: 'enemy-down', reward: ENEMY.reward, x: e.x, z: e.z });
@@ -88,11 +110,23 @@ export function createCombat(random) {
     }
     for (const s of state.shots) s.life -= dt;
     state.shots = state.shots.filter((s) => s.life > 0);
-    for (const n of state.numbers) {
-      n.life -= dt;
-      n.y += dt * 1.4;
+    // Blood flies, falls, and sticks where it lands; splatters fade out.
+    for (const p of state.blood) {
+      p.life -= dt;
+      p.vy -= BLOOD.gravity * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      if (p.y < 0.06) {
+        p.y = 0.06;
+        p.vx = 0;
+        p.vy = 0;
+        p.vz = 0;
+      }
     }
-    state.numbers = state.numbers.filter((n) => n.life > 0);
+    state.blood = state.blood.filter((p) => p.life > 0);
+    for (const d of state.decals) d.life -= dt;
+    state.decals = state.decals.filter((d) => d.life > 0);
     // Enemies trade shots while the player is in range and on their feet.
     for (const e of state.enemies) {
       if (!e.alive) continue;
@@ -116,7 +150,8 @@ export function createCombat(random) {
     state.reloading = false;
     state.enemies = [];
     state.shots = [];
-    state.numbers = [];
+    state.blood = [];
+    state.decals = [];
   }
 
   return { state, spawnEnemies, clearEnemies, shoot, reload, step, reset };

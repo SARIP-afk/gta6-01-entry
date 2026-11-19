@@ -68,8 +68,9 @@ function enrichState() {
 function runShot(name) {
   const scene = stageShot(name, world);
   enrichState();
-  // The cover pulls the camera back for a wider chase frame.
-  if (name === 'cover') renderer.setFollow(17, 8.5);
+  // The cover pulls the camera high and back for a wide avenue shot: towers,
+  // traffic and walkers in the foreground, the pier, the sea and the sunset beyond.
+  if (name === 'cover') renderer.setFollow(62, 18);
   // The HUD is DOM, so a shot without it would show a bare city: build it too.
   const shotHud = createHud({ onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {} });
   if (name === 'start') {

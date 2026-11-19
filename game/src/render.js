@@ -58,20 +58,90 @@ function roadTexture(city) {
   const toZ = (v) => ((v - Z0) / 728) * S;
   g.fillStyle = '#8a7a5c';
   g.fillRect(0, 0, S, S);
+  // Block tints: no two blocks the same flat brown.
+  const TINTS = ['#96855f', '#8a7a5c', '#a08a68', '#7d8a6a', '#9a8a70'];
+  for (let gx = CITY.gridMin; gx < CITY.gridMax; gx += CITY.roadStep) {
+    for (let gz = CITY.gridMin; gz < CITY.gridMax; gz += CITY.roadStep) {
+      const ti = ((((gx + 312) / 52) * 7 + ((gz + 312) / 52) * 13) % 5 + 5) % 5;
+      g.fillStyle = TINTS[ti];
+      g.fillRect(toX(gx + 6), toZ(gz + 6), 40 / 840 * S, 40 / 728 * S);
+    }
+  }
+  // Asphalt grain: deterministic speckle over the whole ground (fixed LCG seed,
+  // so the texture is identical on every load).
+  let speckSeed = 12345;
+  const speckRnd = () => {
+    speckSeed = (speckSeed * 1103515245 + 12345) & 0x7fffffff;
+    return speckSeed / 0x7fffffff;
+  };
+  for (let i = 0; i < 4000; i += 1) {
+    g.fillStyle = speckRnd() < 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.05)';
+    g.fillRect(speckRnd() * S, speckRnd() * S, 1.5, 1.5);
+  }
   // Beach sand on the south strip, sea blue past the pier.
   g.fillStyle = '#d9b380';
   g.fillRect(0, toZ(208), S, S - toZ(208));
-  g.fillStyle = '#2e6f8e';
+  // Dune bands across the sand so the beach is not one flat sheet.
+  g.strokeStyle = 'rgba(120,90,50,0.25)';
+  g.lineWidth = 3;
+  for (let k = 0; k < 4; k += 1) {
+    g.beginPath();
+    for (let x = -364; x <= 476; x += 16) {
+      const px = toX(x);
+      const py = toZ(222 + k * 22 + Math.sin(x / 55) * 5);
+      if (x === -364) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+    g.stroke();
+  }
+  g.fillStyle = '#1f5f7e';
   g.fillRect(toX(CITY.pier.x + 10), 0, S - toX(CITY.pier.x + 10), S);
+  // Wet sand and wave lines where the ground meets the sea, east of the pier.
+  g.fillStyle = '#cfa96e';
+  g.fillRect(toX(CITY.pier.x - 15), 0, 25 / 840 * S, S);
+  g.strokeStyle = 'rgba(255,255,255,0.55)';
+  g.lineWidth = 2;
+  for (let k = 0; k < 3; k += 1) {
+    g.beginPath();
+    for (let z = -364; z <= 364; z += 16) {
+      const px = toX(CITY.pier.x + 12 + k * 8 + Math.sin(z / 40) * 4);
+      const py = toZ(z);
+      if (z === -364) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+    g.stroke();
+  }
   // Asphalt roads with centre dashes.
   for (const r of city.roads) {
     g.fillStyle = '#3a3f46';
     g.fillRect(0, toZ(r) - 6 / 728 * S, S, 12 / 728 * S);
     g.fillRect(toX(r) - 6 / 840 * S, 0, 12 / 840 * S, S);
+    // Sidewalks: lighter strips just off the asphalt on both sides.
+    g.fillStyle = '#9a8a6e';
+    g.fillRect(0, toZ(r) - 8.5 / 728 * S, S, 2.5 / 728 * S);
+    g.fillRect(0, toZ(r) + 6 / 728 * S, S, 2.5 / 728 * S);
+    g.fillRect(toX(r) - 8.5 / 840 * S, 0, 2.5 / 840 * S, S);
+    g.fillRect(toX(r) + 6 / 840 * S, 0, 2.5 / 840 * S, S);
+    // Sidewalk tile joints: thin lines across the strips every 2 m.
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let v = CITY.gridMin; v < CITY.gridMax; v += 2) {
+      g.fillRect(toX(v), toZ(r) - 8.5 / 728 * S, 1, 2.5 / 728 * S);
+      g.fillRect(toX(v), toZ(r) + 6 / 728 * S, 1, 2.5 / 728 * S);
+      g.fillRect(toX(r) - 8.5 / 840 * S, toZ(v), 2.5 / 840 * S, 1);
+      g.fillRect(toX(r) + 6 / 840 * S, toZ(v), 2.5 / 840 * S, 1);
+    }
     g.fillStyle = '#f2c94c';
     for (let v = CITY.gridMin; v < CITY.gridMax; v += 16) {
       g.fillRect(toX(v), toZ(r) - 1, 8 / 840 * S, 2);
       g.fillRect(toX(r) - 1, toZ(v), 2, 8 / 728 * S);
+    }
+    // Zebra crossings at every junction: chunky bars parallel to traffic.
+    g.fillStyle = '#e8e4da';
+    for (const c of city.roads) {
+      for (let k = -2; k <= 2; k += 1) {
+        g.fillRect(toX(c) - 5 / 840 * S, toZ(r) + k * 2.6 / 728 * S - 0.8, 10 / 840 * S, 1.6 / 728 * S);
+        g.fillRect(toX(r) + k * 2.6 / 840 * S - 0.8, toZ(c) - 5 / 728 * S, 1.6 / 840 * S, 10 / 728 * S);
+      }
     }
   }
   // Causeway to the pier.
@@ -109,9 +179,37 @@ export function createRenderer(canvas, city) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(PALETTE.sky);
   scene.fog = new THREE.Fog(PALETTE.fog, 260, 1100);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+
+  // Sunset sky dome: a gradient sphere (deep purple up top, orange mid-band, gold
+  // at the horizon) with a warm glow toward the sun over the sea. One draw call,
+  // fully deterministic, no texture and no external asset.
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      top: { value: new THREE.Color(0x5a2a52) },
+      mid: { value: new THREE.Color(0xff7e3d) },
+      bot: { value: new THREE.Color(0xffd9a0) },
+      sunDir: { value: new THREE.Vector3(480, 55, -60).normalize() },
+      sunCol: { value: new THREE.Color(0xfff2c0) },
+    },
+    vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: [
+      'varying vec3 vDir;',
+      'uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform vec3 sunDir; uniform vec3 sunCol;',
+      'void main() {',
+      '  float h = clamp(vDir.y, -0.08, 1.0);',
+      '  vec3 col = h < 0.18 ? mix(bot, mid, h / 0.18) : mix(mid, top, (h - 0.18) / 0.82);',
+      '  float g = pow(max(dot(normalize(vDir), normalize(sunDir)), 0.0), 48.0);',
+      '  col += sunCol * g * 0.25;',
+      '  gl_FragColor = vec4(col, 1.0);',
+      '}',
+    ].join('\n'),
+  });
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1400, 24, 12), skyMat));
 
   const hemi = new THREE.HemisphereLight(0xffe0b3, 0x8a6a4a, 1.15);
   scene.add(hemi);
@@ -128,24 +226,62 @@ export function createRenderer(canvas, city) {
   ground.position.set(56, 0, 0);
   scene.add(ground);
 
-  // Buildings: solid boxes + a lit-window layer, both merged to one mesh each.
+  // Buildings: solid boxes with a contrasting ground-floor band and a varied roof
+  // (plus a rooftop AC unit on the tall ones), and a window grid on every face —
+  // dark frames with glass panes, some of them lit — so a tower reads as a
+  // building, not a slab. Three merged meshes, three draw calls.
   const solids = [];
+  const frames = [];
   const windows = [];
-  for (const b of city.buildings) {
+  const ROOF_COLORS = [0x5a4a3a, 0x7a5a3a, 0x4a3a2a, 0x8a7a5a];
+  const BAND_COLORS = [0xf5e6c4, 0x2c313a, 0x7a6a4c];
+  const GLASS_DARK = [0x35506a, 0x2c3e50];
+  city.buildings.forEach((b, bi) => {
     solids.push({ x: b.x, y: b.h / 2, z: b.z, w: b.w, h: b.h, d: b.d, color: b.color });
-    solids.push({ x: b.x, y: b.h + 0.4, z: b.z, w: b.w * 0.7, h: 0.8, d: b.d * 0.7, color: 0x5a4a3a });
-    if (b.lit) {
-      const floors = Math.max(1, Math.floor(b.h / 6));
-      for (let f = 0; f < floors; f += 1) {
-        windows.push({ x: b.x - b.w / 2 - 0.05, y: 3 + f * 6, z: b.z, w: 0.1, h: 1.6, d: Math.min(3, b.d * 0.5), color: PALETTE.windowLit });
-        windows.push({ x: b.x + b.w / 2 + 0.05, y: 3 + f * 6, z: b.z, w: 0.1, h: 1.6, d: Math.min(3, b.d * 0.5), color: PALETTE.windowLit });
+    // Ground-floor storefront band, proud of the facade.
+    solids.push({ x: b.x, y: 1.5, z: b.z, w: b.w + 0.3, h: 3, d: b.d + 0.3, color: BAND_COLORS[bi % BAND_COLORS.length] });
+    solids.push({ x: b.x, y: b.h + 0.4, z: b.z, w: b.w * 0.7, h: 0.8, d: b.d * 0.7, color: ROOF_COLORS[bi % ROOF_COLORS.length] });
+    if (b.h > 20) {
+      solids.push({ x: b.x + b.w * 0.2, y: b.h + 1.2, z: b.z - b.d * 0.15, w: 2.4, h: 1.2, d: 2, color: 0x9aa5b1 });
+    }
+    // Window grid: columns across each face, rows up the tower. Which panes glow
+    // is a hash of building, row, face and column — deterministic, no randomness.
+    const cols = Math.max(1, Math.min(4, Math.floor(Math.min(b.w, b.d) / 6)));
+    const rows = Math.max(1, Math.min(10, Math.floor(b.h / 6)));
+    for (let f = 0; f < rows; f += 1) {
+      const y = 4.5 + (f + 0.5) * ((b.h - 6) / rows);
+      for (let c = 0; c < cols; c += 1) {
+        const zOff = (c + 1) * (b.d / (cols + 1)) - b.d / 2;
+        const xOff = (c + 1) * (b.w / (cols + 1)) - b.w / 2;
+        const winD = Math.min(2.6, (b.d / (cols + 1)) * 0.62);
+        const winW = Math.min(2.6, (b.w / (cols + 1)) * 0.62);
+        for (let face = 0; face < 4; face += 1) {
+          const hash = (bi * 31 + f * 7 + face * 3 + c * 5) % 10;
+          const lit = hash < (b.lit ? 4 : 1);
+          const glass = lit ? PALETTE.windowLit : GLASS_DARK[(f + c) % 2];
+          if (face === 0) {
+            frames.push({ x: b.x - b.w / 2 - 0.04, y, z: b.z + zOff, w: 0.12, h: 2.7, d: winD + 0.5, color: PALETTE.glass });
+            windows.push({ x: b.x - b.w / 2 - 0.1, y, z: b.z + zOff, w: 0.1, h: 2.2, d: winD, color: glass });
+          } else if (face === 1) {
+            frames.push({ x: b.x + b.w / 2 + 0.04, y, z: b.z + zOff, w: 0.12, h: 2.7, d: winD + 0.5, color: PALETTE.glass });
+            windows.push({ x: b.x + b.w / 2 + 0.1, y, z: b.z + zOff, w: 0.1, h: 2.2, d: winD, color: glass });
+          } else if (face === 2) {
+            frames.push({ x: b.x + xOff, y, z: b.z - b.d / 2 - 0.04, w: winW + 0.5, h: 2.7, d: 0.12, color: PALETTE.glass });
+            windows.push({ x: b.x + xOff, y, z: b.z - b.d / 2 - 0.1, w: winW, h: 2.2, d: 0.1, color: glass });
+          } else {
+            frames.push({ x: b.x + xOff, y, z: b.z + b.d / 2 + 0.04, w: winW + 0.5, h: 2.7, d: 0.12, color: PALETTE.glass });
+            windows.push({ x: b.x + xOff, y, z: b.z + b.d / 2 + 0.1, w: winW, h: 2.2, d: 0.1, color: glass });
+          }
+        }
       }
     }
-  }
+  });
   // The pier deck and posts, merged with the buildings.
   solids.push({ x: CITY.pier.x, y: 0.6, z: -6, w: 30, h: 1.2, d: 46, color: 0x7a6a4c });
   const buildingMesh = new THREE.Mesh(mergeBoxes(solids), new THREE.MeshLambertMaterial({ vertexColors: true }));
   scene.add(buildingMesh);
+  const frameMesh = new THREE.Mesh(mergeBoxes(frames), new THREE.MeshBasicMaterial({ vertexColors: true }));
+  scene.add(frameMesh);
   const windowMesh = new THREE.Mesh(mergeBoxes(windows), new THREE.MeshBasicMaterial({ vertexColors: true }));
   scene.add(windowMesh);
 
@@ -173,29 +309,29 @@ export function createRenderer(canvas, city) {
   }
   scene.add(new THREE.Mesh(mergeBoxes(lampParts), new THREE.MeshLambertMaterial({ vertexColors: true })));
 
-  // Landmark signs: canvas-textured planes on posts.
+  // Landmark signs: canvas-textured planes on posts (big ones read from afar).
   for (const s of city.signs) {
     const tex = signTexture(s.text, s.sub);
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(18, 5.6),
+      new THREE.PlaneGeometry(s.big ? 34 : 18, s.big ? 10 : 5.6),
       new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }),
     );
-    plane.position.set(s.x, 7.5, s.z);
-    plane.rotation.y = s.x > 200 ? -Math.PI / 2 : 0;
+    plane.position.set(s.x, s.big ? 11 : 7.5, s.z);
+    plane.rotation.y = s.ry !== undefined ? s.ry : (s.x > 200 ? -Math.PI / 2 : 0);
     scene.add(plane);
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7.5, 0.5), new THREE.MeshLambertMaterial({ color: 0x2c313a }));
     post.position.set(s.x, 3.75, s.z);
     scene.add(post);
   }
 
-  // Sun disc and a few flat clouds.
-  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(34, 24), new THREE.MeshBasicMaterial({ color: 0xfff2c0, fog: false }));
-  sunDisc.position.set(-420, 150, -300);
-  sunDisc.lookAt(0, 40, 0);
+  // Sun setting over the sea to the east — a sphere, so it reads round from
+  // every camera angle — and clouds across the eastern sky.
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(42, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfff2c0, fog: false }));
+  sunDisc.position.set(480, 55, -60);
   scene.add(sunDisc);
   const cloudParts = [];
-  for (let i = 0; i < 10; i += 1) {
-    cloudParts.push({ x: -300 + i * 70, y: 120 + (i % 3) * 14, z: -260 + (i % 4) * 90, w: 46, h: 4, d: 16, color: 0xfff4e0 });
+  for (let i = 0; i < 12; i += 1) {
+    cloudParts.push({ x: -260 + i * 80, y: 68 + (i % 3) * 8, z: -260 + (i % 4) * 110, w: 46, h: 4, d: 16, color: 0xffdfc0 });
   }
   scene.add(new THREE.Mesh(mergeBoxes(cloudParts), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
 
@@ -348,6 +484,35 @@ export function createRenderer(canvas, city) {
     line.frustumCulled = false;
     scene.add(line);
     tracers.push(line);
+  }
+
+  // Blood: one instanced pool of small red cubes (two tones), plus a pool of flat
+  // ground splatters that grow a little and fade out. Hidden when nothing bleeds.
+  const MAX_BLOOD = 160;
+  const bloodMesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.22, 0.22, 0.22),
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    MAX_BLOOD,
+  );
+  bloodMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  bloodMesh.visible = false;
+  bloodMesh.frustumCulled = false;
+  for (let i = 0; i < MAX_BLOOD; i += 1) {
+    bloodMesh.setColorAt(i, new THREE.Color(i % 2 ? 0x8f0f0f : 0xe81e1e));
+  }
+  if (bloodMesh.instanceColor) bloodMesh.instanceColor.needsUpdate = true;
+  scene.add(bloodMesh);
+  const decals = [];
+  for (let i = 0; i < 6; i += 1) {
+    const m = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 14),
+      new THREE.MeshBasicMaterial({ color: 0x9e1414, transparent: true, opacity: 0, depthWrite: false }),
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = 0.06;
+    m.visible = false;
+    scene.add(m);
+    decals.push(m);
   }
 
   const dummy = new THREE.Object3D();
@@ -565,11 +730,38 @@ export function createRenderer(canvas, city) {
       pos.needsUpdate = true;
     }
 
+    // Blood burst particles: bright red cubes that fly, fall and stick.
+    const blood = combat.state.blood;
+    bloodMesh.visible = blood.length > 0;
+    bloodMesh.count = Math.min(blood.length, MAX_BLOOD);
+    for (let i = 0; i < bloodMesh.count; i += 1) {
+      const p = blood[i];
+      const s = 0.7 + 0.6 * (p.life / p.maxLife);
+      setInstance(bloodMesh, i, p.x, p.y, p.z, 0, s, s, s);
+    }
+    bloodMesh.instanceMatrix.needsUpdate = true;
+    // Ground splatters: grow a touch, then fade out.
+    const splats = combat.state.decals;
+    for (let i = 0; i < decals.length; i += 1) {
+      const d = splats[i];
+      const m = decals[i];
+      if (!d) {
+        m.visible = false;
+        continue;
+      }
+      const f = d.life / 3;
+      m.visible = true;
+      m.position.set(d.x, 0.06, d.z);
+      const sc = d.size * (1 + (1 - f) * 0.35);
+      m.scale.set(sc, sc, 1);
+      m.material.opacity = 0.8 * Math.min(1, f * 2);
+    }
+
     renderer.render(scene, camera);
     return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
   }
 
-  /** World (x, y, z) to screen pixels, for damage numbers and health bars. */
+  /** World (x, y, z) to screen pixels, for HUD markers over the scene. */
   function project(x, y, z) {
     const v = new THREE.Vector3(x, y, z).project(camera);
     return {

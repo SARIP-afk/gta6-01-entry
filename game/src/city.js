@@ -72,7 +72,10 @@ export function buildCity(random) {
         const d = 14 + random() * 18;
         const x = gx + 9 + w / 2 + random() * Math.max(1, CITY.roadStep - 18 - w);
         const z = gz + 9 + d / 2 + random() * Math.max(1, CITY.roadStep - 18 - d);
-        const h = 8 + random() * random() * 52;
+        let h = 8 + random() * random() * 52;
+        // The avenue corridor and downtown read as a skyline: taller towers there.
+        const tall = (gx >= -156 && gx < 52 && gz >= -260 && gz < -52) || (gz >= -52 && gz < 52);
+        if (tall) h = Math.min(75, h * 1.35);
         buildings.push({
           x, z, w, d, h,
           color: pick(random, PALETTE.building),
@@ -88,15 +91,30 @@ export function buildCity(random) {
     }
   }
 
+  // Palms line the avenue (road z=0) on the sidewalks, alternating sides a block
+  // at a time — no random draws, so the stream after the city is untouched.
+  for (let gx = CITY.gridMin; gx < CITY.gridMax; gx += CITY.roadStep) {
+    const block = Math.round(gx / CITY.roadStep);
+    const north = ((block % 2) + 2) % 2 === 0;
+    palms.push({ x: gx + 26, z: north ? -8.5 : 8.5, lean: 0.1, h: 6 });
+    if (((block % 4) + 4) % 4 === 0) palms.push({ x: gx + 26, z: north ? 8.5 : -8.5, lean: -0.1, h: 5.5 });
+  }
+  // Beach palms, fixed spots on the sand so the shore always reads as a beach.
+  for (const [bx, bz, lean] of [[-180, 280, 0.1], [-120, 230, -0.1], [-60, 300, 0.1], [0, 280, -0.1], [60, 230, 0.1], [120, 300, -0.1], [200, 280, 0.1], [280, 230, -0.1], [340, 300, 0.1]]) {
+    palms.push({ x: bx, z: bz, lean, h: 6 });
+  }
+
   // Landmark signs: big readable names at the places missions go, plus the skyline.
   const signDefs = [
     { x: -58, z: -176, text: 'DOWNTOWN', sub: 'NIGHT MARKET' },
     { x: -162, z: 132, text: 'SOLMARINA STADIUM', sub: 'HOME OF THE WAVES' },
     { x: 254, z: 82, text: 'MARINA', sub: 'BOATS · MONEY' },
-    { x: 380, z: 22, text: 'THE PIER', sub: 'END OF THE ROAD' },
+    { x: 380, z: -14, text: 'THE PIER', sub: 'END OF THE ROAD', big: true, ry: -Math.PI / 4 },
     { x: -280, z: -280, text: 'OLD HARBOR', sub: 'FISH · SALT · RUST' },
     { x: 120, z: 280, text: 'PALM BEACH', sub: 'SURF · SUNSET' },
     { x: 0, z: -300, text: 'SOLMARINA', sub: 'A CITY THAT NEVER SLOWS DOWN' },
+    // Gateway billboard on the marina road, facing west down the avenue.
+    { x: 210, z: -8.5, text: 'SOLMARINA', sub: 'DOWNTOWN · MARINA', ry: -Math.PI / 2 },
   ];
   for (const s of signDefs) signs.push(s);
 

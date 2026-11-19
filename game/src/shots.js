@@ -91,7 +91,10 @@ export function stageShot(name, world) {
   world.reset(1);
   const s = world.state;
   if (name === 'cover') {
-    // M4, wanted 3, on the causeway with the pier ahead and cruisers closing in.
+    // M4, wanted 3, DANTE on the line — staged on the coastal road at the south
+    // edge of town, looking north up the boulevard: dense towers on the left,
+    // the beach in the foreground, and on the right the marina, the pier, the sea
+    // and the sun setting over it. Sol + marina in one frame.
     s.missions.state.active = 3;
     s.missions.state.stage = 0;
     s.missions.state.started = true;
@@ -99,45 +102,56 @@ export function stageShot(name, world) {
     s.missions.state.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
     s.missions.state.dialogTimer = 6;
     s.player.mode = 'car';
-    s.heroCar.x = 296;
-    s.heroCar.z = -6;
-    s.heroCar.heading = 0;
-    s.heroCar.speed = 12;
     s.police.setWanted(3, s.events);
-    // Traffic ahead on the causeway, in the other lane — visible, not rammed.
-    const coverCars = [[344, -1], [362, -11], [382, -1]];
+    // Let the street settle into natural positions for 3 s, then stage the frame
+    // exactly — the camera looks north from behind the hero, so everything placed
+    // here is what the cover shows.
+    for (let i = 0; i < COVER_SECONDS / STEP; i += 1) {
+      world.step(STEP, driveInput(world, CITY.pier.x, CITY.pier.z));
+    }
+    s.heroCar.x = 310;
+    s.heroCar.z = 250;
+    s.heroCar.heading = Math.PI / 2;
+    s.heroCar.speed = 12;
+    // Stage, not sim: the cover shows wanted 3 and a clean car.
+    s.police.setWanted(3, []);
+    s.heroCar.damage = 0;
+    // Traffic on the coastal road, both directions, up the boulevard — the
+    // nearest car just ahead of the hero so the chase reads at a glance.
+    const coverCars = [
+      [307, 235, Math.PI / 2], [313, 205, -Math.PI / 2],
+      [307, 175, Math.PI / 2], [313, 140, -Math.PI / 2],
+      [307, 105, Math.PI / 2], [313, 70, -Math.PI / 2],
+    ];
     for (let i = 0; i < coverCars.length; i += 1) {
       const c = s.traffic.cars[i];
       c.x = coverCars[i][0];
       c.z = coverCars[i][1];
-      c.heading = 0;
-      c.tx = 400;
-      c.tz = -6;
+      c.heading = coverCars[i][2];
+      c.tx = 312;
+      c.tz = coverCars[i][2] > 0 ? -100 : 300;
     }
-    for (let i = 0; i < COVER_SECONDS / STEP; i += 1) {
-      world.step(STEP, driveInput(world, CITY.pier.x, CITY.pier.z));
-    }
-    // Stage, not sim: the cover shows wanted 3 and a clean car.
-    s.police.setWanted(3, []);
-    s.heroCar.damage = 0;
-    // Flank two cruisers into the frame ahead of the hero: a chase reads
-    // only when the pursuit is visible, not just on the dispatch panel.
+    // Two cruisers in the frame: one ahead in the chase, one just behind the hero.
     if (s.police.units[0]) {
-      s.police.units[0].x = s.heroCar.x + 22;
-      s.police.units[0].z = s.heroCar.z - 9;
-      s.police.units[0].heading = Math.PI;
+      s.police.units[0].x = s.heroCar.x;
+      s.police.units[0].z = s.heroCar.z - 34;
+      s.police.units[0].heading = Math.PI / 2;
     }
     if (s.police.units[1]) {
-      s.police.units[1].x = s.heroCar.x + 16;
-      s.police.units[1].z = s.heroCar.z + 10;
-      s.police.units[1].heading = Math.PI;
+      s.police.units[1].x = s.heroCar.x;
+      s.police.units[1].z = s.heroCar.z + 26;
+      s.police.units[1].heading = Math.PI / 2;
     }
-    // Keep pedestrians out of the hero's personal space for the frame.
-    for (const p of s.traffic.peds) {
-      if (Math.hypot(p.x - s.heroCar.x, p.z - s.heroCar.z) < 20) {
-        p.x += 45;
-        p.z += 45;
-      }
+    // Walkers on the sidewalks along the coastal road, in the frame — the nearest
+    // four on the beach by the camera, so the street reads as lived-in.
+    const coverPeds = [[300, 298], [320, 288], [305, 278], [318, 268], [304.5, 200], [319.5, 150], [304.5, 100], [319.5, 60]];
+    for (let i = 0; i < coverPeds.length; i += 1) {
+      const p = s.traffic.peds[i];
+      p.x = coverPeds[i][0];
+      p.z = coverPeds[i][1];
+      p.heading = i % 2 === 0 ? Math.PI / 2 : -Math.PI / 2;
+      p.phase = i * 1.1;
+      p.down = false;
     }
     return { screen: SCREEN_PLAY };
   }

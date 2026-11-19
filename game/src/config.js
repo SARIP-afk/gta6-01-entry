@@ -82,6 +82,18 @@ export const WEAPON = {
 
 export const ENEMY = { health: 100, shootInterval: 1.3, damage: 8, range: 55, reward: 150 };
 
+// Blood on a hit: no numbers, no bars — red particles burst from the wound and a
+// splatter stays on the ground, fading out. All of it is seeded, so a replay
+// shows the same burst.
+export const BLOOD = {
+  particles: 14, // per hit; a kill bursts twice that
+  life: 1.2, // seconds a particle flies / sticks
+  decalLife: 3.0, // seconds a ground splatter stays
+  gravity: 12,
+  maxParticles: 160,
+  maxDecals: 6,
+};
+
 export const WANTED_TIERS = [
   { stars: 0, label: 'CLEAR', cruisers: 0, loseTime: 0, searchTime: 0 },
   { stars: 1, label: 'PATROL ON ALERT', cruisers: 1, loseTime: 6, searchTime: 10 },
@@ -152,9 +164,9 @@ export const PALETTE = {
   fog: 0xf7b98a,
   ground: 0x9c8a6a,
   sand: 0xd9b380,
-  sea: 0x2e6f8e,
+  sea: 0x1f5f7e,
   asphalt: 0x3a3f46,
-  building: [0xe8b48c, 0xd98a7a, 0xc9a06a, 0x9db4c8, 0xb5a6c9, 0xe0cfa8],
+  building: [0xe8b48c, 0xd94f3d, 0xe0a83c, 0x7fb3c8, 0x5fb3a3, 0xf5e6c4, 0xd67fa0],
   glass: 0x2c3e50,
   windowLit: 0xffd27a,
   palmTrunk: 0x8a6a4a,

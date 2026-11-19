@@ -19,7 +19,13 @@
   #wanted-tier { font-size: 12px; letter-spacing: 1px; color: #ffb3b3; }
   #cash { position: absolute; top: 76px; right: 16px; font-size: 22px; font-weight: 800; color: #7ddf8a; }
   #leftcol { position: absolute; top: 14px; left: 16px; display: flex; flex-direction: column; gap: 8px; }
+  #mapwrap { position: absolute; left: 16px; bottom: 14px; }
   #minimap { border: 2px solid rgba(242, 201, 76, 0.6); border-radius: 50%; background: rgba(20,28,36,0.85); }
+  #weapon { position: absolute; right: 16px; bottom: 76px; text-align: right; min-width: 200px; }
+  #weapon-name { font-size: 19px; font-weight: 800; letter-spacing: 2px; color: #f2c94c; }
+  #weapon-ammo { font-size: 30px; font-weight: 900; line-height: 1.1; }
+  #weapon-ammo .dim { color: #cfd6de; font-size: 20px; }
+  #weapon-hint { font-size: 11px; letter-spacing: 1px; color: #cfd6de; margin-top: 2px; }
   #district { font-size: 12px; max-width: 220px; }
   #shells { font-size: 12px; }
   #dispatch { font-size: 12px; max-width: 240px; }
@@ -38,9 +44,6 @@
   #results-title { font-size: 34px; font-weight: 900; letter-spacing: 3px; color: #f2c94c; text-shadow: 0 2px 8px #000; }
   #results-sub { font-size: 16px; text-shadow: 0 1px 4px #000; }
   #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-  .dmg { position: absolute; color: #ffe08a; font-weight: 900; font-size: 18px; text-shadow: 0 1px 3px #000; transform: translate(-50%, -50%); }
-  .enemybar { position: absolute; width: 44px; height: 6px; background: rgba(0,0,0,0.6); border: 1px solid #fff; }
-  .enemybar div { height: 100%; background: #ff4a4a; }
   .overlay { position: fixed; inset: 0; display: none; background: linear-gradient(180deg, rgba(29,39,51,0.88), rgba(120,60,20,0.82)); align-items: center; justify-content: center; flex-direction: column; gap: 14px; text-align: center; z-index: 10; }
   .overlay h1 { font-size: 64px; margin: 0; letter-spacing: 8px; color: #f2c94c; text-shadow: 0 4px 18px #000; }
   .overlay h2 { font-size: 16px; margin: 0; letter-spacing: 3px; color: #f5f0e6; font-weight: 400; }
@@ -69,10 +72,15 @@
 
 <div id="hud">
   <div id="leftcol">
-    <canvas id="minimap" width="120" height="120"></canvas>
     <div id="district" class="panel">DOWNTOWN</div>
     <div id="shells" class="panel">SHELLS 0/20 · EXPORTS 0/5</div>
     <div id="dispatch" class="panel" style="display:none"><b>DISPATCH</b><div id="dispatch-list"></div></div>
+  </div>
+  <div id="mapwrap"><canvas id="minimap" width="90" height="90"></canvas></div>
+  <div id="weapon" class="panel">
+    <div id="weapon-name">SOL-9 PISTOL</div>
+    <div id="weapon-ammo"><span id="weapon-mag">12</span><span class="dim"> / <span id="weapon-reserve">48</span></span></div>
+    <div id="weapon-hint">R — RELOAD · CLICK — FIRE</div>
   </div>
   <div id="banner" class="panel">
     <div id="banner-line1">M1 · FIRST DROP</div>

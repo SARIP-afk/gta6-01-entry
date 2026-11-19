@@ -1,9 +1,9 @@
 // The HUD: every DOM panel the player reads — mission banner, wanted stars with
-// their tier name, cash, health, ammo, speed, the 120 px minimap, the police
-// dispatch panel, the crime feed, dialog with a procedural portrait, the radio
-// label, damage numbers, enemy health bars, the results banner, and the two big
-// overlays: title (with save slots) and pause (MAP / STORY / STATS / SAVE tabs).
-// All of it is DOM, so it costs zero draw calls.
+// their tier name, cash, health, ammo, the weapon panel, speed, the 90 px minimap,
+// the police dispatch panel, the crime feed, dialog with a procedural portrait, the
+// radio label, the results banner, and the two big overlays: title (with save slots)
+// and pause (MAP / STORY / STATS / SAVE tabs). All of it is DOM, so it costs zero
+// draw calls.
 import { CITY, DISTRICTS, WANTED_TIERS, WEAPON, CAR_MODELS } from './config.js';
 
 function el(id) {
@@ -50,24 +50,6 @@ export function createHud(callbacks) {
   const feedLines = [];
   let feedTimer = 0;
   let resultsTimer = 0;
-
-  // Damage-number pool.
-  const dmgPool = [];
-  for (let i = 0; i < 12; i += 1) {
-    const d = document.createElement('div');
-    d.className = 'dmg';
-    d.style.display = 'none';
-    el('fx').appendChild(d);
-    dmgPool.push(d);
-  }
-  const barPool = [];
-  for (let i = 0; i < 3; i += 1) {
-    const b = document.createElement('div');
-    b.className = 'enemybar';
-    b.style.display = 'none';
-    el('fx').appendChild(b);
-    barPool.push(b);
-  }
 
   function drawMap(ctx, size, state, big) {
     const span = 760;
@@ -199,6 +181,17 @@ export function createHud(callbacks) {
     el('health-fill').style.width = `${Math.max(0, p.health)}%`;
     el('health-num').textContent = `${Math.round(p.health)}`;
     el('ammo').textContent = s.combat.state.reloading ? 'RELOADING' : `${WEAPON.name} ${s.combat.state.ammo}/${s.combat.state.reserve}`;
+    // Weapon panel: big name, big ammo, reload hint — the one panel a shooter reads.
+    el('weapon-name').textContent = WEAPON.name;
+    if (s.combat.state.reloading) {
+      el('weapon-mag').textContent = '––';
+      el('weapon-reserve').textContent = `${s.combat.state.reserve}`;
+      el('weapon-hint').textContent = 'RELOADING…';
+    } else {
+      el('weapon-mag').textContent = `${s.combat.state.ammo}`;
+      el('weapon-reserve').textContent = `${s.combat.state.reserve}`;
+      el('weapon-hint').textContent = 'R — RELOAD · CLICK — FIRE';
+    }
     const speed = p.mode === 'car' ? Math.abs(s.heroCar.speed) * 3.6 : Math.abs(p.speed) * 3.6;
     el('speed').textContent = `${Math.round(speed)} KM/H`;
     el('carname').textContent = p.mode === 'car'
@@ -225,38 +218,8 @@ export function createHud(callbacks) {
     }
 
     // Minimap.
-    drawMap(mm, 120, s, false);
+    drawMap(mm, 90, s, false);
     if (screen === 'paused' && bm) drawMap(bm, 360, s, true);
-
-    // Damage numbers + enemy bars, projected to screen.
-    const nums = s.combat.state.numbers;
-    for (let i = 0; i < dmgPool.length; i += 1) {
-      const n = nums[i];
-      const d = dmgPool[i];
-      if (!n) {
-        d.style.display = 'none';
-        continue;
-      }
-      const pr = project(n.x, n.y, n.z);
-      d.style.display = pr.visible ? 'block' : 'none';
-      d.style.left = `${pr.x}px`;
-      d.style.top = `${pr.y}px`;
-      d.style.opacity = String(Math.max(0, n.life));
-      d.textContent = `-${n.value}`;
-    }
-    for (let i = 0; i < barPool.length; i += 1) {
-      const e = s.combat.state.enemies[i];
-      const b = barPool[i];
-      if (!e || !e.alive) {
-        b.style.display = 'none';
-        continue;
-      }
-      const pr = project(e.x, 2.6, e.z);
-      b.style.display = pr.visible ? 'block' : 'none';
-      b.style.left = `${pr.x - 22}px`;
-      b.style.top = `${pr.y}px`;
-      b.innerHTML = `<div style="width:${Math.max(0, e.health)}%"></div>`;
-    }
 
     // Feed + results fade.
     if (feedTimer > 0) {

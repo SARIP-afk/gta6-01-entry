@@ -387,7 +387,12 @@ export function buildCar({ kind = 'traffic', paint = 0x8a8a8a, interactive = fal
     // At +-0.96 the panel face (0.97) stands proud of the body (M-8).
     whiteParts.push(box(0.02, 0.5, 1.2, halfW + 0.01, 0.55, -0.2));
     whiteParts.push(box(0.02, 0.5, 1.2, -(halfW + 0.01), 0.55, -0.2));
-    trimParts.push(box(1.2, 0.1, 0.5, 0, roofH + 0.12, -0.35));
+    // F5-P (P-G, C-A5): light bar -0,09 m — puncak 1,69 m -> 1,60 m
+    // (base roofH+0,12 -> roofH+0,03; lensa roofH+0,28 -> roofH+0,19,
+    // puncak lensa 1,49+0,11 = 1,60 m). Base kini menembus panel atap
+    // putih 0,06 m (dulu melayang 0,03 m di atasnya) — tertanam, bukan
+    // melayang; lensa tetap di atas atap (bawah lensa 1,38 vs atap 1,34).
+    trimParts.push(box(1.2, 0.1, 0.5, 0, roofH + 0.03, -0.35));
     trimParts.push(box(0.08, 0.4, 0.08, 0.5, 0.5, halfL + 0.25));
     trimParts.push(box(0.08, 0.4, 0.08, -0.5, 0.5, halfL + 0.25));
     trimParts.push(box(1.1, 0.08, 0.08, 0, 0.65, halfL + 0.27));
@@ -423,9 +428,9 @@ export function buildCar({ kind = 'traffic', paint = 0x8a8a8a, interactive = fal
     const redMat = MAT.redLens();
     const blueMat = MAT.blueLens();
     redLamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.5), redMat);
-    redLamp.position.set(-0.3, roofH + 0.28, -0.35);
+    redLamp.position.set(-0.3, roofH + 0.19, -0.35);
     blueLamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.5), blueMat);
-    blueLamp.position.set(0.3, roofH + 0.28, -0.35);
+    blueLamp.position.set(0.3, roofH + 0.19, -0.35);
     group.add(redLamp);
     group.add(blueLamp);
   }

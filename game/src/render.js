@@ -121,23 +121,33 @@ function buildPlayerMesh() {
     shin.position.y = -0.2375;
     shin.castShadow = true;
     knee.add(shin);
-    // Shoe as a CHILD of the knee (was a child of the hip pivot in P1/P2):
-    // it now follows the knee flex instead of staying rigid with the thigh.
-    // Offsets are the P2 ones shifted +0.475 into knee space; the bottom of
-    // the stack still touches the ground exactly when the leg is straight.
+    // F5-P (P-A): ankle joint — the shoe + sole hang from an ankle group
+    // pivoted at the top of the foot (knee-space y=-0.36), NOT rigid with
+    // the shin. The rigid shoe pitched toe-down with the shin during the
+    // swing (pitch = legRot + kneeRot), dipping the sole 11 mm below ground
+    // at jog (gate 6.11). The ankle counter-rotates a fraction of the knee
+    // flex (see draw()), levelling the shoe through the swing. Same meshes,
+    // same geometry — only the grouping changes (0 new draw calls).
+    const ankle = new THREE.Group();
+    ankle.position.set(0, -0.36, 0);
+    knee.add(ankle);
+    // Shoe as a CHILD of the ankle (was a child of the knee in P4): offsets
+    // are the P4 ones shifted +0.36 into ankle space; the bottom of the
+    // stack still touches the ground exactly when the leg is straight.
     const shoe = new THREE.Mesh(mergeParts([
-      part(0.15, 0.10, 0.28, 0, -0.395, 0.05),
-      part(0.13, 0.08, 0.05, 0, -0.405, 0.195), // S3/S4 toe cap, front-proud
+      part(0.15, 0.10, 0.28, 0, -0.035, 0.05),
+      part(0.13, 0.08, 0.05, 0, -0.045, 0.195), // S3/S4 toe cap, front-proud
     ]), shoeMat);
     shoe.castShadow = true;
-    knee.add(shoe);
+    ankle.add(shoe);
     // Rio P2 (P1): light sole under the shoe — bottom flush with the ground,
     // top flush with the shoe bottom (sandwiched faces, no z-fighting).
     const sole = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.28), soleMat);
-    sole.position.set(0, -0.46, 0.05);
-    knee.add(sole);
+    sole.position.set(0, -0.10, 0.05);
+    ankle.add(sole);
     rio.add(leg);
     leg.knee = knee;
+    leg.ankle = ankle;
     legs.push(leg);
   }
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.54, 0.24), shirt);
@@ -650,6 +660,13 @@ export function createRenderer(canvas, hud, options = {}) {
   // cycle >= 2·step (audit condition): jog 2.416 >= 2.300, sprint 2.977 >= 2.590.
   const RIO_CYCLE_JOG = (2 * Math.PI * PLAYER.walkSpeed) / 13;
   const RIO_CYCLE_SPRINT = (2 * Math.PI * PLAYER.runSpeed) / 19;
+  // F5-P (P-A): ankle compensation fraction — the ankle counter-rotates this
+  // share of the knee flex. 0.20 x the 0.9 rad max knee flex = 0.18 rad of
+  // ankle travel, inside the 6.8 shoe-to-shin budget (maxDev < 0.02 m
+  // tolerates ~0.2 rad). Chosen from the P4 dip analysis: the jog dip
+  // (-11 mm) sits at knee flex 0.44-0.57 rad, where 20% compensation lifts
+  // the toe ~24 mm. See the F5-P report for the measurement.
+  const ANKLE_COMP = 0.2;
   let rioPhase = 0;
   let rioBlend = 0;
   let rioPrevX = null;
@@ -663,8 +680,14 @@ export function createRenderer(canvas, hud, options = {}) {
     const fx = Math.sin(heading);
     const fz = Math.cos(heading);
 
+    // F5-P (P-B grounding): every group stands on groundY(x, z) — the surface
+    // the blobs already use (road 0.11 / sidewalk 0.21 / beach -0.14, i.e.
+    // surface + 0.01). Before this, every group sat at y=0 while the asphalt
+    // top is 0.10 / sidewalk 0.20, burying soles + ~70% of the shoe and
+    // 0.10 m of every wheel. Render-only: sim positions are untouched.
+    const rioGround = groundY(state.player.x, state.player.z);
     // Car mesh follows the car; Rio follows the player (hidden while driving).
-    car.group.position.set(state.car.x, 0, state.car.z);
+    car.group.position.set(state.car.x, groundY(state.car.x, state.car.z), state.car.z);
     car.group.rotation.y = state.car.heading;
     carBlob.position.set(state.car.x, groundY(state.car.x, state.car.z), state.car.z);
     carBlob.rotation.z = -state.car.heading;
@@ -678,7 +701,7 @@ export function createRenderer(canvas, hud, options = {}) {
       if (i < 2) w.steer.rotation.y = state.car.steer * 0.5;
     }
     rio.group.visible = state.mode === 'foot';
-    rio.group.position.set(state.player.x, 0, state.player.z);
+    rio.group.position.set(state.player.x, rioGround, state.player.z);
     rio.group.rotation.y = state.player.heading;
     rioBlob.visible = state.mode === 'foot';
     rioBlob.position.set(state.player.x, groundY(state.player.x, state.player.z), state.player.z);
@@ -730,6 +753,12 @@ export function createRenderer(canvas, hud, options = {}) {
     // straight through stance, so the foot plants instead of dragging.
     rio.legs[0].knee.rotation.x = b * K * Math.max(0, -c);
     rio.legs[1].knee.rotation.x = b * K * Math.max(0, c);
+    // F5-P (P-A): ankle compensation — the shoe counter-rotates 20% of the
+    // knee flex so it stays level through the swing instead of pitching
+    // toe-down with the shin (gate 6.11: jog soleMinY -0.01114 m). The knee
+    // rotation already includes the blend b, so idle/transition behave.
+    rio.legs[0].ankle.rotation.x = -ANKLE_COMP * rio.legs[0].knee.rotation.x;
+    rio.legs[1].ankle.rotation.x = -ANKLE_COMP * rio.legs[1].knee.rotation.x;
     // Arms swing against the legs (Batch 2, Phase C); elbows stay bent and
     // flex more while the arm swings forward. 0.08 rad of bend at idle so
     // the arms never hang perfectly straight.
@@ -742,7 +771,7 @@ export function createRenderer(canvas, hud, options = {}) {
     const t = state.time;
     const bob = b * bobA * Math.abs(c);
     const breath = (1 - b) * 0.008 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 0.25 * t));
-    rio.group.position.y = bob + breath;
+    rio.group.position.y = rioGround + bob + breath;
     rio.group.rotation.x = b * leanA;
     // Idle head-turn: slow look-around, 0.3 rad at 0.5 rad/s (12.6 s period).
     const headTurn = (1 - b) * 0.3 * Math.sin(0.5 * t);
@@ -787,16 +816,20 @@ export function createRenderer(canvas, hud, options = {}) {
     // phase (shared by all cruisers — synchronous 2 Hz); opacity fades
     // linearly with cruiser–camera distance (full to 40 m, zero at 90 m).
     // Positions/colours update in place — no allocation per frame. The halo
-    // sits on the light bar (roof 1.30 + 0.28, peak 1.69 m) as a yaw-only
-    // billboard; a plane's +Z normal must point AT the camera, i.e. opposite
-    // the look direction, so rotation.y = cameraYaw() + PI (not cameraYaw()
-    // itself — that would face the normal away and backface-cull the halo).
+    // sits on the light bar (roof 1.30 + 0.19, peak 1.60 m after F5-P P-G)
+    // as a yaw-only billboard; a plane's +Z normal must point AT the camera,
+    // i.e. opposite the look direction, so rotation.y = cameraYaw() + PI
+    // (not cameraYaw() itself — that would face the normal away and
+    // backface-cull the halo). Its centre height is derived from the bar
+    // top (SIREN.haloCentreHeight above the ground the cruiser stands on),
+    // NOT a fixed 1.7 m — P-B grounds the cars, so a fixed value would
+    // drift 0.11 m off the bar on the road.
     const updateSiren = (halo, pool, x, z, heading) => {
       sirenColor.setHex(flashRed ? EXTRA_CAR.policeLightRed : EXTRA_CAR.policeLightBlue);
       const dist = Math.hypot(x - camera.position.x, z - camera.position.z);
       const fade = dist <= SIREN.fadeNear ? 1 : dist >= SIREN.fadeFar ? 0
         : 1 - (dist - SIREN.fadeNear) / (SIREN.fadeFar - SIREN.fadeNear);
-      halo.position.set(x - 0.35 * Math.sin(heading), 1.7, z - 0.35 * Math.cos(heading));
+      halo.position.set(x - 0.35 * Math.sin(heading), groundY(x, z) + SIREN.haloCentreHeight, z - 0.35 * Math.cos(heading));
       halo.rotation.y = cameraYaw() + Math.PI;
       halo.material.color.copy(sirenColor);
       halo.material.opacity = SIREN.haloOpacity * fade;
@@ -819,7 +852,7 @@ export function createRenderer(canvas, hud, options = {}) {
       // F4 V4: cruiser blob follows the cruiser; hidden with it.
       if (!p) { mesh.group.visible = false; policeBlobs[i].visible = false; hideSiren(policeHalos[i], policePools[i]); continue; }
       mesh.group.visible = true;
-      mesh.group.position.set(p.x, 0, p.z);
+      mesh.group.position.set(p.x, groundY(p.x, p.z), p.z);
       mesh.group.rotation.y = p.heading;
       policeBlobs[i].visible = true;
       policeBlobs[i].position.set(p.x, groundY(p.x, p.z), p.z);
@@ -842,7 +875,7 @@ export function createRenderer(canvas, hud, options = {}) {
       usedSlots.add(slot);
       const mesh = trafficPool[slot];
       mesh.group.visible = true;
-      mesh.group.position.set(t.x, 0, t.z);
+      mesh.group.position.set(t.x, groundY(t.x, t.z), t.z);
       mesh.group.rotation.y = t.heading;
       // F4 V4: traffic blob follows the slot's car.
       trafficBlobs[slot].visible = true;
@@ -863,7 +896,7 @@ export function createRenderer(canvas, hud, options = {}) {
       const p = livePeds[i];
       if (!p || p.state === 'down') { mesh.group.visible = false; pedBlobs[i].visible = false; continue; }
       mesh.group.visible = true;
-      mesh.group.position.set(p.x, 0, p.z);
+      mesh.group.position.set(p.x, groundY(p.x, p.z), p.z);
       mesh.group.rotation.y = p.heading;
       mesh.shirtMat.color.setHex(PALETTE.pedShirts[p.shirt % PALETTE.pedShirts.length]);
       // Batch 2, Phase C: the peds' arms swing while they walk or flee —
@@ -886,7 +919,7 @@ export function createRenderer(canvas, hud, options = {}) {
       else extraTrafficSeen += 1;
       const mesh = pool[slot];
       mesh.group.visible = true;
-      mesh.group.position.set(extra.x, 0, extra.z);
+      mesh.group.position.set(extra.x, groundY(extra.x, extra.z), extra.z);
       mesh.group.rotation.y = extra.heading;
       flash(mesh);
       if (extra.kind === 'police') updateSiren(extraPoliceHalos[slot], extraPolicePools[slot], extra.x, extra.z, extra.heading);

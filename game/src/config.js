@@ -139,7 +139,11 @@ export const LIGHT = {
   // 27,81% di baseline merge, gutter F2 menambah +4,03 poin; tuas (a)
   // pada gutter tidak mampu (di bayangan, albedo hanya menggeser
   // ~3 level — tidak membalik piksel <32 tanpa merusak baca gutter).
-  hemiIntensity: 1.20,
+  // F5-P (P-F, 5.3b): hemi 1,20 -> 1,25 — tuas kedua yang belum dipakai
+  // untuk road region 28,89% vs <20% (F2 final). Bila 1,25 tidak mencapai
+  // <20% tanpa merusak 5.1/5.2, 5.3b dinyatakan miss struktural (rencana
+  // F5 §5.3) — ambang TIDAK diubah di sini.
+  hemiIntensity: 1.25,
   fillIntensity: 0.45,
   fillColor: '#cfe0f2',
   // F1 (L8): exposure 1,15 -> 1,20 — hanya setelah L2: total cahaya di
@@ -254,6 +258,14 @@ export const SIREN = {
   haloOpacity: 0.55,
   poolOpacity: 0.35,
   haloSize: 2.2,
+  // F5-P (P-G): halo centre height ABOVE THE GROUND the cruiser stands on
+  // (render.js adds groundY(x, z)). 1.61 m = light-bar top after P-G
+  // (1.60 m) + the 0.01 m sealed offset (halo centre sat 0.01 m above the
+  // bar top in the sealed S2 build: 1.70 vs 1.69). A fixed 1.61 m absolute
+  // would be WRONG now that P-B grounds the cars (+0.11 m on the road):
+  // the bar top sits at 1.71 m absolute, so a fixed halo would hang 0.10 m
+  // below it. Derived: 0.11 + 1.61 = 1.72 m absolute on the road.
+  haloCentreHeight: 1.61,
   // Pool footprint in metres: [length along the car, width across].
   poolSize: [6.4, 4.0],
   // Distance fade (cruiser–camera): full up to fadeNear, zero at fadeFar.

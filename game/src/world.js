@@ -13,6 +13,7 @@ import { CREW, createCrew, resetCrew, stepCrew, useAbility } from './crew.js';
 import { RANKS, XP_ENEMY_DOWN, XP_EXPORT, XP_MISSION, XP_SHELL, addXp, cooldownMult, createRank, exportMult, missionMult, resetRank } from './rank.js';
 import { createHeli, resetHeli, stepHeli } from './heli.js';
 import { WEAPONS } from './weapons.js';
+import { START_HOUR, hoursAt } from './daynight.js';
 
 export const EVENT_BUST = 1;
 export const EVENT_MISSION = 2;
@@ -62,6 +63,11 @@ export function createWorld(random) {
   };
   const state = {
     time: 0, cash: 0, seed: 0,
+    // In-game clock: game hours 0..24, a pure function of the step count
+    // (see daynight.js) — never the wall clock. clockPin freezes it: the
+    // cover staging pins the clock to sunset so the staged frame keeps the
+    // v4.3 light exactly; null means the clock runs free.
+    gameHour: START_HOUR, clockPin: null,
     player, heroCar, city, traffic, police, missions, combat, crew, rank, heli,
     standing: DISTRICTS.map(() => 50),
     shellsTaken: 0,
@@ -114,6 +120,8 @@ export function createWorld(random) {
   function reset(seed) {
     state.seed = seed;
     state.time = 0;
+    state.clockPin = null;
+    state.gameHour = START_HOUR;
     state.cash = 0;
     state.standing = DISTRICTS.map(() => 50);
     state.shellsTaken = 0;
@@ -378,9 +386,17 @@ export function createWorld(random) {
     }
   }
 
+  /** Freeze the in-game clock at an hour (cover staging); null frees it. */
+  function pinClock(hour) {
+    state.clockPin = hour;
+    state.gameHour = hour;
+  }
+
   function step(dt, input) {
     state.stepCount += 1;
     state.time += dt;
+    // The clock follows the sim step count only — pinned, it stays put.
+    state.gameHour = state.clockPin !== null ? state.clockPin : hoursAt(state.stepCount);
     state.stats.timePlayed += dt;
     if (state.crimeCooldown > 0) state.crimeCooldown -= dt;
     // Only events raised during THIS step get their effects applied below; the
@@ -552,6 +568,7 @@ export function createWorld(random) {
       health: player.health,
       carX: heroCar.x, carZ: heroCar.z, carHeading: heroCar.heading,
       time: state.time,
+      stepCount: state.stepCount,
       district: DISTRICTS[districtAt(player.x, player.z)].name,
       completion: completion(),
       rankXp: rank.state.xp,
@@ -579,6 +596,11 @@ export function createWorld(random) {
     heroCar.x = s.carX ?? city.spawn.x;
     heroCar.z = s.carZ ?? city.spawn.z;
     heroCar.heading = s.carHeading ?? 0;
+    // Restore the clock from the saved step count, so loading a save keeps
+    // the time of day instead of resetting to sunset.
+    state.time = s.time || 0;
+    state.stepCount = s.stepCount || 0;
+    state.gameHour = hoursAt(state.stepCount);
     rank.state.xp = s.rankXp || 0;
     rank.state.level = s.rankLevel || 0;
     combat.loadoutApply(s.loadout);
@@ -591,7 +613,7 @@ export function createWorld(random) {
 
   reset(1);
   return {
-    state, reset, step, completion, traceHash, snapshot, applySnapshot,
+    state, reset, step, pinClock, completion, traceHash, snapshot, applySnapshot,
     districtAt,
   };
 }

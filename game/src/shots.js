@@ -4,6 +4,7 @@
 // game really looks like and the same seed always gives the same frame.
 import { CITY, STEP } from './config.js';
 import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import { SUNSET_HOUR } from './daynight.js';
 
 const START_SECONDS = 5;
 const PLAY_SECONDS = 26;
@@ -91,6 +92,11 @@ export function stageShot(name, world) {
   world.reset(1);
   const s = world.state;
   if (name === 'cover') {
+    // The cover clock is PINNED to sunset: the world steps for 3 s but the
+    // hour never moves, and the renderer leaves its sunset defaults
+    // untouched — so this frame is exactly the v4.3 cover frame. The clock
+    // only runs in gameplay, never in a staged shot.
+    world.pinClock(SUNSET_HOUR);
     // M4, wanted 3, DANTE on the line — staged on the avenue (road z=0) heading
     // east toward the pier, chase-cam close behind the hero like the first
     // build framed it: the road runs straight ahead to the pier and the sea,

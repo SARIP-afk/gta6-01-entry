@@ -8,6 +8,7 @@ import { CITY, DISTRICTS, WANTED_TIERS, CAR_MODELS } from './config.js';
 import { WEAPONS } from './weapons.js';
 import { CREW } from './crew.js';
 import { RANKS, rankProgress } from './rank.js';
+import { formatClock, phaseAt } from './daynight.js';
 
 function el(id) {
   return document.getElementById(id);
@@ -279,6 +280,10 @@ export function createHud(callbacks) {
     }
     const speed = p.mode === 'car' ? Math.abs(s.heroCar.speed) * 3.6 : Math.abs(p.speed) * 3.6;
     el('speed').textContent = `${Math.round(speed)} KM/H`;
+    // In-game clock: HH:MM plus the phase of day. Hidden while the clock is
+    // pinned (cover staging) so the staged frame keeps the v4.3 HUD exactly.
+    el('clock').textContent = `${formatClock(s.gameHour ?? 17.5)} · ${phaseAt(s.gameHour ?? 17.5)}`;
+    el('clock').style.display = s.clockPin != null ? 'none' : '';
     const dmg = Math.round(s.heroCar.damage);
     const cond = dmg < 20 ? 'PRISTINE' : dmg < 50 ? 'DENTED' : dmg < 80 ? 'SMOKING' : 'WRECKED';
     el('carname').textContent = p.mode === 'car'

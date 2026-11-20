@@ -4,6 +4,7 @@
 // No sim lives here: positions come from state, and the camera just follows them.
 import * as THREE from '../vendor/three.module.min.js';
 import { CITY, PALETTE, CAR_MODELS } from './config.js';
+import { sampleDayNight } from './daynight.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -487,6 +488,18 @@ export function createRenderer(canvas, city) {
     lampParts.push({ x: l.x, y: 5.1, z: l.z, w: 0.9, h: 0.3, d: 0.9, color: PALETTE.windowLit });
   }
   scene.add(new THREE.Mesh(mergeBoxes(lampParts), new THREE.MeshLambertMaterial({ vertexColors: true })));
+  // Lamp glow: one merged mesh of warm halos over every lamp head, invisible
+  // by day — at night it switches on with the night factor, one draw call.
+  const lampGlowParts = [];
+  for (const l of city.lamps) {
+    lampGlowParts.push({ x: l.x, y: 5.1, z: l.z, w: 2.2, h: 2.2, d: 2.2, color: 0xffd27a });
+  }
+  const lampGlow = new THREE.Mesh(
+    mergeBoxes(lampGlowParts),
+    new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, fog: false, depthWrite: false }),
+  );
+  lampGlow.visible = false;
+  scene.add(lampGlow);
 
   // Landmark signs: canvas-textured planes on posts (big ones read from afar).
   for (const s of city.signs) {
@@ -528,6 +541,13 @@ export function createRenderer(canvas, city) {
   const halo3 = new THREE.Mesh(new THREE.SphereGeometry(44, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.07, fog: false }));
   halo3.position.set(833, 139, 51);
   scene.add(halo3);
+  // The sun disc and its halos travel together with the hour of day.
+  const sunDiscs = [sunDisc, halo1, halo1b, halo2, halo2b, halo3];
+  // The moon: a pale disc on the far side of the sky, only up at night.
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(11, 20, 12), new THREE.MeshBasicMaterial({ color: 0xe8eef5, fog: false }));
+  moon.position.set(-500, 420, -200);
+  moon.visible = false;
+  scene.add(moon);
   const cloudParts = [];
   const CLOUD_COLS = [0xffffff, 0xffe9d0, 0xffd9c0, 0xd6ecff, 0xfff6e0];
   for (let i = 0; i < 26; i += 1) {
@@ -547,7 +567,10 @@ export function createRenderer(canvas, city) {
   cloudParts.push({ x: 750, y: 171, z: 28, w: 30, h: 3, d: 14, color: 0xffffff });
   cloudParts.push({ x: 800, y: 105, z: 120, w: 55, h: 3.5, d: 18, color: 0xffd9c0 });
   cloudParts.push({ x: 804, y: 102, z: 126, w: 26, h: 3, d: 12, color: 0xffffff });
-  scene.add(new THREE.Mesh(mergeBoxes(cloudParts), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
+  // The cloud mesh dims at night (its material colour multiplies the vertex
+  // colours, so white by day is exact and grey by night).
+  const cloudMesh = new THREE.Mesh(mergeBoxes(cloudParts), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
+  scene.add(cloudMesh);
 
   // Taper a car box toward the top: the top-front corner pulls back (sloped
   // nose / windshield) and the top-rear corner pulls forward (sloped tail /
@@ -656,6 +679,15 @@ export function createRenderer(canvas, city) {
     h.position.set(2.06, 0.8, hz);
     hero.add(h);
   }
+  // Headlight beam: one translucent cone ahead of the hero car, invisible by
+  // day — at night it switches on with the night factor, one draw call.
+  const beamGeo = new THREE.ConeGeometry(3, 14, 10, 1, true);
+  beamGeo.translate(0, -7, 0); // apex at the origin, opening forward
+  const heroBeam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+  heroBeam.rotation.z = Math.PI / 2; // -Y (down) becomes +X (forward)
+  heroBeam.position.set(2.2, 0.8, 0);
+  heroBeam.visible = false;
+  hero.add(heroBeam);
   scene.add(hero);
 
   // Rio on foot: jacket, head, hair, swinging limbs.
@@ -692,6 +724,17 @@ export function createRenderer(canvas, city) {
   scene.add(trafficBodies);
   scene.add(trafficCabins);
   scene.add(trafficWheels);
+  // Traffic headlights: two bright quads on the nose of every NPC car,
+  // invisible by day — at night they switch on with the night factor.
+  const trafficHeadlights = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.12, 0.25, 0.4),
+    new THREE.MeshBasicMaterial({ color: 0xfff6c0 }),
+    MAX_CARS * 2,
+  );
+  trafficHeadlights.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  trafficHeadlights.visible = false;
+  trafficHeadlights.frustumCulled = false;
+  scene.add(trafficHeadlights);
 
   // Police: white bodies, red and blue light bars that flash on alternate beats.
   // The bar is two halves — red on one side, blue on the other — so a still
@@ -889,6 +932,45 @@ export function createRenderer(canvas, city) {
   /** Paint one frame and return the render ledger (calls / triangles). */
   function draw(state, screen, time) {
     const { player, heroCar, traffic, police, combat, city, heli } = state;
+
+    // Day/night: while the clock is pinned (cover staging) the renderer's
+    // sunset defaults stay exactly as built — the cover frame is the v4.3
+    // frame, byte for byte. Otherwise the hour drives the sky shader, the
+    // sun and fill lights, the fog, the sun disc and moon, the clouds, and
+    // the night lights. Every value here is a pure function of the sim step
+    // count, so a replay paints the same frame.
+    let nightNow = 0;
+    if (state.clockPin == null) {
+      const dn = sampleDayNight(state.gameHour ?? 17.5);
+      nightNow = dn.night;
+      skyMat.uniforms.top.value.setRGB(dn.top[0], dn.top[1], dn.top[2]);
+      skyMat.uniforms.mid.value.setRGB(dn.mid[0], dn.mid[1], dn.mid[2]);
+      skyMat.uniforms.bot.value.setRGB(dn.bot[0], dn.bot[1], dn.bot[2]);
+      skyMat.uniforms.sunDir.value.set(dn.sunDir[0], dn.sunDir[1], dn.sunDir[2]);
+      skyMat.uniforms.sunCol.value.setRGB(dn.sunCol[0], dn.sunCol[1], dn.sunCol[2]);
+      hemi.color.setRGB(dn.hemiSky[0], dn.hemiSky[1], dn.hemiSky[2]);
+      hemi.groundColor.setRGB(dn.hemiGround[0], dn.hemiGround[1], dn.hemiGround[2]);
+      hemi.intensity = dn.hemiI;
+      sun.color.setRGB(dn.sunCol[0], dn.sunCol[1], dn.sunCol[2]);
+      sun.intensity = dn.sunI;
+      sun.position.set(dn.sunDir[0] * 200, Math.max(dn.sunDir[1], 0.12) * 200, dn.sunDir[2] * 200);
+      fill.color.setRGB(dn.fillCol[0], dn.fillCol[1], dn.fillCol[2]);
+      fill.intensity = dn.fillI;
+      scene.fog.color.setRGB(dn.fog[0], dn.fog[1], dn.fog[2]);
+      scene.fog.near = dn.fogNear;
+      scene.fog.far = dn.fogFar;
+      for (const disc of sunDiscs) {
+        disc.position.set(dn.sunPos[0], dn.sunPos[1], dn.sunPos[2]);
+        disc.visible = dn.sunUp;
+      }
+      moon.visible = dn.moonUp;
+      cloudMesh.material.color.setScalar(1 - 0.75 * dn.night);
+      lampGlow.visible = dn.night > 0.02;
+      lampGlow.material.opacity = 0.55 * dn.night;
+      heroBeam.visible = dn.night > 0.02;
+      heroBeam.material.opacity = 0.1 * dn.night;
+    }
+    trafficHeadlights.visible = nightNow > 0.02;
     const focus = player.mode === 'car' ? heroCar : player;
     const heading = focus.heading;
 
@@ -984,6 +1066,13 @@ export function createRenderer(canvas, city) {
         const sH = Math.sin(c.heading);
         setInstance(trafficWheels, i * 4 + w, c.x + wx * cH + wz * sH, 0.42, c.z - wx * sH + wz * cH, c.heading, 1, 1, 1);
       }
+      // Headlight quads on the nose (local +X is forward, same mapping).
+      for (let w = 0; w < 2; w += 1) {
+        const hz = w === 0 ? 0.6 : -0.6;
+        const cH = Math.cos(c.heading);
+        const sH = Math.sin(c.heading);
+        setInstance(trafficHeadlights, i * 2 + w, c.x + 2.15 * cH + hz * sH, 0.8, c.z - 2.15 * sH + hz * cH, c.heading, 1, 1, 1);
+      }
       trafficBodies.setColorAt(i, new THREE.Color(c.marked ? 0xf2c94c : (c.kind === 'taxi' ? 0xf2c94c : c.color)));
       setInstance(blobs, blob, c.x, 0.05, c.z, 0, 2.6, 1.6, 1);
       blob += 1;
@@ -991,9 +1080,11 @@ export function createRenderer(canvas, city) {
     trafficBodies.count = cars.length;
     trafficCabins.count = cars.length;
     trafficWheels.count = cars.length * 4;
+    trafficHeadlights.count = cars.length * 2;
     trafficBodies.instanceMatrix.needsUpdate = true;
     trafficCabins.instanceMatrix.needsUpdate = true;
     trafficWheels.instanceMatrix.needsUpdate = true;
+    trafficHeadlights.instanceMatrix.needsUpdate = true;
     if (trafficBodies.instanceColor) trafficBodies.instanceColor.needsUpdate = true;
 
     // Police cruisers, lights flashing on alternate half-seconds. Each half

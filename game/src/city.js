@@ -23,6 +23,19 @@ export function districtAt(x, z) {
   return 0;
 }
 
+/**
+ * Display district for the HUD only: MARINA wins its overlap with FOUNDRY
+ * (x 208..312, z -52..104 — the marina, the causeway and the drop), so the
+ * marina reads MARINA instead of FOUNDRY. Display only — the sim keeps
+ * districtAt, so standing, wanted decay, completion and the trace hash are
+ * untouched.
+ */
+export function districtDisplayAt(x, z) {
+  const m = DISTRICTS[6]; // MARINA
+  if (x >= m.x0 && x < m.x1 && z >= m.z0 && z < m.z1) return 6;
+  return districtAt(x, z);
+}
+
 /** Distance from a point to the nearest road centre line (grid roads + causeway). */
 export function distToRoad(x, z) {
   let best = Infinity;

@@ -6,7 +6,7 @@
 import { BEST_KEY, DISTRICTS, MISSIONS, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld } from './world.js';
-import { districtAt } from './city.js';
+import { districtDisplayAt } from './city.js';
 import { ACTION_CONFIRM, ACTION_CREW_1, ACTION_CREW_2, ACTION_CREW_3, ACTION_ENTER, ACTION_MAP, ACTION_PAUSE, ACTION_RADIO, ACTION_RELOAD, ACTION_WEAPON_1, ACTION_WEAPON_2, ACTION_WEAPON_3, ACTION_WEAPON_4, createInput } from './input.js';
 import { createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { createHud } from './hud.js';
@@ -60,7 +60,9 @@ function enrichState() {
   const px = s.player.mode === 'car' ? s.heroCar.x : s.player.x;
   const pz = s.player.mode === 'car' ? s.heroCar.z : s.player.z;
   s.completionPct = world.completion();
-  s.districtIndex = districtAt(px, pz);
+  // Display district: MARINA wins its overlap with FOUNDRY in the HUD label
+  // (see districtDisplayAt) — the sim's own district stays districtAt.
+  s.districtIndex = districtDisplayAt(px, pz);
   s.missionsList = missionsList();
   return s;
 }
@@ -68,11 +70,14 @@ function enrichState() {
 function runShot(name) {
   const scene = stageShot(name, world);
   enrichState();
-  // The cover pulls the camera back and low behind the hero on the avenue:
-  // towers flank the road, the pier and the sea sit at the end of it, and the
-  // hero car reads big in the middle of the road, the way the first build
-  // framed it — the camera stays on the road centreline (side 0): any lateral
-  // offset puts it inside the roadside towers. The camera sits far enough
+  // The cover pulls the camera back and low behind the hero on the coastal
+  // road: towers flank the road to the west, the beach is in the foreground,
+  // and the marina, the pier and the sun sit up the road to the north, the
+  // way the v3.1 staging framed it — the camera stays on the road centreline
+  // (side 0): any lateral offset puts it inside the roadside towers. The
+  // close v4.3 follow (10.5 m, not v3.1's 44 m) is kept on purpose: at 44 m
+  // the hero shrank to a speck and the DANTE dialog covered him, the exact
+  // defects syarif flagged on the v3.1 cover. The camera sits far enough
   // back and low that the whole hero car — roof to wheels — lands above the
   // weapon panel at the bottom right, so no pixel of the hero is ever hidden
   // behind the HUD.

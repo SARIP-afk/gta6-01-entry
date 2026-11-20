@@ -164,18 +164,18 @@ function roadTexture(city) {
   }
   // Asphalt roads with centre dashes.
   for (const r of city.roads) {
-    g.fillStyle = '#202329';
+    g.fillStyle = '#1a1d22';
     g.fillRect(0, toZ(r) - 6 / 728 * S, S, 12 / 728 * S);
     g.fillRect(toX(r) - 6 / 840 * S, 0, 12 / 840 * S, S);
     // Sidewalks: lighter strips just off the asphalt on both sides.
-    g.fillStyle = '#a89a7c';
+    g.fillStyle = '#b3a284';
     g.fillRect(0, toZ(r) - 8.5 / 728 * S, S, 2.5 / 728 * S);
     g.fillRect(0, toZ(r) + 6 / 728 * S, S, 2.5 / 728 * S);
     g.fillRect(toX(r) - 8.5 / 840 * S, 0, 2.5 / 840 * S, S);
     g.fillRect(toX(r) + 6 / 840 * S, 0, 2.5 / 840 * S, S);
     // Sidewalk tile joints: thin lines across the strips every 2 m, plus a
     // centre joint down each strip so the sidewalk reads as two rows of tiles.
-    g.fillStyle = 'rgba(0,0,0,0.30)';
+    g.fillStyle = 'rgba(0,0,0,0.42)';
     for (let v = CITY.gridMin; v < CITY.gridMax; v += 2) {
       g.fillRect(toX(v), toZ(r) - 8.5 / 728 * S, 1, 2.5 / 728 * S);
       g.fillRect(toX(v), toZ(r) + 6 / 728 * S, 1, 2.5 / 728 * S);
@@ -222,21 +222,41 @@ function roadTexture(city) {
       g.fill();
     }
     // Zebra crossings at every junction: chunky bars parallel to traffic.
-    g.fillStyle = '#e8e4da';
+    g.fillStyle = '#f0ede4';
     for (const c of city.roads) {
       for (let k = -2; k <= 2; k += 1) {
         g.fillRect(toX(c) - 5 / 840 * S, toZ(r) + k * 2.6 / 728 * S - 0.8, 10 / 840 * S, 1.6 / 728 * S);
         g.fillRect(toX(r) + k * 2.6 / 840 * S - 0.8, toZ(c) - 5 / 728 * S, 1.6 / 840 * S, 10 / 728 * S);
       }
     }
+    // Wheel wear: two dark tyre tracks per road, 1.9 m off the centreline, so
+    // the asphalt reads as driven-on instead of freshly painted.
+    g.fillStyle = 'rgba(0,0,0,0.16)';
+    for (const off of [-1.9, 1.9]) {
+      g.fillRect(0, toZ(r + off) - 0.65 / 728 * S, S, 1.3 / 728 * S);
+      g.fillRect(toX(r + off) - 0.65 / 840 * S, 0, 1.3 / 840 * S, S);
+    }
+    // Road-concentrated grain: the whole-canvas speckle above lands mostly on
+    // blocks and sand, so the roads get their own dense pass — dark and light
+    // grit only inside the asphalt strips, at full contrast.
+    for (let i = 0; i < 1600; i += 1) {
+      const gx = CITY.gridMin + speckRnd() * (CITY.gridMax - CITY.gridMin);
+      const gz = r + (speckRnd() - 0.5) * 11;
+      g.fillStyle = speckRnd() < 0.55 ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.16)';
+      g.fillRect(toX(gx), toZ(gz), 2.2, 2.2);
+      const gx2 = r + (speckRnd() - 0.5) * 11;
+      const gz2 = CITY.gridMin + speckRnd() * (CITY.gridMax - CITY.gridMin);
+      g.fillStyle = speckRnd() < 0.55 ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.16)';
+      g.fillRect(toX(gx2), toZ(gz2), 2.2, 2.2);
+    }
   }
   // Causeway to the pier: a wide asphalt approach (z -12..+6) so the avenue
   // reads as one road running straight onto the pier deck, not stopping at the
   // grid edge — with the same centre dashes, edge lines and sidewalks as the
   // grid roads.
-  g.fillStyle = '#202329';
+  g.fillStyle = '#1a1d22';
   g.fillRect(toX(CITY.gridMax), toZ(-12), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 18 / 728 * S);
-  g.fillStyle = '#a89a7c';
+  g.fillStyle = '#b3a284';
   g.fillRect(toX(CITY.gridMax), toZ(-14.5), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 2.5 / 728 * S);
   g.fillRect(toX(CITY.gridMax), toZ(6), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 2.5 / 728 * S);
   g.fillStyle = 'rgba(232,228,218,0.85)';
@@ -298,10 +318,10 @@ export function createRenderer(canvas, city) {
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x2b7cd3) },
+      top: { value: new THREE.Color(0x1f6fd0) },
       mid: { value: new THREE.Color(0x8ec9ee) },
-      bot: { value: new THREE.Color(0xffc46b) },
-      sunDir: { value: new THREE.Vector3(582, 135, 51).normalize() },
+      bot: { value: new THREE.Color(0xffb35e) },
+      sunDir: { value: new THREE.Vector3(0.637, 0.363, -0.679) },
       sunCol: { value: new THREE.Color(0xfff2c0) },
     },
     vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -312,22 +332,25 @@ export function createRenderer(canvas, city) {
       '  float h = clamp(vDir.y, -0.08, 1.0);',
       '  vec3 col = h < 0.16 ? mix(bot, mid, h / 0.16) : mix(mid, top, pow((h - 0.16) / 0.84, 0.8));',
       '  float d = max(dot(normalize(vDir), normalize(sunDir)), 0.0);',
-      '  col += sunCol * (pow(d, 200.0) * 0.7 + pow(d, 90.0) * 0.5 + pow(d, 10.0) * 0.10 + pow(d, 3.0) * 0.03);',
+      // One smooth radial falloff, not stepped rings: a hot core, a soft wide
+      // glow, a faint warm wash — no concentric bands (the "bubur" sun).
+      '  col += sunCol * (pow(d, 600.0) * 0.9 + pow(d, 24.0) * 0.30 + pow(d, 6.0) * 0.10);',
       '  gl_FragColor = vec4(col, 1.0);',
       '}',
     ].join('\n'),
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(1400, 24, 12), skyMat));
 
-  const hemi = new THREE.HemisphereLight(0xbfdfff, 0x8a6a4a, 1.05);
+  const hemi = new THREE.HemisphereLight(0xbfdfff, 0x8a6a4a, 0.95);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff2cc, 2.6);
+  const sun = new THREE.DirectionalLight(0xfff2cc, 2.9);
   sun.position.set(-120, 180, 60);
   scene.add(sun);
   // Fill light from the south, behind the camera: it lifts the faces the sun
   // never reaches — the hero car's tail, the south faces of the towers — so
-  // nothing on the camera side falls to black.
-  const fill = new THREE.DirectionalLight(0xffe0b3, 0.85);
+  // nothing on the camera side falls to black. Kept dimmer than before, so
+  // the sun side and the shadow side actually differ (contrast, not wash).
+  const fill = new THREE.DirectionalLight(0xffe0b3, 0.55);
   fill.position.set(60, 90, 260);
   scene.add(fill);
 
@@ -349,9 +372,20 @@ export function createRenderer(canvas, city) {
   const windows = [];
   const ROOF_COLORS = [0x5a4a3a, 0x7a5a3a, 0x4a3a2a, 0x8a7a5a];
   const BAND_COLORS = [0xf5e6c4, 0x2c313a, 0x7a6a4c];
-  const GLASS_DARK = [0x35506a, 0x2c3e50];
+  // Facade colours come from the city data muted; boost saturation at render
+  // time (display only — the sim never sees colour) so towers read saturated
+  // like the reference frame instead of dusty grey-brown.
+  const _satC = new THREE.Color();
+  const _satHSL = { h: 0, s: 0, l: 0 };
+  function saturate(hex, mult) {
+    _satC.setHex(hex);
+    _satC.getHSL(_satHSL);
+    _satC.setHSL(_satHSL.h, Math.min(1, _satHSL.s * mult), _satHSL.l);
+    return _satC.getHex();
+  }
+  const GLASS_DARK = [0x3d6a8f, 0x33506e];
   city.buildings.forEach((b, bi) => {
-    solids.push({ x: b.x, y: b.h / 2, z: b.z, w: b.w, h: b.h, d: b.d, color: b.color });
+    solids.push({ x: b.x, y: b.h / 2, z: b.z, w: b.w, h: b.h, d: b.d, color: saturate(b.color, 1.45) });
     // Ground-floor storefront band, proud of the facade.
     solids.push({ x: b.x, y: 1.5, z: b.z, w: b.w + 0.3, h: 3, d: b.d + 0.3, color: BAND_COLORS[bi % BAND_COLORS.length] });
     // Bright parapet rim so the roofline reads as a hard edge against the sky.
@@ -359,7 +393,7 @@ export function createRenderer(canvas, city) {
     solids.push({ x: b.x, y: b.h + 0.4, z: b.z, w: b.w * 0.7, h: 0.8, d: b.d * 0.7, color: ROOF_COLORS[bi % ROOF_COLORS.length] });
     // Stepped crown on tall towers: the skyline stops being a row of flat slabs.
     if (b.h > 30) {
-      solids.push({ x: b.x, y: b.h + 4, z: b.z, w: b.w * 0.42, h: 7, d: b.d * 0.42, color: PALETTE.building[(bi + 3) % PALETTE.building.length] });
+      solids.push({ x: b.x, y: b.h + 4, z: b.z, w: b.w * 0.42, h: 7, d: b.d * 0.42, color: saturate(PALETTE.building[(bi + 3) % PALETTE.building.length], 1.45) });
       solids.push({ x: b.x, y: b.h + 7.75, z: b.z, w: b.w * 0.46, h: 0.5, d: b.d * 0.46, color: 0xf5e6c4 });
     }
     if (b.h > 20) {
@@ -516,33 +550,41 @@ export function createRenderer(canvas, city) {
     scene.add(post);
   }
 
-  // Sun low over the sea to the east — a smaller, hotter core with five
-  // layered halos that fade outward in steps, so it reads as a blazing sun
-  // with real glow instead of a flat pale disc. It sits high over the pier at
-  // the end of the avenue, in the one clear corridor between the towers
-  // (azimuth +5 deg from the cover camera), where the name says it belongs
-  // (Sol + marina). The sky shader's sun direction is the camera-to-sun
-  // direction, so its glow centres on the disc in the cover frame.
-  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(15, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd75e, fog: false }));
-  sunDisc.position.set(833, 139, 51);
+  // Sun low over the sea — a small hot core plus ONE radial-gradient glow
+  // sprite (a single smooth gradient, canvas texture): no layered halo
+  // spheres, no concentric rings, so it reads as a sun with glow instead of
+  // a flat disc with "bubur" bands. It sits high over the pier, in the
+  // coastal-road cover frame's upper right (azimuth ~26 deg east of north
+  // from the cover camera, elevation ~21 deg). The disc sits ~1300 m out
+  // along the camera-to-sun ray on purpose: the sky shader's glow is
+  // anchored at the sky sphere's origin, so a near disc and the shader glow
+  // split apart by parallax (two suns); at 1300 m they agree within ~2 deg.
+  // The sky shader's built sun direction is the camera-to-sun direction, so
+  // its glow centres on the disc in the cover frame. The disc and the glow
+  // travel together with the hour of day when the clock runs free.
+  function sunGlowTexture() {
+    const cv = document.createElement('canvas');
+    cv.width = 256;
+    cv.height = 256;
+    const g = cv.getContext('2d');
+    const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grad.addColorStop(0, 'rgba(255,244,200,0.95)');
+    grad.addColorStop(0.25, 'rgba(255,220,130,0.55)');
+    grad.addColorStop(0.55, 'rgba(255,170,90,0.22)');
+    grad.addColorStop(1, 'rgba(255,150,70,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+    return new THREE.CanvasTexture(cv);
+  }
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(18, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffdf8a, fog: false }));
+  sunDisc.position.set(837, 461, -837);
   scene.add(sunDisc);
-  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(19, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.4, fog: false }));
-  halo1.position.set(833, 139, 51);
-  scene.add(halo1);
-  const halo1b = new THREE.Mesh(new THREE.SphereGeometry(24, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.28, fog: false }));
-  halo1b.position.set(833, 139, 51);
-  scene.add(halo1b);
-  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(29, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.16, fog: false }));
-  halo2.position.set(833, 139, 51);
-  scene.add(halo2);
-  const halo2b = new THREE.Mesh(new THREE.SphereGeometry(36, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.09, fog: false }));
-  halo2b.position.set(833, 139, 51);
-  scene.add(halo2b);
-  const halo3 = new THREE.Mesh(new THREE.SphereGeometry(44, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.07, fog: false }));
-  halo3.position.set(833, 139, 51);
-  scene.add(halo3);
-  // The sun disc and its halos travel together with the hour of day.
-  const sunDiscs = [sunDisc, halo1, halo1b, halo2, halo2b, halo3];
+  const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunGlowTexture(), transparent: true, opacity: 0.95, fog: false, depthWrite: false }));
+  sunGlow.position.set(837, 461, -837);
+  sunGlow.scale.set(220, 220, 1);
+  scene.add(sunGlow);
+  // The sun disc and its glow travel together with the hour of day.
+  const sunDiscs = [sunDisc, sunGlow];
   // The moon: a pale disc on the far side of the sky, only up at night.
   const moon = new THREE.Mesh(new THREE.SphereGeometry(11, 20, 12), new THREE.MeshBasicMaterial({ color: 0xe8eef5, fog: false }));
   moon.position.set(-500, 420, -200);
@@ -934,7 +976,7 @@ export function createRenderer(canvas, city) {
     const { player, heroCar, traffic, police, combat, city, heli } = state;
 
     // Day/night: while the clock is pinned (cover staging) the renderer's
-    // sunset defaults stay exactly as built — the cover frame is the v4.3
+    // sunset defaults stay exactly as built — the cover frame is the v4.4
     // frame, byte for byte. Otherwise the hour drives the sky shader, the
     // sun and fill lights, the fog, the sun disc and moon, the clouds, and
     // the night lights. Every value here is a pure function of the sim step
@@ -950,12 +992,15 @@ export function createRenderer(canvas, city) {
       skyMat.uniforms.sunCol.value.setRGB(dn.sunCol[0], dn.sunCol[1], dn.sunCol[2]);
       hemi.color.setRGB(dn.hemiSky[0], dn.hemiSky[1], dn.hemiSky[2]);
       hemi.groundColor.setRGB(dn.hemiGround[0], dn.hemiGround[1], dn.hemiGround[2]);
-      hemi.intensity = dn.hemiI;
+      // Renderer-side contrast trim (day/night data untouched): a touch less
+      // ambient and fill than the keyframes say, so sun and shadow sides
+      // differ instead of washing flat — game-wide, not just the cover.
+      hemi.intensity = dn.hemiI * 0.92;
       sun.color.setRGB(dn.sunCol[0], dn.sunCol[1], dn.sunCol[2]);
       sun.intensity = dn.sunI;
       sun.position.set(dn.sunDir[0] * 200, Math.max(dn.sunDir[1], 0.12) * 200, dn.sunDir[2] * 200);
       fill.color.setRGB(dn.fillCol[0], dn.fillCol[1], dn.fillCol[2]);
-      fill.intensity = dn.fillI;
+      fill.intensity = dn.fillI * 0.7;
       scene.fog.color.setRGB(dn.fog[0], dn.fog[1], dn.fog[2]);
       scene.fog.near = dn.fogNear;
       scene.fog.far = dn.fogFar;

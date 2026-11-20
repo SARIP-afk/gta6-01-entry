@@ -9,7 +9,7 @@
 // staged at — and the light then slides through dusk into night and back
 // through dawn. The cover itself is pinned (see world.pinClock): while the
 // pin is set the clock does not advance and the renderer leaves its sunset
-// defaults untouched, so the staged cover frame is exactly the v4.3 frame.
+// defaults untouched, so the staged cover frame is exactly the v4.4 frame.
 //
 // Pure data in, pure data out: no THREE, no DOM, no randomness. The renderer
 // turns a sample into lights and shader uniforms; the HUD turns the hour

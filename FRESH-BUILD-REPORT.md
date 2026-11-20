@@ -133,6 +133,68 @@ fixed here, nothing submitted.
   end PNG (PIL q85 — verified byte-identical reproduction of the v2
   cover JPG with the same settings). NOT submitted.
 
+## Visual round v2.4 — audit against refs 1–4, sunset is a subject (20 Nov, ~22:00–23:30 WIB)
+
+Re-viewed all 8 v2.3 PNGs against the four Karimbu frames. The sunset pass
+had shipped, but the frames did not show it: the sky was one flat orange
+slab, the sun a pale speck, the chase heli a speck or missing, the beach an
+empty brown field, and the play shot a wall. Root causes found by reading
+the code, not guessing:
+
+1. **Sky gradient was orange→orange→brown.** The dome lerped `bg`
+   (0xf2a35e) to `fog` (0xe8a06a) — no purple/pink anywhere. Fix
+   (`gfx.js`): sunset-aware stops — zenith lerps to deep purple
+   #4a2358, mid-sky to pink #c94f6d, horizon stays orange. Ref 3's
+   pink/purple/orange gradient now reads in every sunset frame.
+2. **Sun was a 14 m speck.** Disc 14→30 m, halo 30→85 m — and the halo is
+   now a soft radial-gradient texture, not a flat circle: the first try
+   read as a hard-edged orange balloon. Sea warms toward the sunset
+   (`seaMat` tinted 0xff8a4d × sunsetF·0.45).
+3. **Glitter floated at a fixed spot** (-150, 400) — off-frame from the
+   beach and over the city from downtown. Now ray-gated each frame: only
+   where the sun ray from the player crosses the sea rectangle, centred
+   mid-crossing, opacity sunsetF·0.8, plane 300×110. (Still subtle at a
+   glancing angle from the sand — the sun + sky now carry the sunset.)
+4. **Cloud slab.** Opacity at sunset 0.55→~0.25, darker tint, box heights
+   staggered ×8 instead of ×4 so the group is broken haze, not a bar.
+5. **Heli missing/small.** The sim overwrites `heli.active` and orbits
+   the heli (alt ~48, radius 26) every step — so the cover's staged heli
+   at wanted 3 vanished, and the chase heli ended up a clipped speck.
+   Fix: `heli.staged` flag (`sim.js`, cleared by reset, real play
+   untouched) freezes the heli where `stageShot` puts it. Cover heli
+   (-22, 250, alt 14), chase heli (-54, 247, alt 13) — big, fully in
+   frame, machine-readable with rotor disc + searchlight cone.
+6. **Beach hero tiny, sky empty.** Camera (-4, 5.5, 264) → (-8, 4.2,
+   262): 9.8 m from the hero. Market/nightmarket: camera shifted so the
+   hero sits at the left third instead of dead-centre blocking the stalls.
+7. **Play shot: car stuck at 0.5 km/h against a wall.** Root cause in
+   `layout.js`: building faces could sit 0.5 m from a road centreline
+   (255/266 buildings had a face inside the ±6 m road corridor), so the
+   autopilot car ground along a jutting face (damage 4→16) and the
+   follow camera sat 3.6 m from a 35 m wall. Fix: faces clamped to ≥8 m
+   from the road line (pure arithmetic, RNG stream untouched). Node
+   probe: the same 20 s drive now ends at 21.5 m/s, damage 3, camera
+   clear of buildings. Plus a real camera fix in `gfx.js`: `clampCam`
+   is now a hero→camera segment-vs-AABB test (was point-in-box, which
+   missed the case where the wall sits beside the segment) — the camera
+   can no longer sit behind a building relative to the hero.
+8. **Night readability:** SUNSET hemiI 0.6→0.75 (east facades were dark
+   brown), NIGHT hemiI 0.42→0.5 / sunI 0.34→0.4.
+
+Measured after the pass: all 8 shots ready, **0 console errors**; calls /
+triangles — cover 99 / 380,242; start 85 / 383,466; play 68 / 374,566;
+end 63 / 372,906; market 48 / 377,458; nightmarket 48 / 377,458; beach
+57 / 377,690; chase 95 / 380,622 (budget ≤ 250 calls, ≤ 500k triangles).
+Determinism re-verified (Node, 60 s weaving drive): seed-1 `f06861c2`
+twice, seed-2 `0498d9b0`. Dossier re-checked via `main.ts` (exit 0,
+4 images, text 142,728 bytes < 163,840) with regenerated
+cover/start/play/end JPEGs (PIL q85). NOT submitted — last slot
+untouched, awaiting syarif's word. Known remaining nits: the sea is
+still a thin band from the coast road and the glitter is subtle at a
+glancing angle; the beach foreground sand is a large empty expanse; the
+play shot's event-feed line overlaps the mission panel edge (pre-existing
+HUD nit).
+
 ## What is NOT done / needs a human
 
 - **Not submitted.** No submit, no fee, no slot used — the last slot (3/3) is untouched; submission needs syarif's explicit word (deadline 24 Nov 22:00 WIB).

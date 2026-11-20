@@ -14,8 +14,13 @@ import {
 } from './layout.js';
 
 const DAY = { sun: 0xffdf9e, hemiSky: 0xbfd9ff, hemiGround: 0x8a7a5a, fog: 0xcfe0ee, bg: 0x87b5d9, sunI: 1.25, hemiI: 0.85 };
-const SUNSET = { sun: 0xff9a4d, hemiSky: 0xe8a06a, hemiGround: 0x5a4a3a, fog: 0xe8a06a, bg: 0xf2a35e, sunI: 1.05, hemiI: 0.6 };
-const NIGHT = { sun: 0x8fa8ff, hemiSky: 0x1c2440, hemiGround: 0x0e0c10, fog: 0x141a2e, bg: 0x0d1226, sunI: 0.34, hemiI: 0.42 };
+const SUNSET = { sun: 0xff9a4d, hemiSky: 0xe8a06a, hemiGround: 0x5a4a3a, fog: 0xe8a06a, bg: 0xf2a35e, sunI: 1.05, hemiI: 0.75 };
+const NIGHT = { sun: 0x8fa8ff, hemiSky: 0x1c2440, hemiGround: 0x0e0c10, fog: 0x141a2e, bg: 0x0d1226, sunI: 0.4, hemiI: 0.5 };
+// fixed sunset accent colours: the gradient dome needs a purple zenith +
+// pink mid-sky or the sunset reads as one flat orange slab (v2.4 audit)
+const SUNSET_ZENITH = new THREE.Color(0x4a2358);
+const SUNSET_MID = new THREE.Color(0xc94f6d);
+const SUNSET_SEA = new THREE.Color(0xff8a4d);
 
 function hexRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -252,6 +257,11 @@ export class Renderer {
   // ---- static city ----
   buildStatic(L) {
     const scene = this.scene;
+    // building footprints for the follow-camera clamp (v2.4: the play shot
+    // caught the camera against a wall mid-turn)
+    this.camBlockers = L.buildings.map((b) => ({
+      x0: b.x - b.w / 2, x1: b.x + b.w / 2, z0: b.z - b.d / 2, z1: b.z + b.d / 2, h: b.h,
+    }));
     // ground + sea
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, WORLD.z1 - WORLD.z0),
@@ -561,10 +571,22 @@ export class Renderer {
   }
 
   buildSky() {
-    // sun disc + halo, clouds, stars
-    const sunGeo = new THREE.CircleGeometry(14, 24);
-    this.sunDisc = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffd98a, fog: false }));
-    this.sunHalo = new THREE.Mesh(new THREE.CircleGeometry(30, 24), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.35, fog: false }));
+    // sun disc + halo, clouds, stars — the sun is a subject at sunset
+    // (ref 3), not a 14 m speck: disc 30 m, halo 85 m at 620 m distance.
+    // The halo is a soft radial gradient, not a flat circle: a flat disc
+    // reads as an orange balloon with a hard edge (v2.4 beach audit).
+    const sunGeo = new THREE.CircleGeometry(30, 24);
+    this.sunDisc = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffe9a8, fog: false }));
+    const hc = document.createElement('canvas'); hc.width = hc.height = 256;
+    const hctx = hc.getContext('2d');
+    const hg = hctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+    hg.addColorStop(0, 'rgba(255,190,100,0.9)');
+    hg.addColorStop(0.35, 'rgba(255,150,60,0.45)');
+    hg.addColorStop(1, 'rgba(255,140,50,0)');
+    hctx.fillStyle = hg; hctx.fillRect(0, 0, 256, 256);
+    const haloTex = new THREE.CanvasTexture(hc);
+    haloTex.colorSpace = THREE.SRGBColorSpace;
+    this.sunHalo = new THREE.Mesh(new THREE.CircleGeometry(85, 24), new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.9, fog: false, depthWrite: false }));
     this.scene.add(this.sunDisc, this.sunHalo);
     // gradient sky dome (zenith -> horizon -> below): a flat background
     // colour can never do a sunset. Regenerated only when the hour bucket
@@ -603,7 +625,7 @@ export class Renderer {
     this.glitterTex = new THREE.CanvasTexture(gc);
     this.glitterTex.colorSpace = THREE.SRGBColorSpace;
     this.glitter = new THREE.Mesh(
-      new THREE.PlaneGeometry(360, 80),
+      new THREE.PlaneGeometry(300, 110),
       new THREE.MeshBasicMaterial({ map: this.glitterTex, transparent: true, opacity: 0, depthWrite: false, fog: false }),
     );
     this.glitter.rotation.order = 'YXZ';
@@ -619,7 +641,8 @@ export class Renderer {
       const n = 3 + (i % 3);
       for (let j = 0; j < n; j++) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(26 + hash2(i, j, 71) * 30, 3.5, 12), cloudMat);
-        m.position.set(j * 18 - n * 9, hash2(i, j, 72) * 4, hash2(i, j, 73) * 8 - 4);
+        // staggered heights so the group is a broken haze, not one flat slab
+        m.position.set(j * 18 - n * 9, hash2(i, j, 72) * 8, hash2(i, j, 73) * 8 - 4);
         g.add(m);
       }
       g.position.set(-320 + hash2(i, 0, 74) * 640, 95 + hash2(i, 1, 74) * 55, -260 + hash2(i, 2, 74) * 680);
@@ -906,6 +929,41 @@ export class Renderer {
     } : null;
   }
 
+  /** Keep the follow camera from sitting behind a building relative to the
+   * hero: if the hero→camera segment enters a building (1 m margin), pull
+   * the camera to just before the entry point; a camera already inside a
+   * footprint is pulled halfway toward the hero (it converges over
+   * frames). Pure function of state — deterministic. */
+  clampCam(pos, hx, hz) {
+    const dx = pos.x - hx, dz = pos.z - hz;
+    let best = 1;
+    for (const b of this.camBlockers) {
+      if (pos.y >= b.h + 1) continue;
+      const x0 = b.x0 - 1, x1 = b.x1 + 1, z0 = b.z0 - 1, z1 = b.z1 + 1;
+      if (pos.x > x0 && pos.x < x1 && pos.z > z0 && pos.z < z1) { best = Math.min(best, 0.55); continue; }
+      let t0 = 0, t1 = 1, ok = true;
+      if (Math.abs(dx) < 1e-9) { if (hx < x0 || hx > x1) ok = false; }
+      else {
+        let ta = (x0 - hx) / dx, tb = (x1 - hx) / dx;
+        if (ta > tb) { const t = ta; ta = tb; tb = t; }
+        t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+      }
+      if (ok) {
+        if (Math.abs(dz) < 1e-9) { if (hz < z0 || hz > z1) ok = false; }
+        else {
+          let ta = (z0 - hz) / dz, tb = (z1 - hz) / dz;
+          if (ta > tb) { const t = ta; ta = tb; tb = t; }
+          t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+        }
+      }
+      if (ok && t0 <= t1 && t0 > 0.02 && t0 < 1 && t1 > 0) best = Math.min(best, t0 * 0.92);
+    }
+    if (best < 1) {
+      pos.x = hx + dx * best;
+      pos.z = hz + dz * best;
+    }
+  }
+
   /** Snap the follow camera onto the hero at once (staged shots). */
   snapFollow() {
     const s = this.world.state;
@@ -916,6 +974,7 @@ export class Renderer {
     const dist = p.mode === 'car' ? 13.5 : 8.5;
     const height = p.mode === 'car' ? 5.2 : 3.6;
     this.camPos.set(hx - Math.cos(forward) * dist, height, hz + Math.sin(forward) * dist);
+    this.clampCam(this.camPos, hx, hz);
     this.camLook.set(hx + Math.cos(forward) * 7, 1.6, hz - Math.sin(forward) * 7);
   }
 
@@ -945,15 +1004,20 @@ export class Renderer {
     // sunset factor: 1 at 18.3, fading to 0 by ~15.8 / ~20.8
     const sunsetF = clamp(1 - Math.abs(hour - 18.3) / 2.5, 0, 1);
     const nightAmt = hour < 5.5 || hour > 19.5 ? 1 : hour > 18.5 ? (hour - 18.5) : hour < 6.5 ? (6.5 - hour) : 0;
-    // sky dome gradient, repainted only when the hour bucket changes
+    // sky dome gradient, repainted only when the hour bucket changes.
+    // A sunset needs a purple zenith + pink mid-sky: without them the
+    // dome is one flat orange slab (v2.4 audit of the v2.3 frames).
     const bucket = Math.round(hour * 4);
     if (bucket !== this.skyBucket) {
       this.skyBucket = bucket;
       const ctx = this.skyCanvas.getContext('2d');
       const g = ctx.createLinearGradient(0, 0, 0, 256);
       const zen = pal.bg.clone().multiplyScalar(0.72);
+      zen.lerp(SUNSET_ZENITH, sunsetF);
+      const mid = pal.bg.clone();
+      mid.lerp(SUNSET_MID, sunsetF * 0.9);
       g.addColorStop(0, `#${zen.getHexString()}`);
-      g.addColorStop(0.55, `#${pal.bg.getHexString()}`);
+      g.addColorStop(0.55, `#${mid.getHexString()}`);
       g.addColorStop(0.78, `#${pal.fog.getHexString()}`);
       g.addColorStop(1, `#${pal.hemiGround.getHexString()}`);
       ctx.fillStyle = g;
@@ -961,14 +1025,32 @@ export class Renderer {
       this.skyTex.needsUpdate = true;
     }
     this.skyDome.position.set(hx, 0, hz);
-    // clouds: warm at sunset, dark at night — never flat white slabs
+    // clouds: warm at sunset, dark at night — thinner + dimmer at sunset
+    // so they read as haze, never flat white slabs
     tmpColor.set(0xffffff).lerp(pal.fog, sunsetF * 0.85);
-    tmpColor.multiplyScalar(1 - nightAmt * 0.7);
+    tmpColor.multiplyScalar((1 - nightAmt * 0.7) * (1 - sunsetF * 0.2));
     this.cloudMat.color.copy(tmpColor);
-    this.cloudMat.opacity = 0.55 - nightAmt * 0.2;
-    // sun glitter: long axis aimed at the sun azimuth, visible at sunset
-    this.glitter.material.opacity = sunsetF * 0.55;
+    this.cloudMat.opacity = (0.55 - nightAmt * 0.2) * (1 - sunsetF * 0.55);
+    // sea warms toward the sunset so it is a lit band, not a dark slit
+    tmpColor.set(0xffffff).lerp(SUNSET_SEA, sunsetF * 0.45);
+    this.seaMat.color.copy(tmpColor);
+    // sun glitter: only where the sun ray from the player actually crosses
+    // the sea rectangle. From downtown the ray exits over land, so hide it
+    // instead of floating a glowing strip across the city (v2.4).
     this.glitter.rotation.y = Math.atan2(-sunDir.z, sunDir.x);
+    let glit = 0;
+    if (sunsetF > 0 && sunDir.z > 0.01) {
+      const tZ0 = (SEA_Z - hz) / sunDir.z, tZ1 = (SEA_Z + 260 - hz) / sunDir.z;
+      let tX0 = (-290 - hx) / sunDir.x, tX1 = (410 - hx) / sunDir.x;
+      if (tX0 > tX1) { const t = tX0; tX0 = tX1; tX1 = t; }
+      const tIn = Math.max(tZ0, tX0, 60), tOut = Math.min(tZ1, tX1);
+      if (tOut > tIn) {
+        const tc = (tIn + tOut) / 2;
+        this.glitter.position.set(hx + sunDir.x * tc, 0.55, hz + sunDir.z * tc);
+        glit = sunsetF * 0.8;
+      }
+    }
+    this.glitter.material.opacity = glit;
     const nightF = clamp(1 - pal.sunI / 1.25, 0, 1);
     this.stars.material.opacity = hour < 5.5 || hour > 19 ? 0.9 : hour > 18 ? 0.5 : 0;
     this.seaMat.map.offset.x = (this.time * 0.004) % 1;
@@ -1186,6 +1268,7 @@ export class Renderer {
       this.camPos.x += (tx - this.camPos.x) * Math.min(1, dt * 5);
       this.camPos.y += (height - this.camPos.y) * Math.min(1, dt * 5);
       this.camPos.z += (tz - this.camPos.z) * Math.min(1, dt * 5);
+      this.clampCam(this.camPos, hx, hz);
       this.camLook.x += (hx + Math.cos(forward) * 7 - this.camLook.x) * Math.min(1, dt * 7);
       this.camLook.y += (1.6 - this.camLook.y) * Math.min(1, dt * 7);
       this.camLook.z += (hz - Math.sin(forward) * 7 - this.camLook.z) * Math.min(1, dt * 7);

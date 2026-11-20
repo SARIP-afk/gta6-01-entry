@@ -3,7 +3,7 @@
 // and the sim trace never depends on rendering. Roads every 48 m; the beach
 // closes the south edge, the marina and pier close the east edge, and the
 // Old Pasaru night-market plaza sits on the block at (-72, -96).
-import { mulberry32, hash2, pick, range } from './util.js';
+import { mulberry32, hash2, pick, range, clamp } from './util.js';
 
 export const STEP = 1 / 60;
 export const ROAD_STEP = 48;
@@ -90,8 +90,16 @@ export function buildLayout(seed = 1) {
         const tall = Math.abs(cx) < 150 && Math.abs(cz + 120) < 130;
         const height = tall ? range(rng, 28, 68) : range(rng, 10, 30);
         const color = tall ? pick(rng, PALETTE.tower) : pick(rng, PALETTE.low);
+        // faces stay 8 m from the road line (road half-width 6 + 2 m of
+        // sidewalk): unclamped, a face could sit 0.5 m from the centreline,
+        // scraping the car on the road and putting the follow camera
+        // against a wall (v2.4 play-shot audit — car stuck at 0.5 km/h).
+        // The block interior is 32 m wide and w/d <= 24 m, so the shift
+        // always fits; the RNG stream is untouched (pure arithmetic).
+        const nx = clamp(cx + ox, bx + 8 + w / 2, bx + ROAD_STEP - 8 - w / 2);
+        const nz = clamp(cz + oz, bz + 8 + d / 2, bz + ROAD_STEP - 8 - d / 2);
         buildings.push({
-          x: cx + ox, z: cz + oz, w, d, h: height, color,
+          x: nx, z: nz, w, d, h: height, color,
           roof: pick(rng, PALETTE.roof),
           floors: Math.max(2, Math.floor(height / 3.4)),
           sign: hash2(bx, bz, 11 + i) < 0.4,

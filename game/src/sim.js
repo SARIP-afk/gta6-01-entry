@@ -78,7 +78,7 @@ function resetWorld(world, seed) {
     wanted: 0, wantedTimer: 0, heat: 0,
     traffic: [], peds: [], police: [], gunmen: [],
     van: null, tailTime: 0,
-    heli: { x: 0, z: -100, alt: 55, active: false, angle: 0 },
+    heli: { x: 0, z: -100, alt: 55, active: false, angle: 0, staged: false },
     missions: { active: 0, stage: 0, started: false, missionTime: 0, done: [false, false, false, false], dialog: null, dialogTimer: 0 },
     objective: { x: DOWNTOWN_PICKUP.x, z: DOWNTOWN_PICKUP.z, label: 'Pick up the package downtown' },
     shells: world.layout.shells.map((sh) => ({ ...sh })), shellsFound: 0,
@@ -382,9 +382,11 @@ function stepWorld(world, dt, input) {
   }
 
   // ---- helicopter at wanted >= 4, circling the hero ----
+  // staged shots freeze it where stageShot put it (staged flag, cleared
+  // by reset — real play is untouched, the orbit below is identical)
   const heli = s.heli;
-  heli.active = s.wanted >= 4;
-  if (heli.active) {
+  heli.active = heli.staged || s.wanted >= 4;
+  if (heli.active && !heli.staged) {
     heli.angle += dt * 0.35;
     heli.x = heroX + Math.cos(heli.angle) * 26;
     heli.z = heroZ + Math.sin(heli.angle) * 26;

@@ -88,16 +88,18 @@ export function stageShot(name, world, renderer) {
     s.player.mode = 'car';
     s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
     s.player.x = 0; s.player.z = 240; s.player.heading = Math.PI;
-    s.wanted = 3; s.heli.active = true; s.heli.x = 20; s.heli.z = 180; s.heli.alt = 52; s.heli.angle = 0.6;
+    s.wanted = 3; s.heli.active = true; s.heli.staged = true; s.heli.x = -22; s.heli.z = 250; s.heli.alt = 14; s.heli.angle = 0.6;
     for (let i = 0; i < 3; i++) {
       s.police.push({ x: 20 + i * 12, z: (i % 2 ? 236 : 244), heading: Math.PI, speed: 14, search: 0, siren: i });
     }
     stepFor(world, 2, () => driveInput(world, -120, 240));
     s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
     s.player.x = 0; s.player.z = 240;
-    // the sim only flies the heli at wanted 4+; the cover stages it anyway —
-    // close and low over the sea, ahead-left, so it reads as a machine
-    s.heli.active = true; s.heli.x = -30; s.heli.z = 268; s.heli.alt = 20; s.heli.angle = 0.6;
+    // the sim only flies the heli at wanted 4+ and orbits it at alt ~48 —
+    // the staged flag freezes it where put, so the cover keeps a BIG heli
+    // ahead-left over the sea, in frame (v2.4: the v2.3 cover had no heli
+    // at all — the sim deactivated it at wanted 3 every step)
+    s.heli.active = true; s.heli.staged = true; s.heli.x = -22; s.heli.z = 250; s.heli.alt = 14; s.heli.angle = 0.6;
     cam(10, 4.2, 243, -70, 2.5, 236);
     return 'play';
   }
@@ -137,7 +139,9 @@ export function stageShot(name, world, renderer) {
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 20; s.player.heading = Math.PI / 2;
     stepFor(world, 3, () => walkInput(world, MARKET.x, MARKET.z));
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 16; s.player.heading = Math.PI / 2;
-    cam(MARKET.x - 6, 3.2, MARKET.z + 22, MARKET.x, 2, MARKET.z - 12);
+    // camera shifted east + look west so the hero sits at the left third,
+    // not dead-centre with his back to the lens blocking the stalls (v2.4)
+    cam(MARKET.x - 2, 3.2, MARKET.z + 22, MARKET.x - 8, 2, MARKET.z - 12);
     return 'play';
   }
   if (name === 'nightmarket') {
@@ -146,7 +150,8 @@ export function stageShot(name, world, renderer) {
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 20; s.player.heading = Math.PI / 2;
     stepFor(world, 3, () => walkInput(world, MARKET.x, MARKET.z));
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 16; s.player.heading = Math.PI / 2;
-    cam(MARKET.x - 6, 3.2, MARKET.z + 22, MARKET.x, 2, MARKET.z - 12);
+    // same off-centre hero as the day market (v2.4)
+    cam(MARKET.x - 2, 3.2, MARKET.z + 22, MARKET.x - 8, 2, MARKET.z - 12);
     return 'play';
   }
   if (name === 'beach') {
@@ -181,7 +186,9 @@ export function stageShot(name, world, renderer) {
     });
     stepFor(world, 3, () => walkInput(world, -17, 266));
     s.player.x = -17; s.player.z = 266; s.player.heading = -2.7;
-    cam(-4, 5.5, 264, -70, 1.5, 282);
+    // v2.4: camera closer + lower (9.8 m from the hero, was 13.5 m) so the
+    // hero reads at thumbnail size; sun + lighthouse stay left of frame
+    cam(-8, 4.2, 262, -75, 2, 280);
     return 'play';
   }
   if (name === 'chase') {
@@ -192,14 +199,17 @@ export function stageShot(name, world, renderer) {
     s.player.mode = 'car';
     s.heroCar.x = -40; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 18;
     s.player.x = -40; s.player.z = 240;
-    s.wanted = 4; s.heli.active = true; s.heli.x = -70; s.heli.z = -24; s.heli.alt = 50;
+    s.wanted = 4; s.heli.active = true; s.heli.staged = true; s.heli.x = -54; s.heli.z = 247; s.heli.alt = 13;
     for (let i = 0; i < 4; i++) {
       s.police.push({ x: -24 + i * 10, z: (i % 2 ? 236 : 244), heading: Math.PI, speed: 16, search: 0, siren: i });
     }
     stepFor(world, 3, () => driveInput(world, -200, 240));
     s.heroCar.x = -40; s.heroCar.z = 240; s.heroCar.heading = Math.PI;
-    // heli over the sea ahead-left of the hero, inside the frame
-    s.heli.active = true; s.heli.x = -70; s.heli.z = 255; s.heli.alt = 22;
+    // heli big ahead-left over the sea, frozen by the staged flag — the
+    // v2.3 orbit put it at alt ~48, a small speck clipped at the frame edge;
+    // v2.4 first try (-48, 248, 12) was 22 m out and the rotor disc clipped
+    // the top edge, so it sits 28 m out now
+    s.heli.active = true; s.heli.staged = true; s.heli.x = -54; s.heli.z = 247; s.heli.alt = 13;
     cam(-28, 4.6, 242, -95, 2, 238);
     return 'play';
   }

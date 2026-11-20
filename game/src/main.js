@@ -1,6 +1,6 @@
 // Boot and the one loop: input is read every frame, the world advances in fixed
 // 1/60 s steps, the renderer paints what is there, the HUD reads the same state.
-// Screens: title, play, paused. ?seed=N fixes the city; ?shot=cover|start|play|end|stats
+// Screens: title, play, paused. ?seed=N fixes the city; ?shot=cover|start|play|end|stats|chase
 // (with &seed=N) stages that scene instead of running the loop, paints it twice
 // and sets window.__shotReady for a screenshot.
 import { BEST_KEY, DISTRICTS, MISSIONS, STEP } from './config.js';
@@ -108,6 +108,10 @@ function runShot(name) {
   // weapon panel at the bottom right, so no pixel of the hero is ever hidden
   // behind the HUD.
   if (name === 'cover') renderer.setFollow(10.5, 2.8);
+  // The chase shot pulls the camera back and pitches it up at the sky, so the
+  // helicopter body — 42 m up on its orbit — lands inside the frame with the
+  // hero and the cruisers, instead of above it.
+  if (name === 'chase') renderer.setFollow(36, 3.5, 0, 12.5);
   // The HUD is DOM, so a shot without it would show a bare city: build it too.
   const shotHud = createHud({
     onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {},

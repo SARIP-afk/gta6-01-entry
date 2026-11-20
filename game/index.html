@@ -20,7 +20,7 @@
   #topright { position: absolute; top: 10px; right: 12px; text-align: right; display: flex; flex-direction: column; gap: 1px; align-items: flex-end; text-shadow: 0 1px 3px rgba(0,0,0,0.85); }
   #cash { font-size: 17px; font-weight: 800; color: #7ddf8a; }
   #clock { font-size: 12px; font-weight: 800; color: #ffd27a; white-space: nowrap; }
-  #radio { font-size: 11px; font-weight: 700; color: #4fc3f7; white-space: nowrap; }
+  #radio { font-size: 11px; font-weight: 700; color: #4fc3f7; white-space: nowrap; background: rgba(10,14,18,0.65); padding: 2px 6px; border-radius: 4px; text-shadow: 0 0 3px #000, 0 1px 2px #000, 0 2px 6px rgba(0,0,0,0.9); }
   #wanted { position: absolute; top: 82px; right: 12px; text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,0.85); }
   #wanted-stars { font-size: 18px; color: #ff4a4a; letter-spacing: 2px; }
   #wanted-tier { font-size: 11px; letter-spacing: 1px; color: #ffb3b3; }
@@ -92,6 +92,9 @@
   .qbtn { background: rgba(20,28,36,0.85) !important; color: #f5f0e6 !important; border: 1px solid rgba(242,201,76,0.4) !important; border-radius: 6px !important; padding: 4px 12px !important; font-size: 13px !important; font-weight: 700 !important; cursor: pointer; margin-left: 6px; }
   .qbtn.active { background: #f2c94c !important; color: #1d2733 !important; }
   #pause .panel { pointer-events: auto; }
+  /* The pause menu is opaque and covers the whole viewport: the minimap,
+     the dialog and the street behind it must not show through while paused. */
+  #pause { background: #0a0e12; }
   #pause-tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: 96vw; }
   #pause-tabs button { background: rgba(20,28,36,0.85); color: #f5f0e6; border: 1px solid rgba(242,201,76,0.4); border-radius: 6px; padding: 8px 14px; cursor: pointer; font-weight: 700; font-size: 13px; }
   #pause-tabs button.active { background: #f2c94c; color: #1d2733; }

@@ -63,26 +63,44 @@ export function createHud(callbacks) {
   let pauseTab = 'map';
   let settings = { volume: 0.7, quality: 'high' };
 
+  // The city map: the sea is blue, every district is a solid
+  // block in its own colour with a dark border, the streets are bright cream
+  // lines on top, and the pier reaches into the sea on the east edge — so the
+  // first glance reads as a coastal city, not a grid on black. The same
+  // renderer paints the 110 px minimap, the 360 px stats map, the 560 px
+  // pause map and the 640 px full map; only the label size changes.
+  // Rendering only: districtAt / standing / waypoint logic is untouched.
   function drawMap(ctx, size, state, big) {
     const span = 760;
     const s = size / span;
     const toX = (x) => (x + span / 2) * s;
     const toZ = (z) => (z + span / 2) * s;
     ctx.clearRect(0, 0, size, size);
-    ctx.fillStyle = 'rgba(20, 28, 36, 0.88)';
+    // Sea first: everything off the landmass is water.
+    ctx.fillStyle = '#17617f';
     ctx.fillRect(0, 0, size, size);
-    // District tints, so the blocks read as neighbourhoods, not a bare grid.
-    if (!big) {
-      for (const d of DISTRICTS) {
-        ctx.fillStyle = `${d.color}24`;
-        ctx.fillRect(toX(d.x0), toZ(d.z0), (d.x1 - d.x0) * s, (d.z1 - d.z0) * s);
-      }
+    // Land: the road grid plus the marina strip east of it.
+    ctx.fillStyle = '#3a4a38';
+    ctx.fillRect(toX(-312), toZ(-312), 624 * s, 624 * s);
+    ctx.fillRect(toX(208), toZ(-104), 212 * s, 208 * s);
+    // District blocks, each in its own colour — MARINA last, so it wins its
+    // overlap with FOUNDRY the way districtDisplayAt says it should.
+    for (const d of DISTRICTS) {
+      ctx.fillStyle = d.color;
+      ctx.globalAlpha = big ? 0.88 : 0.72;
+      ctx.fillRect(toX(d.x0), toZ(d.z0), (d.x1 - d.x0) * s, (d.z1 - d.z0) * s);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = 'rgba(16, 22, 28, 0.75)';
+      ctx.lineWidth = big ? 2 : 1;
+      ctx.strokeRect(toX(d.x0), toZ(d.z0), (d.x1 - d.x0) * s, (d.z1 - d.z0) * s);
     }
-    // Roads: thick and bright on the small map, so the street grid reads at
-    // 110 px the way the round v1 minimap's grid did.
-    ctx.strokeStyle = big ? 'rgba(200, 205, 215, 0.5)' : 'rgba(238, 241, 245, 0.92)';
-    ctx.lineWidth = big ? 3 : 2;
+    // Roads: bright cream lines on the coloured blocks. The avenue (z=0), the
+    // coastal road (x=312) and the downtown cross street (x=0) are the main
+    // roads — thicker, so the skeleton of the city reads at a glance.
+    const mainRoad = (r) => r === 0 || r === CITY.gridMax;
     for (const r of state.city.roads) {
+      ctx.strokeStyle = 'rgba(255, 246, 220, 0.92)';
+      ctx.lineWidth = big ? (mainRoad(r) ? 4.5 : 2.5) : (mainRoad(r) ? 2.5 : 1.5);
       ctx.beginPath();
       ctx.moveTo(toX(r), 0);
       ctx.lineTo(toX(r), size);
@@ -92,7 +110,10 @@ export function createHud(callbacks) {
       ctx.lineTo(size, toZ(r));
       ctx.stroke();
     }
-    // Causeway + pier: a bold gold route, not a hairline.
+    // Causeway + pier deck: a bold gold route out to sea, with the deck drawn
+    // as a plank so the pier reads as a place, not a line.
+    ctx.fillStyle = '#8a6a3a';
+    ctx.fillRect(toX(CITY.gridMax), toZ(-12), (CITY.pier.x - CITY.gridMax) * s, 12 * s);
     ctx.strokeStyle = '#f2c94c';
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -104,36 +125,69 @@ export function createHud(callbacks) {
     for (const sh of state.city.shells) {
       if (!sh.taken) ctx.fillRect(toX(sh.x) - 1, toZ(sh.z) - 1, 2, 2);
     }
-    // Objective diamond.
+    // Player position, needed by the route line and the arrow below.
+    const px = state.player.mode === 'car' ? state.heroCar.x : state.player.x;
+    const pz = state.player.mode === 'car' ? state.heroCar.z : state.player.z;
+    // Waypoint the player set by clicking the big map: a dashed gold route
+    // from the player to the flag, so the line reads as a route, not a dot.
+    if (waypoint) {
+      ctx.strokeStyle = '#f2c94c';
+      ctx.lineWidth = big ? 3 : 2;
+      ctx.setLineDash([big ? 10 : 6, big ? 7 : 4]);
+      ctx.beginPath();
+      ctx.moveTo(toX(px), toZ(pz));
+      ctx.lineTo(toX(waypoint.x), toZ(waypoint.z));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#f2c94c';
+      ctx.beginPath();
+      ctx.arc(toX(waypoint.x), toZ(waypoint.z), big ? 6 : 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#1d2733';
+      ctx.lineWidth = big ? 2 : 1.5;
+      ctx.beginPath();
+      ctx.arc(toX(waypoint.x), toZ(waypoint.z), big ? 11 : 7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Objective diamond, with a dark outline so it reads on gold DOWNTOWN.
     const o = state.objective;
     if (o && o.dist > 0.1) {
       ctx.save();
       ctx.translate(toX(o.x), toZ(o.z));
       ctx.rotate(Math.PI / 4);
+      const r = big ? 8 : 5;
       ctx.fillStyle = '#f2c94c';
-      const r = big ? 7 : 5;
       ctx.fillRect(-r, -r, r * 2, r * 2);
+      ctx.strokeStyle = '#1d2733';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-r, -r, r * 2, r * 2);
       ctx.restore();
+      // Mission letter on the diamond: which job the gold target belongs to.
+      // Above-right of the diamond, so it never sits on the landmark label
+      // below the target (STADIUM, when the target is the stadium).
+      const cur = state.missions && state.missions.current ? state.missions.current() : null;
+      if (cur && big) {
+        ctx.fillStyle = '#f2c94c';
+        ctx.font = `900 ${Math.max(11, Math.round(size / 34))}px system-ui, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.strokeStyle = 'rgba(16, 22, 28, 0.95)';
+        ctx.lineWidth = 3;
+        const lx = toX(o.x) + 12;
+        const ly = toZ(o.z) - 12;
+        ctx.strokeText(cur.id, lx, ly);
+        ctx.fillText(cur.id, lx, ly);
+      }
     }
-    // Waypoint the player set by clicking the big map: gold flag.
-    if (waypoint) {
-      ctx.fillStyle = '#f2c94c';
-      ctx.beginPath();
-      ctx.arc(toX(waypoint.x), toZ(waypoint.z), big ? 6 : 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#f2c94c';
-      ctx.lineWidth = big ? 3 : 2;
-      ctx.beginPath();
-      ctx.arc(toX(waypoint.x), toZ(waypoint.z), big ? 11 : 7, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    // Police blips — bigger while EYES OUT marks them.
+    // Police blips — dark outline, so red reads on pink STADIUM ROW too.
     const eyes = state.crew.state.eyesOut > 0;
-    ctx.fillStyle = '#ff4a4a';
     for (const u of state.police.units) {
       ctx.beginPath();
       ctx.arc(toX(u.x), toZ(u.z), big ? (eyes ? 6 : 4) : (eyes ? 4 : 2.5), 0, Math.PI * 2);
+      ctx.fillStyle = '#ff4a4a';
       ctx.fill();
+      ctx.strokeStyle = 'rgba(16, 22, 28, 0.9)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
     // Helicopter ring, when air support is up.
     if (state.heli && state.heli.state.active) {
@@ -152,29 +206,31 @@ export function createHud(callbacks) {
       ctx.arc(toX(van.x), toZ(van.z), big ? 9 : 6, 0, Math.PI * 2);
       ctx.stroke();
     }
-    // Player arrow.
-    const px = state.player.mode === 'car' ? state.heroCar.x : state.player.x;
-    const pz = state.player.mode === 'car' ? state.heroCar.z : state.player.z;
+    // Player arrow: gold, big, dark outline — the eye lands on it first.
     const heading = state.player.mode === 'car' ? state.heroCar.heading : state.player.heading;
+    const arrow = big ? 12 : 8;
     ctx.save();
     ctx.translate(toX(px), toZ(pz));
     ctx.rotate(-heading);
-    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.moveTo(8, 0);
-    ctx.lineTo(-6, -6);
-    ctx.lineTo(-6, 6);
+    ctx.moveTo(arrow, 0);
+    ctx.lineTo(-arrow * 0.75, -arrow * 0.75);
+    ctx.lineTo(-arrow * 0.75, arrow * 0.75);
     ctx.closePath();
+    ctx.fillStyle = '#f2c94c';
     ctx.fill();
+    ctx.strokeStyle = '#1d2733';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.restore();
     // District labels on the small map too — the three a player navigates by.
     // Clamped inside the frame so MARINA, half off the east edge, still reads.
     // Dark outline under the white text, so the letters survive the bright grid.
     if (!big) {
-      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.font = 'bold 9px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.strokeStyle = 'rgba(20,28,36,0.9)';
+      ctx.strokeStyle = 'rgba(16,22,28,0.95)';
       ctx.lineWidth = 3;
       for (const name of ['DOWNTOWN', 'MARINA', 'PALM BEACH']) {
         const d = DISTRICTS.find((dd) => dd.name === name);
@@ -187,45 +243,84 @@ export function createHud(callbacks) {
       }
     }
     // District names on the big maps, so they read as a city, not a grid.
-    // Labels are clamped inside the frame (MARINA's centre sits half off the
-    // east edge) and skipped when they would collide with a label already
-    // placed. The minimum font is 10 px: at 12 px on the 360 px stats map,
-    // OLD HARBOR and DOWNTOWN share a row and their boxes overlap by 1 px,
-    // so OLD HARBOR was dropped entirely; at 10 px all seven names fit.
+    // Labels are clamped inside the frame and skipped when they would collide
+    // with a label already placed. Two anchors are shifted off their district
+    // centre so the name clears the landmark drawn there: DOWNTOWN clears the
+    // night-market row, MARINA clears the pier label. The standing line only
+    // shows on the 560/640 maps — on the 360 stats map the names alone fit,
+    // and the extra line is what used to collide OLD HARBOR into DOWNTOWN.
     if (big) {
-      const fs = Math.max(10, Math.round(size / 40));
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.font = `bold ${fs}px system-ui, sans-serif`;
+      const fs = Math.max(12, Math.min(22, Math.round(size / 30)));
+      const showStanding = size >= 500;
       ctx.textAlign = 'center';
-      ctx.strokeStyle = 'rgba(20,28,36,0.9)';
-      ctx.lineWidth = 3;
       const placed = [];
+      const label = (text, lx, ly, font, fill) => {
+        ctx.font = font;
+        const w = ctx.measureText(text).width + 8;
+        // Clamp inside the frame: a label centred half off the east edge
+        // (THE PIER) would otherwise render cut off.
+        lx = Math.max(w / 2 + 4, Math.min(size - w / 2 - 4, lx));
+        // Collision box follows the glyph ink (cap height above the baseline,
+        // a quarter em below), not the full em: OLD HARBOR and DOWNTOWN sit
+        // 14 px apart on the 360 map with a 12 px font, and full-em boxes
+        // overlap by a hairline and drop OLD HARBOR entirely.
+        const box = { x0: lx - w / 2, x1: lx + w / 2, y0: ly - fs * 0.75, y1: ly + fs * 0.25 };
+        if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) return false;
+        placed.push(box);
+        ctx.strokeStyle = 'rgba(16,22,28,0.95)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(text, lx, ly);
+        ctx.fillStyle = fill;
+        ctx.fillText(text, lx, ly);
+        return true;
+      };
+      const anchor = { DOWNTOWN: [0, -30], MARINA: [0, -50] };
       const order = ['DOWNTOWN', 'MARINA', 'PALM BEACH', 'NORTHGATE', 'FOUNDRY', 'STADIUM ROW', 'OLD HARBOR'];
       for (const name of order) {
         const d = DISTRICTS.find((dd) => dd.name === name);
         if (!d) continue;
-        const cx = (d.x0 + d.x1) / 2;
-        const cz = (d.z0 + d.z1) / 2;
-        const w = ctx.measureText(d.name).width + 8;
-        const lx = Math.max(w / 2 + 4, Math.min(size - w / 2 - 4, toX(cx)));
+        const off = anchor[name] || [0, 0];
+        const cx = (d.x0 + d.x1) / 2 + off[0];
+        const cz = (d.z0 + d.z1) / 2 + off[1];
+        const lx = Math.max(60, Math.min(size - 60, toX(cx)));
         const ly = toZ(cz);
-        const box = { x0: lx - w / 2, x1: lx + w / 2, y0: ly - fs, y1: ly + fs + 2 };
-        if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) continue;
-        placed.push(box);
-        ctx.strokeText(d.name, lx, ly);
-        ctx.fillText(d.name, lx, ly);
-        const st = state.standing[DISTRICTS.indexOf(d)];
-        ctx.fillStyle = 'rgba(242,201,76,0.95)';
-        ctx.font = `${Math.max(10, fs - 3)}px system-ui, sans-serif`;
-        ctx.fillText(st >= 60 ? `FRIENDLY ${st}` : st >= 40 ? `NEUTRAL ${st}` : `WARY ${st}`, lx, ly + fs + 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        ctx.font = `bold ${fs}px system-ui, sans-serif`;
+        if (!label(name, lx, ly, `bold ${fs}px system-ui, sans-serif`, 'rgba(255,255,255,0.95)')) continue;
+        if (showStanding) {
+          const st = state.standing[DISTRICTS.indexOf(d)];
+          const sub = st >= 60 ? `FRIENDLY ${st}` : st >= 40 ? `NEUTRAL ${st}` : `WARY ${st}`;
+          ctx.font = `${Math.max(10, fs - 4)}px system-ui, sans-serif`;
+          ctx.fillStyle = 'rgba(242,201,76,0.95)';
+          ctx.strokeStyle = 'rgba(16,22,28,0.95)';
+          ctx.lineWidth = 3;
+          ctx.strokeText(sub, lx, ly + fs + 2);
+          ctx.fillText(sub, lx, ly + fs + 2);
+        }
+      }
+      // Landmark labels, smaller, placed after the district names so they
+      // never push a district name out — a dropped landmark label is fine.
+      const lfs = Math.max(10, fs - 5);
+      label('STADIUM', toX(CITY.stadium.x), toZ(CITY.stadium.z) + 30 * s + lfs, `bold ${lfs}px system-ui, sans-serif`, 'rgba(255,255,255,0.9)');
+      label('NIGHT MARKET', toX(-58), toZ(-120), `bold ${lfs}px system-ui, sans-serif`, 'rgba(255,255,255,0.9)');
+      label('THE PIER', toX(372), toZ(26), `bold ${lfs}px system-ui, sans-serif`, 'rgba(255,255,255,0.9)');
+    }
+    // Landmark icons on the big maps: the stadium bowl and the market stalls.
+    if (big) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(toX(CITY.stadium.x), toZ(CITY.stadium.z), 16 * s, 11 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#f2c94c';
+      for (const mx of [-104, -88, -72, -56, -40, -24]) {
+        ctx.fillRect(toX(mx) - 3, toZ(-150) - 3, 6, 6);
       }
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
     ctx.font = `bold ${big ? 14 : 10}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.strokeStyle = 'rgba(20,28,36,0.9)';
+    ctx.strokeStyle = 'rgba(16,22,28,0.95)';
     ctx.lineWidth = 3;
     ctx.strokeText('N', size / 2, big ? 16 : 11);
     ctx.fillText('N', size / 2, big ? 16 : 11);

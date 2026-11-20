@@ -938,9 +938,29 @@ export function createRenderer(canvas, city) {
     tracers.push(line);
   }
 
-  // Blood: one instanced pool of small red cubes (two tones), plus a pool of flat
-  // ground splatters that grow a little and fade out. Hidden when nothing bleeds.
-  // Cubes are chunky and bright on purpose: a hit must read in a still frame.
+  // Blood: one instanced pool of small red cubes (two tones), plus a pool of
+  // flat ground splatters that grow a little and fade out. Hidden when
+  // nothing bleeds. Cubes are chunky and bright on purpose: a hit must read
+  // in a still frame. Each splatter is a jagged radial blob — a fixed
+  // deterministic outline per pool slot, so a replay paints the same stain —
+  // with three small satellite droplets around it, so it reads as a splash,
+  // not a flat red disc.
+  function splatShape(slot) {
+    const shape = new THREE.Shape();
+    const n = 14;
+    for (let i = 0; i <= n; i += 1) {
+      const a = (i / n) * Math.PI * 2;
+      // Deterministic wobble from the slot index: no sim random, no
+      // Math.random — the same slot always draws the same splat.
+      const w = 0.72 + 0.28 * Math.abs(Math.sin(slot * 7.3 + i * 2.7)) + (i % 3 === 0 ? 0.22 : 0);
+      const r = Math.min(1.15, w);
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      if (i === 0) shape.moveTo(x, y);
+      else shape.lineTo(x, y);
+    }
+    return new THREE.ShapeGeometry(shape);
+  }
   const MAX_BLOOD = 160;
   const bloodMesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(0.3, 0.3, 0.3),
@@ -957,15 +977,27 @@ export function createRenderer(canvas, city) {
   scene.add(bloodMesh);
   const decals = [];
   for (let i = 0; i < BLOOD.maxDecals; i += 1) {
-    const m = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 14),
-      new THREE.MeshBasicMaterial({ color: 0x9e1414, transparent: true, opacity: 0, depthWrite: false }),
-    );
-    m.rotation.x = -Math.PI / 2;
-    m.position.y = 0.06;
-    m.visible = false;
-    scene.add(m);
-    decals.push(m);
+    const group = new THREE.Group();
+    const mats = [];
+    const mainMat = new THREE.MeshBasicMaterial({ color: 0x9e1414, transparent: true, opacity: 0, depthWrite: false });
+    const main = new THREE.Mesh(splatShape(i), mainMat);
+    main.rotation.x = -Math.PI / 2;
+    group.add(main);
+    mats.push(mainMat);
+    // Satellite droplets at fixed offsets for this slot: the splash spray.
+    const drops = [[1.15, 0.35, 0.22], [-0.9, 0.85, 0.18], [0.5, -1.05, 0.26]];
+    for (const [dx, dz, r] of drops) {
+      const dm = new THREE.MeshBasicMaterial({ color: 0x9e1414, transparent: true, opacity: 0, depthWrite: false });
+      const d = new THREE.Mesh(new THREE.CircleGeometry(r, 10), dm);
+      d.rotation.x = -Math.PI / 2;
+      d.position.set(dx, 0, dz);
+      group.add(d);
+      mats.push(dm);
+    }
+    group.position.y = 0.06;
+    group.visible = false;
+    scene.add(group);
+    decals.push({ group, mats });
   }
 
   const dummy = new THREE.Object3D();
@@ -973,11 +1005,15 @@ export function createRenderer(canvas, city) {
   const camPos = new THREE.Vector3(-70, 8, 10);
   const camLook = new THREE.Vector3();
   // Follow distance/height override (the cover shot pulls back for a wider frame).
-  const follow = { dist: 0, height: 0, side: 0, dirty: false };
-  function setFollow(dist, height, side = 0) {
+  // lookY lifts the look target above the road: a staged chase shot pitches the
+  // camera up so the helicopter, 42 m up on its orbit, lands inside the frame
+  // instead of above it. Null keeps the old behaviour (look at 1.5 m).
+  const follow = { dist: 0, height: 0, side: 0, lookY: null, dirty: false };
+  function setFollow(dist, height, side = 0, lookY = null) {
     follow.dist = dist;
     follow.height = height;
     follow.side = side;
+    follow.lookY = lookY;
     follow.dirty = true;
   }
 
@@ -1100,7 +1136,7 @@ export function createRenderer(canvas, city) {
         camPos.y += (camHeight - camPos.y) * 0.12;
         camPos.z += (wantZ - camPos.z) * 0.12;
       }
-      camLook.set(focus.x + Math.cos(heading) * 8, 1.5, focus.z - Math.sin(heading) * 8);
+      camLook.set(focus.x + Math.cos(heading) * 8, follow.lookY ?? 1.5, focus.z - Math.sin(heading) * 8);
     }
     camera.position.copy(camPos);
     camera.lookAt(camLook);
@@ -1331,15 +1367,16 @@ export function createRenderer(canvas, city) {
       const d = splats[i];
       const m = decals[i];
       if (!d) {
-        m.visible = false;
+        m.group.visible = false;
         continue;
       }
       const f = d.life / BLOOD.decalLife;
-      m.visible = true;
-      m.position.set(d.x, 0.06, d.z);
+      m.group.visible = true;
+      m.group.position.set(d.x, 0.06, d.z);
       const sc = d.size * (1 + (1 - f) * 0.35);
-      m.scale.set(sc, sc, 1);
-      m.material.opacity = 0.9 * Math.min(1, f * 2);
+      m.group.scale.set(sc, sc, sc);
+      const op = 0.9 * Math.min(1, f * 2);
+      for (const mat of m.mats) mat.opacity = op;
     }
 
     renderer.render(scene, camera);

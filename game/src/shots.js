@@ -203,6 +203,119 @@ export function stageShot(name, world) {
     s.heroCar.damage = Math.min(s.heroCar.damage, 15);
     return { screen: SCREEN_PLAY, statsTab: true };
   }
+  if (name === 'chase') {
+    // Wanted 4 chase with the helicopter up: drive the autopilot until the
+    // heli is ahead of the hero (in the camera's forward cone), a cruiser is
+    // in the front half too, and the camera's 24 m pull-back spot is on open
+    // road — so the up-pitched chase camera (setFollow in main.js) frames the
+    // hero, the cruisers and the helicopter body in one shot. Staging only:
+    // the sim steps are the same autopilot as play/end, the loop just picks
+    // the frame.
+    s.missions.state.active = 3;
+    s.missions.state.stage = 0;
+    s.missions.state.started = true;
+    s.missions.state.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
+    s.missions.state.dialogTimer = 6;
+    s.player.mode = 'car';
+    s.police.setWanted(4, s.events);
+    const fwd = (h) => [Math.cos(h), -Math.sin(h)];
+    const spotClear = (x, z) => {
+      for (const b of s.city.buildings) {
+        if (Math.abs(x - b.x) < b.w / 2 + 1 && Math.abs(z - b.z) < b.d / 2 + 1) return false;
+      }
+      return true;
+    };
+    // Where the helicopter will land on screen with the chase camera
+    // (setFollow(36, 3.5, 0, 12.5) in main.js): the camera sits 36 m behind
+    // the hero at 3.5 m and looks 8 m ahead of him at 12.5 m, 60° vertical
+    // FOV, 1280x800. The distance does the work, not the pitch: pulling back
+    // lowers the heli's elevation angle from the camera, so it lands in
+    // clear sky below the mission banner instead of above the frame — while
+    // the hero stays well above the dialog panel at the bottom. A projected
+    // heli under the mission banner (top centre) or behind the right-hand
+    // panels is a wasted frame, so the break only fires when the heli
+    // projects into clear sky: below the banner, left of the weapon panel,
+    // right of the dispatch panel.
+    const projectHeli = (hx, hz, hy, f) => {
+      const cx = s.heroCar.x - f[0] * 36;
+      const cz = s.heroCar.z - f[1] * 36;
+      const cy = 3.5;
+      const lx = s.heroCar.x + f[0] * 8;
+      const lz = s.heroCar.z + f[1] * 8;
+      const ly = 12.5;
+      let fx = lx - cx;
+      let fy = ly - cy;
+      let fz = lz - cz;
+      const fl = Math.hypot(fx, fy, fz);
+      fx /= fl; fy /= fl; fz /= fl;
+      // right = normalize(cross(forward, up)), up2 = cross(right, forward).
+      let rx = -fz;
+      let rz = fx;
+      const rl = Math.hypot(rx, rz);
+      rx /= rl; rz /= rl;
+      const ux = -rz * fy;
+      const uy = rz * fx - rx * fz;
+      const uz = rx * fy;
+      const vx = hx - cx;
+      const vy = hy - cy;
+      const vz = hz - cz;
+      const zc = vx * fx + vy * fy + vz * fz;
+      if (zc <= 0) return null;
+      const xc = vx * rx + vz * rz;
+      const yc = vx * ux + vy * uy + vz * uz;
+      const t = Math.tan(Math.PI / 6);
+      const xNdc = xc / (zc * t * 1.6);
+      const yNdc = yc / (zc * t);
+      return { x: (xNdc + 1) / 2 * 1280, y: (1 - yNdc) / 2 * 800 };
+    };
+    let entered = false;
+    for (let i = 0; i < 150 / STEP; i += 1) {
+      // Heat decays over a long chase: re-apply wanted 4 every 10 s so the
+      // helicopter stays up until the frame is found.
+      if (i > 0 && i % 600 === 0 && s.police.state.wanted < 4) s.police.setWanted(4, s.events);
+      let input = autopilot(world);
+      if (!entered && s.player.mode === 'foot' && Math.hypot(s.heroCar.x - s.player.x, s.heroCar.z - s.player.z) < 5) {
+        input = { ...input, enter: true };
+        entered = true;
+      }
+      world.step(STEP, input);
+      if (s.player.health <= 0) break;
+      if (i < 600) continue;
+      if (s.events.some((e) => e.type === 'bust')) break;
+      const h = s.heroCar;
+      if (Math.abs(h.speed) < 5 || h.damage >= 40) continue;
+      const f = fwd(h.heading);
+      // A cruiser in the front half of the hero's view (within 40 m), not
+      // strictly dead ahead: cruisers chase from behind and only rarely get
+      // dead-ahead of the hero, so the strict cone never fires in a staged
+      // run — the front-half test is what actually puts a cruiser in frame.
+      const ahead = s.police.units.filter((u) => {
+        const vx = u.x - h.x;
+        const vz = u.z - h.z;
+        const d = Math.hypot(vx, vz);
+        return d < 40 && (vx * f[0] + vz * f[1]) / d > 0;
+      });
+      if (ahead.length < 1) continue;
+      const he = s.heli.state;
+      if (!he.active) continue;
+      const hx = he.x - h.x;
+      const hz = he.z - h.z;
+      const hd = Math.hypot(hx, hz);
+      if (hd < 1 || (hx * f[0] + hz * f[1]) / hd < 0.45) continue;
+      const camX = h.x - f[0] * 36;
+      const camZ = h.z - f[1] * 36;
+      if (!spotClear(camX, camZ)) continue;
+      // The heli must project into clear sky on the staged frame — below the
+      // mission banner (top centre), left of the weapon panel, right of the
+      // dispatch panel.
+      const proj = projectHeli(he.x, he.z, he.y, f);
+      if (!proj || proj.y < 85 || proj.y > 320 || proj.x < 250 || proj.x > 1010) continue;
+      break;
+    }
+    s.police.setWanted(4, []);
+    s.heroCar.damage = Math.min(s.heroCar.damage, 15);
+    return { screen: SCREEN_PLAY };
+  }
   const seconds = name === 'end' ? END_SECONDS : PLAY_SECONDS;
   if (name === 'end') {
     s.missions.state.active = 3;

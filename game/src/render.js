@@ -966,7 +966,7 @@ export function createRenderer(canvas, city) {
       moon.visible = dn.moonUp;
       cloudMesh.material.color.setScalar(1 - 0.75 * dn.night);
       lampGlow.visible = dn.night > 0.02;
-      lampGlow.material.opacity = 0.55 * dn.night;
+      lampGlow.material.opacity = 0.7 * dn.night;
       heroBeam.visible = dn.night > 0.02;
       heroBeam.material.opacity = 0.1 * dn.night;
     }

@@ -55,8 +55,8 @@ export const WEAPON_ORDER = ['FISTS', 'SOL-9', 'SMG', '12G'];
 const WANTED_TIERS = ['CLEAR', 'HEAT 1', 'HEAT 2', 'HEAT 3', 'HEAT 4', 'MAXIMUM FORCE'];
 const CAR_COLORS = ['#c0392b', '#2980b9', '#f1c40f', '#ecf0f1', '#2c3e50', '#e67e22', '#16a085', '#8e44ad'];
 const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
-const SHIRTS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#ecf0f1', '#e67e22'];
-const PANTS = ['#2c3e50', '#1a1a2e', '#34495e', '#7f8c8d', '#6b4226', '#2f3640'];
+const SHIRTS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#ecf0f1', '#e67e22', '#f72585', '#4cc9f0', '#ffbe0b', '#fb8500'];
+const PANTS = ['#2c3e50', '#1a1a2e', '#34495e', '#7f8c8d', '#6b4226', '#2f3640', '#5a3e2b', '#3d5a80'];
 
 function fnv(str) {
   let h = 2166136261;
@@ -97,9 +97,10 @@ function resetWorld(world, seed) {
     trace: [],
   };
   for (const d of ['DOWNTOWN', 'OLD HARBOR', 'NORTHGATE', 'STADIUM ROW', 'PALM BEACH', 'FOUNDRY', 'MARINA']) s.standing[d] = 58;
-  // traffic: 24 cars + 6 scooters on the road grid
-  for (let i = 0; i < 30; i++) {
-    const kind = i < 4 ? 'van' : i < 8 ? 'taxi' : i < 24 ? 'sedan' : 'scooter';
+  // traffic: 48 cars + 12 scooters on the road grid (was 30 — the city
+  // read empty; 6 vans, 8 taxis, 34 sedans, 12 scooters)
+  for (let i = 0; i < 60; i++) {
+    const kind = i < 6 ? 'van' : i < 14 ? 'taxi' : i < 48 ? 'sedan' : 'scooter';
     const rx = GRID_MIN + Math.floor(rng() * 13) * ROAD_STEP;
     const rz = GRID_MIN + Math.floor(rng() * 13) * ROAD_STEP;
     s.traffic.push({
@@ -111,19 +112,51 @@ function resetWorld(world, seed) {
   }
   // the gold van for M3
   s.van = { x: -96, z: -120, heading: 0, speed: 0, color: '#d4af37', kind: 'van', route: 0 };
-  // peds: 48 walkers on sidewalks
+  // peds: 48 sidewalk wanderers + 24 market crowd + 24 beachgoers +
+  // 12 stall vendors behind the counters (was 48 — the streets read empty).
+  // Area peds stay inside their patch (plaza / sand / stall) so they never
+  // wander onto a road and get run over; vendors keep facing their stall
+  // (face heading + a small sway) instead of turning at random.
+  const mkPed = (x, z, heading, speed, area, face) => ({
+    id: s.peds.length, x, z, heading, speed,
+    skin: SKINS[Math.floor(rng() * SKINS.length)],
+    shirt: SHIRTS[Math.floor(rng() * SHIRTS.length)],
+    pants: PANTS[Math.floor(rng() * PANTS.length)],
+    hair: ['#1a1a1a', '#4a2c14', '#d4a017', '#888888'][Math.floor(rng() * 4)],
+    phase: rng() * Math.PI * 2, alive: true,
+    scale: 0.92 + rng() * 0.16,
+    area: area || null, face: face ?? null,
+  });
   for (let i = 0; i < 48; i++) {
     const rx = GRID_MIN + Math.floor(rng() * 13) * ROAD_STEP;
     const rz = GRID_MIN + Math.floor(rng() * 13) * ROAD_STEP;
-    s.peds.push({
-      id: i, x: rx + 9 + rng() * 4, z: rz + 9 + rng() * 4,
-      heading: rng() * Math.PI * 2, speed: 1 + rng() * 0.8,
-      skin: SKINS[Math.floor(rng() * SKINS.length)],
-      shirt: SHIRTS[Math.floor(rng() * SHIRTS.length)],
-      pants: PANTS[Math.floor(rng() * PANTS.length)],
-      hair: ['#1a1a1a', '#4a2c14', '#d4a017', '#888888'][Math.floor(rng() * 4)],
-      phase: rng() * Math.PI * 2, alive: true,
-    });
+    s.peds.push(mkPed(
+      rx + 9 + rng() * 4, rz + 9 + rng() * 4,
+      rng() * Math.PI * 2, 1 + rng() * 0.8, null, null,
+    ));
+  }
+  const marketArea = { x0: MARKET.x - 23, z0: MARKET.z - 21, x1: MARKET.x + 23, z1: MARKET.z + 21 };
+  for (let i = 0; i < 24; i++) {
+    s.peds.push(mkPed(
+      MARKET.x - 22 + rng() * 44, MARKET.z - 20 + rng() * 40,
+      rng() * Math.PI * 2, 0.7 + rng() * 0.7, marketArea, null,
+    ));
+  }
+  const beachArea = { x0: -280, z0: 248, x1: 280, z1: 306 };
+  for (let i = 0; i < 24; i++) {
+    s.peds.push(mkPed(
+      -270 + rng() * 540, 250 + rng() * 52,
+      rng() * Math.PI * 2, 0.6 + rng() * 0.8, beachArea, null,
+    ));
+  }
+  for (const st of world.layout.stalls) {
+    // vendor stands behind the counter (local +z side, opposite the
+    // awning overhang) and faces the front (local -z)
+    const cy = Math.cos(st.ry), sy = Math.sin(st.ry);
+    const vx = st.x - 1.3 * sy, vz = st.z + 1.3 * cy;
+    const face = Math.atan2(cy, sy);
+    s.peds.push(mkPed(vx, vz, face, 0.15,
+      { x0: vx - 0.8, z0: vz - 0.8, x1: vx + 0.8, z1: vz + 0.8 }, face));
   }
   world.state = s;
   world.rng = rng;
@@ -375,14 +408,25 @@ function stepWorld(world, dt, input) {
     }
   }
 
-  // ---- peds: wander the sidewalks ----
+  // ---- peds: wander the sidewalks (area peds stay in their patch) ----
   for (const pd of s.peds) {
     if (!pd.alive) continue;
     pd.phase += dt * pd.speed * 2;
+    // vendors keep facing their stall, with a small sway, instead of
+    // turning at random when they bump the edge of their patch
+    if (pd.face !== null && pd.face !== undefined) {
+      pd.heading = pd.face + Math.sin(s.time * 0.5 + pd.phase) * 0.25;
+    }
     pd.x += Math.cos(pd.heading) * pd.speed * dt;
     pd.z -= Math.sin(pd.heading) * pd.speed * dt;
     if (rng() < 0.004) pd.heading += (rng() - 0.5) * 2;
-    if (pd.x < GRID_MIN || pd.x > 300 || pd.z < GRID_MIN || pd.z > 300 || hitsBuilding(world, pd.x, pd.z)) {
+    if (pd.area) {
+      const a = pd.area;
+      if (pd.x < a.x0 || pd.x > a.x1 || pd.z < a.z0 || pd.z > a.z1 || hitsBuilding(world, pd.x, pd.z)) {
+        pd.heading += Math.PI * (0.5 + rng() * 0.5);
+        pd.x = clamp(pd.x, a.x0, a.x1); pd.z = clamp(pd.z, a.z0, a.z1);
+      }
+    } else if (pd.x < GRID_MIN || pd.x > 300 || pd.z < GRID_MIN || pd.z > 300 || hitsBuilding(world, pd.x, pd.z)) {
       pd.heading += Math.PI * (0.5 + rng() * 0.5);
       pd.x = clamp(pd.x, GRID_MIN, 300); pd.z = clamp(pd.z, GRID_MIN, 300);
     }
@@ -395,8 +439,14 @@ function stepWorld(world, dt, input) {
     for (const pd of s.peds) {
       if (!pd.alive && rng() < 0.1) {
         pd.alive = true;
-        pd.x = clamp(heroX + (rng() < 0.5 ? -1 : 1) * (60 + rng() * 40), GRID_MIN, 300);
-        pd.z = clamp(heroZ + (rng() < 0.5 ? -1 : 1) * (60 + rng() * 40), GRID_MIN, 300);
+        // area peds respawn inside their patch, never onto a road
+        if (pd.area) {
+          pd.x = pd.area.x0 + rng() * (pd.area.x1 - pd.area.x0);
+          pd.z = pd.area.z0 + rng() * (pd.area.z1 - pd.area.z0);
+        } else {
+          pd.x = clamp(heroX + (rng() < 0.5 ? -1 : 1) * (60 + rng() * 40), GRID_MIN, 300);
+          pd.z = clamp(heroZ + (rng() < 0.5 ? -1 : 1) * (60 + rng() * 40), GRID_MIN, 300);
+        }
       }
     }
   }

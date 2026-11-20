@@ -317,6 +317,41 @@ re-checked via `main.ts` (exit 0, 4 images, text 151,568 bytes
   visual record; `playtest/` (harness + `results.json` + key
   screenshots) is committed with this round.
 
+## City density round — "kota yah ke sepi amat" (20 Nov, ~00:35 WIB)
+
+Syarif's eye: the city felt empty in the cover/chase/beach frames. Pure
+density pass — no HUD, control or mission changes.
+
+- **Traffic 30 → 60** (`sim.js`): 6 vans, 8 taxis, 34 sedans, 12 scooters.
+  Renderer pools resized to match (sedan-kind 56, vans 12, scooters 12,
+  wheels/hubs 320) — still 1 draw call per pool.
+- **Parked cars: 107** (`layout.js` + static instanced pools in `gfx.js`):
+  mid-block, 7 m off the road centreline (past the 6 m asphalt edge, clear
+  of ≥8 m building faces, 8.5 m lamps, 9 m+ ped sidewalks); 5 draw calls
+  for the whole fleet (body, glass, rear glass, roof, wheels).
+- **Peds 48 → 108**: 48 sidewalk wanderers + 24 market crowd (plaza patch)
+  + 24 beachgoers (sand patch z 248–306) + 12 stall vendors standing behind
+  the counters, facing their stall (face heading + sway). Area peds stay in
+  their patch and respawn inside it, so they never wander onto a road.
+  Per-ped height variety (scale 0.92–1.08, part heights scale with it);
+  shirt palette 8 → 12, pants 6 → 8.
+- **Street life**: 38 green street-name signs (merged soup, 0 extra calls),
+  AC units + roof water tanks on facades, lit-window ratio 0.32 → 0.42,
+  marina boats 5 → 8, 3 sailboats on the open sea, third umbrella row
+  (z ≈ 298) — umbrellas 19 → 28.
+
+Measured (all 8 shots, 0 console errors): calls / triangles —
+cover 106 / 424,902 (was 99 / 380,242); start 92 / 428,126; play 72 /
+418,014; end 69 / 417,210; market 55 / 423,286 (was 48 / 377,458);
+nightmarket 55 / 423,286; beach 64 / 422,350 (was 57 / 377,690); chase
+102 / 425,282 (was 95 / 380,622). Budget ≤ 250 calls, ≤ 500k triangles.
+Determinism re-verified (Node, 60 s drive): seed-1 `55ad5650` twice
+(hash changed from `4d9f8d47` because the sim content changed — more
+traffic/peds — which is expected). All 8 PNGs viewed: cover/chase show
+traffic ahead + parked cars on the edges, market/nightmarket show a real
+crowd + vendors + string lights, beach shows goers + sailboat + third
+umbrella row. NOT submitted — last slot untouched, awaiting syarif's word.
+
 ## What is NOT done / needs a human
 
 - **Not submitted.** No submit, no fee, no slot used — the last slot (3/3) is untouched; submission needs syarif's explicit word (deadline 24 Nov 22:00 WIB).

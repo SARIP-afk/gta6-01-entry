@@ -72,6 +72,8 @@ export function buildLayout(seed = 1) {
   const stalls = [];
   const props = []; // {kind:'bin'|'bench'|'planter'|'cone', x, z, ry}
   const shells = [];
+  const parked = []; // {x, z, ry, color} — static cars on the road edges
+  const signs = []; // {x, z, ry} — green street-name signs at intersections
 
   // --- buildings: one block = the square between four roads ---
   for (let bx = GRID_MIN; bx < GRID_MAX; bx += ROAD_STEP) {
@@ -137,12 +139,47 @@ export function buildLayout(seed = 1) {
         ry: range(rng, 0, Math.PI * 2),
       });
     }
-    if (hash2(x, 5, 42) < 0.55) {
+    if (hash2(x, 6, 43) < 0.45) {
       umbrellas.push({
-        x: x + 12 + range(rng, -4, 4), z: 282 + range(rng, -4, 8),
+        x: x + 6 + range(rng, -4, 4), z: 298 + range(rng, -3, 3),
         color: pick(rng, ['#e07a5f', '#4fc3f7', '#f2c94c', '#f28482', '#90be6d']),
         ry: range(rng, 0, Math.PI * 2),
       });
+    }
+  }
+
+  // --- parked cars: mid-block, 7 m off the road centreline — just past
+  // the asphalt edge (6 m) and clear of building faces (>= 8 m), lamps
+  // (8.5 m) and ped sidewalks (9 m+). Spots sit 24 m mod 48, lamps sit
+  // 8 m mod 48, so a parked car is never next to a lamp pole. Skipped
+  // inside the market plaza and the stadium bowl (pedestrian areas).
+  const inPlaza = (x, z) => Math.abs(x - MARKET.x) < 26 && Math.abs(z - MARKET.z) < 26;
+  const inStadium = (x, z) => Math.abs(x - STADIUM.x) < 40 && Math.abs(z - STADIUM.z) < 40;
+  const parkColors = ['#c0392b', '#2980b9', '#f1c40f', '#ecf0f1', '#2c3e50', '#e67e22', '#16a085', '#8e44ad', '#7f8c8d'];
+  for (const v of roadLines()) {
+    for (let u = GRID_MIN + 24; u <= GRID_MAX; u += ROAD_STEP) {
+      if (hash2(u, v, 91) < 0.38) {
+        const side = hash2(u, v, 92) < 0.5 ? 1 : -1;
+        const px = u, pz = v + side * 7.0;
+        if (!inPlaza(px, pz) && !inStadium(px, pz)) {
+          parked.push({ x: px, z: pz, ry: side > 0 ? Math.PI : 0, color: pick(rng, parkColors) });
+        }
+      }
+      if (hash2(v, u, 95) < 0.38) {
+        const side = hash2(v, u, 96) < 0.5 ? 1 : -1;
+        const px = v + side * 7.0, pz = u;
+        if (!inPlaza(px, pz) && !inStadium(px, pz)) {
+          parked.push({ x: px, z: pz, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, color: pick(rng, parkColors) });
+        }
+      }
+    }
+  }
+
+  // --- street-name signs: green boards on the (+,-) intersection corner,
+  // the two corners lamps never use (lamps sit on (+,+) and (-,-)) ---
+  for (let a = GRID_MIN; a <= GRID_MAX; a += ROAD_STEP) {
+    for (let b = GRID_MIN; b <= GRID_MAX; b += ROAD_STEP) {
+      if (hash2(a, b, 93) < 0.25) signs.push({ x: a + 7.5, z: b - 7.5, ry: hash2(a, b, 94) < 0.5 ? 0 : Math.PI / 2 });
     }
   }
 
@@ -179,5 +216,5 @@ export function buildLayout(seed = 1) {
   ];
   for (const [x, z] of shellSpots) shells.push({ x, z, taken: false });
 
-  return { buildings, lamps, palms, umbrellas, stalls, props, shells };
+  return { buildings, lamps, palms, umbrellas, stalls, props, shells, parked, signs };
 }

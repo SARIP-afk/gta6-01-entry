@@ -329,6 +329,17 @@ export class Renderer {
           solid.add(b.x, y + 0.6, b.z + b.d / 2 + 1.4, b.w * 0.5, 0.9, 0.08, '#4a4e57');
         }
       }
+      // AC unit on the east face + roof water tank on low-rise, so no
+      // facade reads as one bare slab from the street
+      if (hash2(Math.round(b.x), Math.round(b.z), 19) < 0.55) {
+        const fl = 1 + Math.floor(hash2(Math.round(b.x), 3, 19) * Math.max(1, b.floors - 1));
+        const ay = 2.6 + fl * 3.4;
+        if (ay < b.h - 1) solid.add(b.x + b.w / 2 + 0.3, ay, b.z + b.d * 0.2, 0.6, 0.5, 0.9, '#9a9a92');
+      }
+      if (b.h <= 20 && hash2(Math.round(b.x), Math.round(b.z), 23) < 0.5) {
+        solid.add(b.x + b.w * 0.25, b.h + 1.6, b.z - b.d * 0.2, 1.7, 2.2, 1.7, '#7a7568');
+        solid.add(b.x + b.w * 0.25, b.h + 2.8, b.z - b.d * 0.2, 1.9, 0.25, 1.9, '#5a5548');
+      }
     }
     // lighthouse on the western headland, in the sea (ref-3 landmark):
     // rock base + banded tower + lamp that glows at dusk
@@ -501,6 +512,48 @@ export class Renderer {
     }
     scene.add(propSoup.build(lambertVertex()));
 
+    // --- parked cars: static instanced pools on the road edges (5 draw
+    // calls for the whole fleet — body, glass, rear glass, roof, wheels) ---
+    if (L.parked.length) {
+      const pkBody = new THREE.InstancedMesh(taperedBody(4.4, 1.9, 0.75), new THREE.MeshLambertMaterial({ color: 0xffffff }), L.parked.length);
+      const pkGlassGeo = new THREE.BoxGeometry(0.1, 0.62, 1.66); pkGlassGeo.rotateZ(-0.42);
+      const pkGlass = new THREE.InstancedMesh(pkGlassGeo, new THREE.MeshLambertMaterial({ color: 0x16202c }), L.parked.length);
+      const pkRearGeo = new THREE.BoxGeometry(0.1, 0.55, 1.6); pkRearGeo.rotateZ(0.4);
+      const pkRear = new THREE.InstancedMesh(pkRearGeo, new THREE.MeshLambertMaterial({ color: 0x16202c }), L.parked.length);
+      const pkRoof = new THREE.InstancedMesh(new THREE.BoxGeometry(2.1, 0.12, 1.72), new THREE.MeshLambertMaterial({ color: 0xffffff }), L.parked.length);
+      const pkWheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 10); pkWheelGeo.rotateX(Math.PI / 2);
+      const pkWheels = new THREE.InstancedMesh(pkWheelGeo, new THREE.MeshLambertMaterial({ color: 0x14161a }), L.parked.length * 4);
+      L.parked.forEach((pk, i) => {
+        const fx = Math.cos(pk.ry), fz = -Math.sin(pk.ry);
+        dummy.rotation.set(0, pk.ry, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.position.set(pk.x, 0.62, pk.z); dummy.updateMatrix();
+        pkBody.setMatrixAt(i, dummy.matrix); pkBody.setColorAt(i, tmpColor.set(pk.color));
+        dummy.position.set(pk.x + fx * 0.85, 1.05, pk.z + fz * 0.85); dummy.updateMatrix();
+        pkGlass.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(pk.x - fx * 0.95, 1.02, pk.z - fz * 0.95); dummy.updateMatrix();
+        pkRear.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(pk.x - fx * 0.1, 1.38, pk.z - fz * 0.1); dummy.updateMatrix();
+        pkRoof.setMatrixAt(i, dummy.matrix); pkRoof.setColorAt(i, tmpColor.set(pk.color));
+        for (let wI = 0; wI < 4; wI++) {
+          const wx = wI < 2 ? 1.45 : -1.45, wz = (wI % 2 === 0 ? -0.85 : 0.85);
+          dummy.position.set(pk.x + fx * wx - Math.sin(pk.ry) * wz, 0.36, pk.z + fz * wx - Math.cos(pk.ry) * wz);
+          dummy.updateMatrix();
+          pkWheels.setMatrixAt(i * 4 + wI, dummy.matrix);
+        }
+      });
+      scene.add(pkBody, pkGlass, pkRear, pkRoof, pkWheels);
+    }
+
+    // --- street-name signs: pole + green board + white band, merged ---
+    const signSoup = new BoxSoup();
+    for (const sg of L.signs) {
+      signSoup.add(sg.x, 1.5, sg.z, 0.12, 3, 0.12, '#2f3540', sg.ry);
+      signSoup.add(sg.x, 2.9, sg.z, 1.7, 0.55, 0.08, '#1f6f3a', sg.ry);
+      signSoup.add(sg.x, 2.9, sg.z, 1.5, 0.1, 0.1, '#f5efe0', sg.ry);
+    }
+    scene.add(signSoup.build(lambertVertex()));
+
     // --- street lamps: pole + arm + head + glow ---
     const lampSoup = new BoxSoup();
     const lampGlow = [];
@@ -550,12 +603,19 @@ export class Renderer {
       pierSoup.add(x, 1.5, CAUSEWAY_Z + 3.6, 0.2, 0.2, 0.2, '#6b4a2f');
     }
     pierSoup.add(PIER.x, 0.12, CAUSEWAY_Z, 16, 0.3, 16, '#8a6a42');
-    for (let i = 0; i < 5; i++) {
-      const bx = 310 + i * 18, bz = -70 + i * 34;
+    for (let i = 0; i < 8; i++) {
+      const bx = 310 + i * 16, bz = -70 + i * 30;
       pierSoup.add(bx, 0.5, bz, 6, 1, 2.4, i % 2 ? '#e9e4d8' : '#c0392b');
       pierSoup.add(bx, 1.6, bz - 0.6, 5.4, 0.5, 0.4, '#2f3540');
       pierSoup.add(bx + 1, 4.5, bz, 0.14, 7, 0.14, '#6b4a2f');
       pierSoup.add(bx + 1, 3.4, bz + 1.2, 0.08, 3.4, 2.2, '#f5efe0', 0, 0.35);
+    }
+    // sailboats out on the open sea so the water reads inhabited, not empty
+    for (const [sx, sz] of [[-140, 345], [30, 355], [190, 342]]) {
+      pierSoup.add(sx, 0.6, sz, 5, 1, 2, '#e9e4d8');
+      pierSoup.add(sx, 1.4, sz, 4.4, 0.5, 1.6, '#2f3540');
+      pierSoup.add(sx, 4.5, sz, 0.14, 8, 0.14, '#6b4a2f');
+      pierSoup.add(sx + 0.8, 4.2, sz, 0.1, 4.5, 2.6, '#f5efe0', 0, 0.3);
     }
     scene.add(pierSoup.build(lambertVertex()));
   }
@@ -564,7 +624,7 @@ export class Renderer {
     const px = side ? x : b.x + x;
     const pz = side ? b.z + z : z;
     const h1 = hash2(Math.round(px), Math.round(y), Math.round(pz));
-    const warm = h1 < 0.32;
+    const warm = h1 < 0.42;
     const rec = { x: px, y, z: pz, ry, color: warm ? (h1 < 0.16 ? '#ffd98a' : '#ffb347') : '#2a3648' };
     (warm ? lit : dark).push(rec);
     if (b.h <= 20) mull.push({ x: px + (ry === 0 ? 0 : ry === Math.PI ? 0 : Math.sin(ry) * 0.1), y, z: pz + (ry === 0 ? 0.08 : ry === Math.PI ? -0.08 : 0), ry });
@@ -663,7 +723,13 @@ export class Renderer {
   // ---- dynamic pools: traffic, hero, peds, heli, shells ----
   buildDynamic() {
     const scene = this.scene;
-    const N = 40; // traffic + police + van capacity
+    // capacities: 60 traffic (42 sedan-kind + 6 van + 12 scooter) + 6 police
+    // sedans + the gold van = 48 sedans, 7 vans, 12 scooters at most;
+    // wheels are 4 per car over all kinds
+    const N = 56; // sedan-kind bodies / glass / roofs / lights
+    const NV = 12; // van bodies
+    const NS = 12; // scooter bodies
+    const NW = 320; // wheels + hubs, 4 per car
     const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const darkGlass = new THREE.MeshLambertMaterial({ color: 0x16202c });
     const mk = (geo, mat, count) => {
@@ -674,8 +740,8 @@ export class Renderer {
       return m;
     };
     this.carBodySedan = mk(taperedBody(4.4, 1.9, 0.75), white.clone(), N);
-    this.carBodyVan = mk(taperedBody(5.2, 2.0, 1.5, 0.9), white.clone(), 12);
-    this.carBodyScooter = mk(new THREE.BoxGeometry(1.9, 0.5, 0.7), white.clone(), 8);
+    this.carBodyVan = mk(taperedBody(5.2, 2.0, 1.5, 0.9), white.clone(), NV);
+    this.carBodyScooter = mk(new THREE.BoxGeometry(1.9, 0.5, 0.7), white.clone(), NS);
     const glassGeo = new THREE.BoxGeometry(0.1, 0.62, 1.66);
     glassGeo.rotateZ(-0.42);
     this.carGlass = mk(glassGeo, darkGlass, N);
@@ -685,10 +751,10 @@ export class Renderer {
     this.carRoof = mk(new THREE.BoxGeometry(2.1, 0.12, 1.72), white.clone(), N);
     const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 10);
     wheelGeo.rotateX(Math.PI / 2);
-    this.carWheels = mk(wheelGeo, new THREE.MeshLambertMaterial({ color: 0x14161a }), N * 4);
+    this.carWheels = mk(wheelGeo, new THREE.MeshLambertMaterial({ color: 0x14161a }), NW);
     const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.28, 8);
     hubGeo.rotateX(Math.PI / 2);
-    this.carHubs = mk(hubGeo, new THREE.MeshLambertMaterial({ color: 0xb8bec8 }), N * 4);
+    this.carHubs = mk(hubGeo, new THREE.MeshLambertMaterial({ color: 0xb8bec8 }), NW);
     this.carHead = mk(new THREE.BoxGeometry(0.1, 0.16, 0.34), new THREE.MeshBasicMaterial({ color: 0xfff6c8 }), N * 2);
     this.carTail = mk(new THREE.BoxGeometry(0.1, 0.14, 0.34), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), N * 2);
     this.carTaxi = mk(new THREE.BoxGeometry(0.7, 0.2, 0.34), new THREE.MeshBasicMaterial({ color: 0xf1c40f }), N);
@@ -791,9 +857,11 @@ export class Renderer {
     addBox(this.heroWalk, 0.36, 0.12, 0.34, new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), 0, 1.92, 0);
     scene.add(this.heroWalk);
 
-    // peds: instanced pools, white materials so setColorAt shows
+    // peds: instanced pools, white materials so setColorAt shows.
+    // Sized from the live ped count (48 sidewalk + 24 market + 24 beach
+    // + 12 vendors = 108) so the pools never clip the crowd.
     const pedWhite = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const P = 48;
+    const P = this.world.state.peds.length;
     this.pedTorso = mk(new THREE.BoxGeometry(0.34, 0.68, 0.56), pedWhite.clone(), P);
     this.pedHead = mk(new THREE.BoxGeometry(0.32, 0.32, 0.3), pedWhite.clone(), P);
     this.pedHair = mk(new THREE.BoxGeometry(0.34, 0.13, 0.32), pedWhite.clone(), P);
@@ -1205,11 +1273,12 @@ export class Renderer {
     }
     s.peds.forEach((pd, i) => {
       const vis = pd.alive ? 1 : 0.001;
+      const sc = vis * (pd.scale || 1);
       const swing = Math.sin(pd.phase) * 0.5;
       const setPart = (mesh, x, y, z, rz = 0, rx = 0) => {
-        dummy.position.set(x, y, z);
+        dummy.position.set(x, y * sc, z);
         dummy.rotation.set(rx, pd.heading, rz);
-        dummy.scale.set(vis, vis, vis);
+        dummy.scale.set(sc, sc, sc);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
       };

@@ -3,7 +3,8 @@
 // are InstancedMesh pools, and the hero car and Rio are the only articulated groups.
 // No sim lives here: positions come from state, and the camera just follows them.
 import * as THREE from '../vendor/three.module.min.js';
-import { CITY, PALETTE, CAR_MODELS } from './config.js';
+import { BLOOD, CITY, PALETTE, CAR_MODELS } from './config.js';
+import { WEAPONS } from './weapons.js';
 import { sampleDayNight } from './daynight.js';
 
 export const SCREEN_TITLE = 'title';
@@ -748,6 +749,14 @@ export function createRenderer(canvas, city) {
   rioParts.armR = rioBox(0.2, 0.8, 0.2, 0xd94f3d, 0.48, 1.25, 0);
   rioParts.legL = rioBox(0.26, 0.85, 0.26, 0x2c313a, -0.18, 0.42, 0);
   rioParts.legR = rioBox(0.26, 0.85, 0.26, 0x2c313a, 0.18, 0.42, 0);
+  // The gun in Rio's right hand: visible only while a gun is drawn (not
+  // holstered, not fists) — put the weapon away and his hands are empty.
+  const rioGun = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.12), new THREE.MeshLambertMaterial({ color: 0x14181d }));
+  rioGun.position.set(0.48, 1.05, 0.3);
+  rio.add(rioGun);
+  const rioGunBarrel = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.08, 0.08), new THREE.MeshLambertMaterial({ color: 0x3a3f46 }));
+  rioGunBarrel.position.set(0.48, 1.05, 0.68);
+  rio.add(rioGunBarrel);
   scene.add(rio);
 
   // Traffic: three InstancedMesh pools (body, cabin, wheels x4). Bodies and
@@ -756,7 +765,8 @@ export function createRenderer(canvas, city) {
   const MAX_CARS = 34;
   const bodyGeo = taperTop(new THREE.BoxGeometry(4.4, 0.85, 1.9), 0.35, 0.35);
   const cabinGeo = taperTop(new THREE.BoxGeometry(2.2, 0.7, 1.7), 0.45, 0.4);
-  const wheelGeoI = new THREE.BoxGeometry(0.7, 0.7, 0.35);
+  const wheelGeoI = new THREE.CylinderGeometry(0.42, 0.42, 0.32, 10);
+  wheelGeoI.rotateX(Math.PI / 2);
   const trafficBodies = new THREE.InstancedMesh(bodyGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_CARS);
   const trafficCabins = new THREE.InstancedMesh(cabinGeo, new THREE.MeshLambertMaterial({ color: 0x22303c }), MAX_CARS);
   const trafficWheels = new THREE.InstancedMesh(wheelGeoI, new THREE.MeshLambertMaterial({ color: 0x14181d }), MAX_CARS * 4);
@@ -766,6 +776,23 @@ export function createRenderer(canvas, city) {
   scene.add(trafficBodies);
   scene.add(trafficCabins);
   scene.add(trafficWheels);
+  // NPC detail, all instanced — one draw call per part for every car, never
+  // one per car: bumpers front and rear, a red taillight bar, a dark grille,
+  // side mirrors, pale hubcaps, and a glass band over the cabin so the
+  // glasshouse reads as glass instead of a dark slab.
+  function trafficPool(geo, mat, count) {
+    const m = new THREE.InstancedMesh(geo, mat, count);
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    m.frustumCulled = false;
+    scene.add(m);
+    return m;
+  }
+  const trafficBumpers = trafficPool(new THREE.BoxGeometry(0.2, 0.3, 1.92), new THREE.MeshLambertMaterial({ color: 0xd8dde2 }), MAX_CARS * 2);
+  const trafficTails = trafficPool(new THREE.BoxGeometry(0.08, 0.2, 1.7), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), MAX_CARS * 2);
+  const trafficGrilles = trafficPool(new THREE.BoxGeometry(0.08, 0.3, 1.15), new THREE.MeshLambertMaterial({ color: 0x14181d }), MAX_CARS);
+  const trafficMirrors = trafficPool(new THREE.BoxGeometry(0.22, 0.16, 0.16), new THREE.MeshLambertMaterial({ color: 0x14181d }), MAX_CARS * 2);
+  const trafficHubs = trafficPool(new THREE.BoxGeometry(0.3, 0.3, 0.06), new THREE.MeshLambertMaterial({ color: 0xb9c0c7 }), MAX_CARS * 4);
+  const trafficGlass = trafficPool(new THREE.BoxGeometry(1.5, 0.14, 1.45), new THREE.MeshLambertMaterial({ color: 0x9fd4e8 }), MAX_CARS);
   // Traffic headlights: two bright quads on the nose of every NPC car,
   // invisible by day — at night they switch on with the night factor.
   const trafficHeadlights = new THREE.InstancedMesh(
@@ -913,9 +940,10 @@ export function createRenderer(canvas, city) {
 
   // Blood: one instanced pool of small red cubes (two tones), plus a pool of flat
   // ground splatters that grow a little and fade out. Hidden when nothing bleeds.
+  // Cubes are chunky and bright on purpose: a hit must read in a still frame.
   const MAX_BLOOD = 160;
   const bloodMesh = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(0.22, 0.22, 0.22),
+    new THREE.BoxGeometry(0.3, 0.3, 0.3),
     new THREE.MeshBasicMaterial({ color: 0xffffff }),
     MAX_BLOOD,
   );
@@ -928,7 +956,7 @@ export function createRenderer(canvas, city) {
   if (bloodMesh.instanceColor) bloodMesh.instanceColor.needsUpdate = true;
   scene.add(bloodMesh);
   const decals = [];
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < BLOOD.maxDecals; i += 1) {
     const m = new THREE.Mesh(
       new THREE.CircleGeometry(1, 14),
       new THREE.MeshBasicMaterial({ color: 0x9e1414, transparent: true, opacity: 0, depthWrite: false }),
@@ -1095,6 +1123,15 @@ export function createRenderer(canvas, city) {
       rioParts.legR.rotation.x = -swing;
       rioParts.armL.rotation.x = -swing;
       rioParts.armR.rotation.x = swing;
+      // Gun in hand only while a gun is drawn: holstered or fists, empty hands.
+      const gunOut = !combat.state.loadout.holstered && WEAPONS[combat.state.loadout.active].pellets > 0;
+      rioGun.visible = gunOut;
+      rioGunBarrel.visible = gunOut;
+      if (gunOut) {
+        rioGun.rotation.x = swing;
+        rioGunBarrel.rotation.x = swing;
+        rioParts.armR.rotation.x = -0.5;
+      }
     }
 
     // Traffic.
@@ -1102,21 +1139,33 @@ export function createRenderer(canvas, city) {
     const cars = traffic.cars;
     for (let i = 0; i < cars.length; i += 1) {
       const c = cars[i];
+      const cH = Math.cos(c.heading);
+      const sH = Math.sin(c.heading);
+      // Local (lx, lz) to world: (x + lx*cos h + lz*sin h, z - lx*sin h + lz*cos h).
+      const lx = (px, pz) => c.x + px * cH + pz * sH;
+      const lz = (px, pz) => c.z - px * sH + pz * cH;
       setInstance(trafficBodies, i, c.x, 0.75, c.z, c.heading, 1, 1, 1);
       setInstance(trafficCabins, i, c.x - Math.cos(c.heading) * 0.2, 1.5, c.z + Math.sin(c.heading) * 0.2, c.heading, 1, 1, 1);
+      // Glass band over the cabin roof: the pale strip that says "windows".
+      setInstance(trafficGlass, i, lx(-0.15, 0), 1.86, lz(-0.15, 0), c.heading, 1, 1, 1);
+      // Bumpers front and rear, taillight bar on the tail, grille on the nose.
+      setInstance(trafficBumpers, i * 2, lx(2.16, 0), 0.55, lz(2.16, 0), c.heading, 1, 1, 1);
+      setInstance(trafficBumpers, i * 2 + 1, lx(-2.16, 0), 0.55, lz(-2.16, 0), c.heading, 1, 1, 1);
+      setInstance(trafficTails, i * 2, lx(-2.0, 0.6), 0.95, lz(-2.0, 0.6), c.heading, 1, 1, 1);
+      setInstance(trafficTails, i * 2 + 1, lx(-2.0, -0.6), 0.95, lz(-2.0, -0.6), c.heading, 1, 1, 1);
+      setInstance(trafficGrilles, i, lx(2.02, 0), 0.85, lz(2.02, 0), c.heading, 1, 1, 1);
+      setInstance(trafficMirrors, i * 2, lx(0.9, 1.0), 1.35, lz(0.9, 1.0), c.heading, 1, 1, 1);
+      setInstance(trafficMirrors, i * 2 + 1, lx(0.9, -1.0), 1.35, lz(0.9, -1.0), c.heading, 1, 1, 1);
       for (let w = 0; w < 4; w += 1) {
         const wx = (w < 2 ? 1.4 : -1.4);
         const wz = (w % 2 === 0 ? 0.85 : -0.85);
-        const cH = Math.cos(c.heading);
-        const sH = Math.sin(c.heading);
-        setInstance(trafficWheels, i * 4 + w, c.x + wx * cH + wz * sH, 0.42, c.z - wx * sH + wz * cH, c.heading, 1, 1, 1);
+        setInstance(trafficWheels, i * 4 + w, lx(wx, wz), 0.42, lz(wx, wz), c.heading, 1, 1, 1);
+        setInstance(trafficHubs, i * 4 + w, lx(wx, wz + Math.sign(wz) * 0.18), 0.42, lz(wx, wz + Math.sign(wz) * 0.18), c.heading, 1, 1, 1);
       }
       // Headlight quads on the nose (local +X is forward, same mapping).
       for (let w = 0; w < 2; w += 1) {
         const hz = w === 0 ? 0.6 : -0.6;
-        const cH = Math.cos(c.heading);
-        const sH = Math.sin(c.heading);
-        setInstance(trafficHeadlights, i * 2 + w, c.x + 2.15 * cH + hz * sH, 0.8, c.z - 2.15 * sH + hz * cH, c.heading, 1, 1, 1);
+        setInstance(trafficHeadlights, i * 2 + w, lx(2.15, hz), 0.8, lz(2.15, hz), c.heading, 1, 1, 1);
       }
       trafficBodies.setColorAt(i, new THREE.Color(c.marked ? 0xf2c94c : (c.kind === 'taxi' ? 0xf2c94c : c.color)));
       setInstance(blobs, blob, c.x, 0.05, c.z, 0, 2.6, 1.6, 1);
@@ -1126,10 +1175,22 @@ export function createRenderer(canvas, city) {
     trafficCabins.count = cars.length;
     trafficWheels.count = cars.length * 4;
     trafficHeadlights.count = cars.length * 2;
+    trafficBumpers.count = cars.length * 2;
+    trafficTails.count = cars.length * 2;
+    trafficGrilles.count = cars.length;
+    trafficMirrors.count = cars.length * 2;
+    trafficHubs.count = cars.length * 4;
+    trafficGlass.count = cars.length;
     trafficBodies.instanceMatrix.needsUpdate = true;
     trafficCabins.instanceMatrix.needsUpdate = true;
     trafficWheels.instanceMatrix.needsUpdate = true;
     trafficHeadlights.instanceMatrix.needsUpdate = true;
+    trafficBumpers.instanceMatrix.needsUpdate = true;
+    trafficTails.instanceMatrix.needsUpdate = true;
+    trafficGrilles.instanceMatrix.needsUpdate = true;
+    trafficMirrors.instanceMatrix.needsUpdate = true;
+    trafficHubs.instanceMatrix.needsUpdate = true;
+    trafficGlass.instanceMatrix.needsUpdate = true;
     if (trafficBodies.instanceColor) trafficBodies.instanceColor.needsUpdate = true;
 
     // Police cruisers, lights flashing on alternate half-seconds. Each half
@@ -1273,12 +1334,12 @@ export function createRenderer(canvas, city) {
         m.visible = false;
         continue;
       }
-      const f = d.life / 3;
+      const f = d.life / BLOOD.decalLife;
       m.visible = true;
       m.position.set(d.x, 0.06, d.z);
       const sc = d.size * (1 + (1 - f) * 0.35);
       m.scale.set(sc, sc, 1);
-      m.material.opacity = 0.8 * Math.min(1, f * 2);
+      m.material.opacity = 0.9 * Math.min(1, f * 2);
     }
 
     renderer.render(scene, camera);
@@ -1310,5 +1371,12 @@ export function createRenderer(canvas, city) {
     renderer.dispose();
   }
 
-  return { draw, project, screenToGround, dispose, setFollow, cameraHeading: () => camYaw.value, debugCam: () => ({ pos: [camPos.x, camPos.y, camPos.z], look: [camLook.x, camLook.y, camLook.z], yaw: camYaw.value }) };
+  /** Graphics quality: high renders at the device pixel ratio (capped at 2),
+   * low renders at 1x — fewer pixels, same city. Called from the settings tab. */
+  function setQuality(q) {
+    renderer.setPixelRatio(q === 'low' ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+    resize();
+  }
+
+  return { draw, project, screenToGround, dispose, setFollow, setQuality, cameraHeading: () => camYaw.value, debugCam: () => ({ pos: [camPos.x, camPos.y, camPos.z], look: [camLook.x, camLook.y, camLook.z], yaw: camYaw.value }) };
 }

@@ -131,8 +131,10 @@ export function createWorld(random) {
     state.traceSamples = [];
     state.stepCount = 0;
     state.wantedWas = 0;
+    // Rio starts ON FOOT BESIDE his car — not inside it — so the first thing
+    // a new player sees is Rio, his car, and the prompt to get in.
     player.x = city.spawn.x;
-    player.z = city.spawn.z;
+    player.z = city.spawn.z + 3.5;
     player.heading = city.spawn.heading;
     player.mode = 'foot';
     player.health = PLAYER.health;
@@ -205,6 +207,10 @@ export function createWorld(random) {
     const rate = CAR.steerRate * Math.min(1, Math.abs(heroCar.speed) / 8);
     heroCar.heading += steer * rate * dt * Math.sign(heroCar.speed || 1);
     // Don't rear-end the car ahead: ease off when traffic is close in front.
+    // Directly behind it (|side| < 1.9, the body width) match its speed; a
+    // car alongside it (1.9-2.5 m off, passing in the next lane) may still
+    // creep past at 2 m/s — otherwise a stopped car ahead locks the player
+    // in place with no way around it.
     const fx = Math.cos(heroCar.heading);
     const fz = -Math.sin(heroCar.heading);
     for (const c of traffic.cars) {
@@ -213,7 +219,7 @@ export function createWorld(random) {
       const along = dx * fx + dz * fz;
       const side = Math.abs(dx * fz - dz * fx);
       if (along > 0 && along < 10 && side < 2.5) {
-        heroCar.speed = Math.min(heroCar.speed, Math.max(0, c.speed));
+        heroCar.speed = Math.min(heroCar.speed, Math.max(side < 1.9 ? 0 : 2, c.speed));
         break;
       }
     }
@@ -273,13 +279,13 @@ export function createWorld(random) {
   function tryEnterExit() {
     if (player.mode === 'foot') {
       const dCar = Math.hypot(heroCar.x - player.x, heroCar.z - player.z);
-      if (dCar < 4) {
+      if (dCar < 6) {
         player.mode = 'car';
         return;
       }
       // Steal a parked traffic car: it becomes the hero car, the old one stays put.
       let best = null;
-      let bd = 4;
+      let bd = 5;
       for (const c of traffic.cars) {
         const d = Math.hypot(c.x - player.x, c.z - player.z);
         if (d < bd && Math.abs(c.speed) < 1) { bd = d; best = c; }
@@ -331,19 +337,46 @@ export function createWorld(random) {
   function carTrafficCollisions(dt) {
     if (player.mode !== 'car') return;
     if (state.hitCooldown > 0) state.hitCooldown -= dt;
-    for (const c of traffic.cars) {
-      const d = Math.hypot(c.x - heroCar.x, c.z - heroCar.z);
-      if (d < 4.4 && d > 0.01) {
-        const push = (4.4 - d) / 2;
-        const nx = (heroCar.x - c.x) / d;
-        const nz = (heroCar.z - c.z) / d;
-        heroCar.x += nx * push;
-        heroCar.z += nz * push;
-        if (Math.abs(heroCar.speed) > 6 && state.hitCooldown <= 0) {
-          state.hitCooldown = 1;
-          heroCar.damage = Math.min(100, heroCar.damage + CAR.damagePerHit);
-          heroCar.speed *= 0.55;
-          police.addWanted(1, 'traffic collision', state.events);
+    // Two passes: pushing the hero away from one car can shove it into the
+    // next, so the second pass settles the residuals.
+    for (let pass = 0; pass < 2; pass += 1) {
+      for (const c of traffic.cars) {
+        // SAT push-out for two 4.4 x 1.9 m bodies. A circle test (d < 4.4)
+        // misses a diagonal pair whose bumpers overlap at d = 4.5: neither
+        // car moves and they sit touching forever. SAT finds the real
+        // minimum push-out vector; the traffic car takes all of it, the
+        // hero (player-controlled) is not shoved.
+        const axes = [];
+        for (const h of [heroCar.heading, c.heading]) {
+          axes.push([Math.cos(h), -Math.sin(h)]);
+          axes.push([Math.sin(h), Math.cos(h)]);
+        }
+        const dx = c.x - heroCar.x;
+        const dz = c.z - heroCar.z;
+        const dBefore = Math.hypot(dx, dz);
+        let best = null;
+        for (const [wx, wz] of axes) {
+          const rH = 2.2 * Math.abs(Math.cos(heroCar.heading) * wx - Math.sin(heroCar.heading) * wz)
+            + 0.95 * Math.abs(Math.sin(heroCar.heading) * wx + Math.cos(heroCar.heading) * wz);
+          const rC = 2.2 * Math.abs(Math.cos(c.heading) * wx - Math.sin(c.heading) * wz)
+            + 0.95 * Math.abs(Math.sin(c.heading) * wx + Math.cos(c.heading) * wz);
+          const overlap = rH + rC - Math.abs(dx * wx + dz * wz);
+          if (overlap <= 0) { best = null; break; }
+          if (!best || overlap < best.overlap) best = { overlap, wx, wz };
+        }
+        if (!best) continue;
+        const sign = (dx * best.wx + dz * best.wz) >= 0 ? 1 : -1;
+        const push = best.overlap + 0.05;
+        c.x += best.wx * sign * push;
+        c.z += best.wz * sign * push;
+        c.speed = Math.min(c.speed, Math.max(0, heroCar.speed * 0.5));
+        {
+          if (pass === 0 && Math.abs(heroCar.speed) > 6 && state.hitCooldown <= 0 && dBefore < 4.4) {
+            state.hitCooldown = 1;
+            heroCar.damage = Math.min(100, heroCar.damage + CAR.damagePerHit);
+            heroCar.speed *= 0.55;
+            police.addWanted(1, 'traffic collision', state.events);
+          }
         }
       }
     }
@@ -424,10 +457,15 @@ export function createWorld(random) {
         state.events.push({ type: 'crew-need-car', ability: CREW[picked].ability });
       }
     }
+    // Q: put the weapon away / take it out again (on foot only).
+    if (input.holster) {
+      input.holster = false;
+      if (player.mode === 'foot') combat.toggleHolster(state.events);
+    }
     if (player.mode === 'car') stepCar(dt, input);
     else stepFoot(dt, input);
 
-    traffic.step(dt, player.mode === 'car' ? heroCar : player);
+    traffic.step(dt, player.mode === 'car' ? heroCar : player, player.mode === 'car' ? heroCar : null);
     stepPedsDown(dt);
     carTrafficCollisions(dt);
 
@@ -541,14 +579,18 @@ export function createWorld(random) {
     }
   }
 
-  /** Completion across missions, shells, exports and friendly districts. */
+  /** Completion across missions, shells, exports, friendly districts and crew.
+   * The weights are the honest split of what the game has: 4 missions (45),
+   * 20 shells (20), 5 exports (15), 7 districts to win over (15), and the 3
+   * crew members recruited from the start (5). A fresh game reads 5%. */
   function completion() {
-    const m = (missions.state.completed.length / 4) * 50;
+    const m = (missions.state.completed.length / 4) * 45;
     const s = (state.shellsTaken / 20) * 20;
     const e = (state.exportsDone.length / EXPORT_MODELS.length) * 15;
     const friendly = state.standing.filter((v) => v >= 60).length;
     const d = (friendly / DISTRICTS.length) * 15;
-    return Math.round(m + s + e + d);
+    const c = (CREW.length / 3) * 5;
+    return Math.round(m + s + e + d + c);
   }
 
   function traceHash() {

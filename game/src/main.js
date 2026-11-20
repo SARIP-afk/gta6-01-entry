@@ -1,16 +1,17 @@
 // Boot and the one loop: input is read every frame, the world advances in fixed
 // 1/60 s steps, the renderer paints what is there, the HUD reads the same state.
-// Screens: title, play, paused. ?seed=N fixes the city; ?shot=cover|start|play|end
+// Screens: title, play, paused. ?seed=N fixes the city; ?shot=cover|start|play|end|stats
 // (with &seed=N) stages that scene instead of running the loop, paints it twice
 // and sets window.__shotReady for a screenshot.
 import { BEST_KEY, DISTRICTS, MISSIONS, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld } from './world.js';
 import { districtDisplayAt } from './city.js';
-import { ACTION_CONFIRM, ACTION_CREW_1, ACTION_CREW_2, ACTION_CREW_3, ACTION_ENTER, ACTION_MAP, ACTION_PAUSE, ACTION_RADIO, ACTION_RELOAD, ACTION_WEAPON_1, ACTION_WEAPON_2, ACTION_WEAPON_3, ACTION_WEAPON_4, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_CREW_1, ACTION_CREW_2, ACTION_CREW_3, ACTION_ENTER, ACTION_HOLSTER, ACTION_MAP, ACTION_PAUSE, ACTION_RADIO, ACTION_RELOAD, ACTION_WEAPON_1, ACTION_WEAPON_2, ACTION_WEAPON_3, ACTION_WEAPON_4, createInput } from './input.js';
 import { createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { createHud } from './hud.js';
 import { createRadio } from './radio.js';
+import { loadSettings, saveSettings } from './settings.js';
 import { listSlots, loadSlot, saveSlot } from './save.js';
 import { stageShot } from './shots.js';
 
@@ -28,6 +29,9 @@ window.__world = world;
 const renderer = createRenderer(canvas, world.state.city);
 window.__renderer = renderer;
 const radio = createRadio();
+const settings = loadSettings();
+radio.setVolume(settings.volume);
+renderer.setQuality(settings.quality);
 
 function readBest() {
   try {
@@ -53,6 +57,28 @@ function missionsList() {
     else if (i < st.unlocked) status = i === st.active ? 'ACTIVE' : 'OPEN';
     return { id: m.id, name: m.name, status };
   });
+}
+
+function pauseState() {
+  const s = world.state;
+  return {
+    completion: world.completion(),
+    missionsDone: s.missions.state.completed.length,
+    shells: s.shellsTaken,
+    exports: s.exportsDone.length,
+    distance: s.stats.distance,
+    carsStolen: s.stats.carsStolen,
+    copsEscaped: s.stats.copsEscaped,
+    shots: s.stats.shots,
+    cash: s.cash,
+    missionsList: missionsList(),
+    ratings: s.missions.state.ratings,
+    standing: s.standing,
+    districtNames: DISTRICTS.map((d) => d.name),
+    rank: { xp: s.rank.state.xp, level: s.rank.state.level },
+    crewUsed: s.crew.state.used,
+    crewCooldowns: s.crew.state.cooldowns.slice(),
+  };
 }
 
 function enrichState() {
@@ -83,10 +109,17 @@ function runShot(name) {
   // behind the HUD.
   if (name === 'cover') renderer.setFollow(10.5, 2.8);
   // The HUD is DOM, so a shot without it would show a bare city: build it too.
-  const shotHud = createHud({ onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {} });
+  const shotHud = createHud({
+    onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {},
+    onContinue() {}, onVolume() {}, onQuality() {},
+  });
   if (name === 'start') {
-    shotHud.fillTitle(listSlots(), readBest());
+    shotHud.fillTitle(listSlots(), readBest(), settings);
     shotHud.showScreen('title');
+  } else if (name === 'stats') {
+    shotHud.fillPause(pauseState(), listSlots(), settings);
+    shotHud.setPauseTab('stats');
+    shotHud.showScreen('paused');
   } else {
     shotHud.showScreen('play');
     // Radio is on in the play shots: the bottom bar names the station, it never
@@ -96,9 +129,10 @@ function runShot(name) {
   let painted = 0;
   let ledger = null;
   const t0 = performance.now();
+  const hudScreen = name === 'stats' ? SCREEN_PAUSED : scene.screen;
   function paint() {
     ledger = renderer.draw(world.state, scene.screen, world.state.time);
-    shotHud.update(world.state, scene.screen, ledger, renderer.project, world.state.time);
+    shotHud.update(world.state, hudScreen, ledger, renderer.project, world.state.time);
     painted += 1;
     // Keep painting: the follow camera needs frames to settle behind the car.
     // Ready after exactly 120 frames — no wall-clock cutoff, so a slow software
@@ -118,9 +152,20 @@ function runGame() {
   const hud = createHud({
     onStart: () => startGame(null),
     onSlot: (i, slot) => startGame(slot ? loadSlot(i) : null),
+    onContinue: (i) => startGame(loadSlot(i)),
+    onVolume: (v) => {
+      settings.volume = v;
+      radio.setVolume(v);
+      saveSettings(settings);
+    },
+    onQuality: (q) => {
+      settings.quality = q;
+      renderer.setQuality(q);
+      saveSettings(settings);
+    },
     onSave: (i) => {
       saveSlot(i, world.snapshot());
-      hud.fillPause(pauseState(), listSlots());
+      hud.fillPause(pauseState(), listSlots(), settings);
       hud.pushFeed(`SAVED TO SLOT ${i + 1}`);
     },
     onResume: () => {
@@ -134,28 +179,17 @@ function runGame() {
   let accumulator = 0;
   let last = performance.now();
   let ledger = null;
-
-  function pauseState() {
-    const s = world.state;
-    return {
-      completion: world.completion(),
-      missionsDone: s.missions.state.completed.length,
-      shells: s.shellsTaken,
-      exports: s.exportsDone.length,
-      distance: s.stats.distance,
-      carsStolen: s.stats.carsStolen,
-      copsEscaped: s.stats.copsEscaped,
-      shots: s.stats.shots,
-      cash: s.cash,
-      missionsList: missionsList(),
-      ratings: s.missions.state.ratings,
-      standing: s.standing,
-      districtNames: DISTRICTS.map((d) => d.name),
-      rank: { xp: s.rank.state.xp, level: s.rank.state.level },
-      crewUsed: s.crew.state.used,
-      crewCooldowns: s.crew.state.cooldowns.slice(),
-    };
-  }
+  // One-shot presses (enter, reload, weapon, crew, holster) are latched here
+  // until a fixed step actually consumes them. A press used to be dropped
+  // whenever the frame's accumulator held less than one step — the reason a
+  // quick E at the car sometimes did nothing at all.
+  let pendingEnter = false;
+  let pendingReload = false;
+  let pendingHolster = false;
+  let pendingWeapon = -1;
+  let pendingCrew = -1;
+  let prevArrowL = false;
+  let prevArrowR = false;
 
   function announce(message) {
     status.textContent = message;
@@ -165,14 +199,20 @@ function runGame() {
     world.reset(seed);
     if (slot) world.applySnapshot(slot);
     accumulator = 0;
+    pendingEnter = false;
+    pendingReload = false;
+    pendingHolster = false;
+    pendingWeapon = -1;
+    pendingCrew = -1;
     screen = SCREEN_PLAY;
+    hud.closeBigMap();
     hud.showScreen('play');
     announce('Playing. Follow the gold diamond — M1 First Drop.');
   }
 
   function openPause(tab) {
     screen = SCREEN_PAUSED;
-    hud.fillPause(pauseState(), listSlots());
+    hud.fillPause(pauseState(), listSlots(), settings);
     hud.setPauseTab(tab);
     hud.showScreen('paused');
     announce('Paused.');
@@ -202,6 +242,9 @@ function runGame() {
       run: input.run(),
       enter: false,
       reload: false,
+      holster: false,
+      weaponSelect: -1,
+      crewUse: -1,
       shootAngle,
     };
   }
@@ -222,33 +265,71 @@ function runGame() {
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     const actions = input.takeActions();
-    if (screen === SCREEN_TITLE && (actions & ACTION_CONFIRM)) startGame(null);
+    // Esc with the full-city map open closes the map instead of pausing.
+    if (hud.bigMapOpen() && (actions & ACTION_PAUSE)) {
+      hud.closeBigMap();
+    } else if (screen === SCREEN_TITLE && (actions & ACTION_CONFIRM)) startGame(null);
     else if (screen === SCREEN_PLAY && (actions & ACTION_PAUSE)) openPause('map');
     else if (screen === SCREEN_PLAY && (actions & ACTION_MAP)) openPause('map');
     else if (screen === SCREEN_PAUSED && (actions & (ACTION_PAUSE | ACTION_CONFIRM))) {
       screen = SCREEN_PLAY;
       hud.showScreen('play');
+    } else if (screen === SCREEN_PAUSED && (actions & ACTION_HOLSTER)) {
+      hud.nextTab();
+    } else if (screen === SCREEN_PAUSED && (actions & ACTION_ENTER)) {
+      hud.prevTab();
     }
     if (actions & ACTION_RADIO) {
       const st = radio.next();
       document.getElementById('radio').textContent = st ? `♪ ${st.name}` : 'RADIO OFF';
     }
+    if (screen === SCREEN_PAUSED) {
+      // Arrow keys also flip pause tabs (edge-triggered, so holding does not spin).
+      const heldL = input.held.has('ArrowLeft');
+      const heldR = input.held.has('ArrowRight');
+      if (heldR && !prevArrowR) hud.nextTab();
+      if (heldL && !prevArrowL) hud.prevTab();
+      prevArrowL = heldL;
+      prevArrowR = heldR;
+    }
+    // Latch one-shots until a step consumes them — never drop a press.
+    // Only while playing: the same keys flip pause tabs while paused.
+    if (screen === SCREEN_PLAY) {
+      if (actions & ACTION_ENTER) pendingEnter = true;
+      if (actions & ACTION_RELOAD) pendingReload = true;
+      if (actions & ACTION_HOLSTER) pendingHolster = true;
+      if (actions & ACTION_WEAPON_1) pendingWeapon = 0;
+      else if (actions & ACTION_WEAPON_2) pendingWeapon = 1;
+      else if (actions & ACTION_WEAPON_3) pendingWeapon = 2;
+      else if (actions & ACTION_WEAPON_4) pendingWeapon = 3;
+      if (actions & ACTION_CREW_1) pendingCrew = 0;
+      else if (actions & ACTION_CREW_2) pendingCrew = 1;
+      else if (actions & ACTION_CREW_3) pendingCrew = 2;
+    }
     if (screen === SCREEN_PLAY) {
       const inputState = buildInput();
-      if (actions & ACTION_ENTER) inputState.enter = true;
-      if (actions & ACTION_RELOAD) inputState.reload = true;
-      if (actions & ACTION_WEAPON_1) inputState.weaponSelect = 0;
-      else if (actions & ACTION_WEAPON_2) inputState.weaponSelect = 1;
-      else if (actions & ACTION_WEAPON_3) inputState.weaponSelect = 2;
-      else if (actions & ACTION_WEAPON_4) inputState.weaponSelect = 3;
-      if (actions & ACTION_CREW_1) inputState.crewUse = 0;
-      else if (actions & ACTION_CREW_2) inputState.crewUse = 1;
-      else if (actions & ACTION_CREW_3) inputState.crewUse = 2;
+      inputState.enter = pendingEnter;
+      inputState.reload = pendingReload;
+      inputState.holster = pendingHolster;
+      inputState.weaponSelect = pendingWeapon;
+      inputState.crewUse = pendingCrew;
+      let first = true;
       while (accumulator >= STEP) {
         step(inputState);
         accumulator -= STEP;
-        inputState.enter = false;
-        inputState.reload = false;
+        if (first) {
+          first = false;
+          pendingEnter = false;
+          pendingReload = false;
+          pendingHolster = false;
+          pendingWeapon = -1;
+          pendingCrew = -1;
+          inputState.enter = false;
+          inputState.reload = false;
+          inputState.holster = false;
+          inputState.weaponSelect = -1;
+          inputState.crewUse = -1;
+        }
       }
     } else {
       accumulator = 0;
@@ -262,7 +343,7 @@ function runGame() {
     if (document.hidden && screen === SCREEN_PLAY) openPause('map');
   });
 
-  hud.fillTitle(listSlots(), best);
+  hud.fillTitle(listSlots(), best, settings);
   hud.showScreen('title');
   announce('Solmarina. Press Space or click a save slot to start.');
   requestAnimationFrame(frame);

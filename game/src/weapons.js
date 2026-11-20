@@ -41,6 +41,7 @@ export function createLoadout() {
     ammo: WEAPONS.map((w) => w.mag),
     reserve: WEAPONS.map((w) => w.reserve),
     unlocked: WEAPONS.map((w) => w.unlockRank === 0),
+    holstered: false, // Q puts the weapon away; Rio walks empty-handed
   };
 }
 
@@ -80,6 +81,7 @@ export function loadoutSnapshot(loadout) {
     ammo: loadout.ammo.slice(),
     reserve: loadout.reserve.slice(),
     unlocked: loadout.unlocked.slice(),
+    holstered: !!loadout.holstered,
   };
 }
 
@@ -101,4 +103,5 @@ export function loadoutApply(loadout, snap) {
       if (typeof snap.unlocked[i] === 'boolean') loadout.unlocked[i] = snap.unlocked[i];
     }
   }
+  if (typeof snap.holstered === 'boolean') loadout.holstered = snap.holstered;
 }

@@ -1,14 +1,17 @@
-// The HUD: every DOM panel the player reads — mission banner, wanted stars with
-// their tier name, cash, health, ammo, the weapon panel, speed, the 90 px minimap,
-// the police dispatch panel, the crime feed, dialog with a procedural portrait, the
-// radio label, the results banner, and the two big overlays: title (with save slots)
-// and pause (MAP / STORY / STATS / SAVE tabs). All of it is DOM, so it costs zero
-// draw calls.
-import { CITY, DISTRICTS, WANTED_TIERS, CAR_MODELS } from './config.js';
+// The HUD: every DOM panel the player reads. Panels hug the edges and stay
+// small, so the middle of the screen is the city, not the interface: mission
+// banner top-centre, cash and clock top-right, weapon slots and crew
+// mid-right, speed bottom-right, minimap and health bottom-left, dialog
+// bottom-centre. The pause menu is seven tabs (MAP / STORY / STATS / CREW /
+// SETTINGS / CONTROLS / SAVE) and the minimap opens a full-city map overlay.
+// All of it is DOM, so it costs zero draw calls.
+import { CITY, DISTRICTS, MISSIONS, WANTED_TIERS, CAR_MODELS } from './config.js';
 import { WEAPONS } from './weapons.js';
 import { CREW } from './crew.js';
 import { RANKS, rankProgress } from './rank.js';
 import { formatClock, phaseAt } from './daynight.js';
+
+const TABS = ['map', 'story', 'stats', 'crew', 'settings', 'controls', 'save'];
 
 function el(id) {
   return document.getElementById(id);
@@ -51,9 +54,14 @@ export function createHud(callbacks) {
   const mm = minimap.getContext('2d');
   const bigmap = el('bigmap');
   const bm = bigmap ? bigmap.getContext('2d') : null;
+  const fullmap = el('bigmap-full');
+  const fm = fullmap ? fullmap.getContext('2d') : null;
   const feedLines = [];
   let feedTimer = 0;
   let resultsTimer = 0;
+  let waypoint = null; // {x, z} set by clicking the big map; display only
+  let pauseTab = 'map';
+  let settings = { volume: 0.7, quality: 'high' };
 
   function drawMap(ctx, size, state, big) {
     const span = 760;
@@ -86,7 +94,7 @@ export function createHud(callbacks) {
     }
     // Causeway + pier: a bold gold route, not a hairline.
     ctx.strokeStyle = '#f2c94c';
-    ctx.lineWidth = big ? 3 : 3;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(toX(CITY.gridMax), toZ(-6));
     ctx.lineTo(toX(CITY.pier.x), toZ(-6));
@@ -106,6 +114,18 @@ export function createHud(callbacks) {
       const r = big ? 7 : 5;
       ctx.fillRect(-r, -r, r * 2, r * 2);
       ctx.restore();
+    }
+    // Waypoint the player set by clicking the big map: gold flag.
+    if (waypoint) {
+      ctx.fillStyle = '#f2c94c';
+      ctx.beginPath();
+      ctx.arc(toX(waypoint.x), toZ(waypoint.z), big ? 6 : 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#f2c94c';
+      ctx.lineWidth = big ? 3 : 2;
+      ctx.beginPath();
+      ctx.arc(toX(waypoint.x), toZ(waypoint.z), big ? 11 : 7, 0, Math.PI * 2);
+      ctx.stroke();
     }
     // Police blips — bigger while EYES OUT marks them.
     const eyes = state.crew.state.eyesOut > 0;
@@ -152,7 +172,7 @@ export function createHud(callbacks) {
     // Dark outline under the white text, so the letters survive the bright grid.
     if (!big) {
       ctx.fillStyle = 'rgba(255,255,255,0.92)';
-      ctx.font = 'bold 8px system-ui, sans-serif';
+      ctx.font = 'bold 9px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.strokeStyle = 'rgba(20,28,36,0.9)';
       ctx.lineWidth = 3;
@@ -160,30 +180,46 @@ export function createHud(callbacks) {
         const d = DISTRICTS.find((dd) => dd.name === name);
         const cx = (d.x0 + d.x1) / 2;
         const cz = (d.z0 + d.z1) / 2;
-        const lx = Math.max(22, Math.min(size - 24, toX(cx)));
+        const lx = Math.max(24, Math.min(size - 26, toX(cx)));
         const ly = toZ(cz);
         ctx.strokeText(name, lx, ly);
         ctx.fillText(name, lx, ly);
       }
     }
-    // District names on the big pause map, so it reads as a city, not a grid.
+    // District names on the big maps, so they read as a city, not a grid.
+    // Labels are clamped inside the frame (MARINA's centre sits half off the
+    // east edge) and skipped when they would collide with a label already
+    // placed. The minimum font is 10 px: at 12 px on the 360 px stats map,
+    // OLD HARBOR and DOWNTOWN share a row and their boxes overlap by 1 px,
+    // so OLD HARBOR was dropped entirely; at 10 px all seven names fit.
     if (big) {
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.font = 'bold 11px system-ui, sans-serif';
+      const fs = Math.max(10, Math.round(size / 40));
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = `bold ${fs}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
-      for (const d of DISTRICTS) {
+      ctx.strokeStyle = 'rgba(20,28,36,0.9)';
+      ctx.lineWidth = 3;
+      const placed = [];
+      const order = ['DOWNTOWN', 'MARINA', 'PALM BEACH', 'NORTHGATE', 'FOUNDRY', 'STADIUM ROW', 'OLD HARBOR'];
+      for (const name of order) {
+        const d = DISTRICTS.find((dd) => dd.name === name);
+        if (!d) continue;
         const cx = (d.x0 + d.x1) / 2;
         const cz = (d.z0 + d.z1) / 2;
-        ctx.fillText(d.name, toX(cx), toZ(cz));
-      }
-      ctx.fillStyle = 'rgba(242,201,76,0.9)';
-      ctx.font = '10px system-ui, sans-serif';
-      for (let i = 0; i < DISTRICTS.length; i += 1) {
-        const d = DISTRICTS[i];
-        const cx = (d.x0 + d.x1) / 2;
-        const cz = (d.z0 + d.z1) / 2;
-        const st = state.standing[i];
-        ctx.fillText(st >= 60 ? `FRIENDLY ${st}` : st >= 40 ? `NEUTRAL ${st}` : `WARY ${st}`, toX(cx), toZ(cz) + 13);
+        const w = ctx.measureText(d.name).width + 8;
+        const lx = Math.max(w / 2 + 4, Math.min(size - w / 2 - 4, toX(cx)));
+        const ly = toZ(cz);
+        const box = { x0: lx - w / 2, x1: lx + w / 2, y0: ly - fs, y1: ly + fs + 2 };
+        if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) continue;
+        placed.push(box);
+        ctx.strokeText(d.name, lx, ly);
+        ctx.fillText(d.name, lx, ly);
+        const st = state.standing[DISTRICTS.indexOf(d)];
+        ctx.fillStyle = 'rgba(242,201,76,0.95)';
+        ctx.font = `${Math.max(10, fs - 3)}px system-ui, sans-serif`;
+        ctx.fillText(st >= 60 ? `FRIENDLY ${st}` : st >= 40 ? `NEUTRAL ${st}` : `WARY ${st}`, lx, ly + fs + 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = `bold ${fs}px system-ui, sans-serif`;
       }
     }
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
@@ -215,7 +251,10 @@ export function createHud(callbacks) {
     const wanted = s.police.state.wanted;
     const tier = WANTED_TIERS[wanted];
 
-    // Banner: mission name, stage text, distance or timer.
+    // Banner: mission name, stage text, distance or timer — one slim bar.
+    // Hidden while paused: the pause overlay has its own title at the same
+    // spot, and the two centred headings collided on the STATS screenshot.
+    el('banner').style.display = screen === 'paused' ? 'none' : '';
     const m = s.missions.current();
     const obj = s.objective;
     if (m) {
@@ -235,7 +274,7 @@ export function createHud(callbacks) {
       el('banner-line2').textContent = `Completion ${s.completionPct}% · Missions ${s.missions.state.completed.length}/4`;
     }
 
-    // Wanted stars + tier.
+    // Wanted stars + tier, top right under the cash.
     el('wanted-stars').textContent = '★'.repeat(wanted) + '☆'.repeat(5 - wanted);
     el('wanted-tier').textContent = tier.label;
     el('wanted').style.display = wanted > 0 ? 'block' : 'none';
@@ -248,36 +287,28 @@ export function createHud(callbacks) {
     el('rank').textContent = rp.nextXp !== null
       ? `RANK ${rp.level + 1} · ${rp.name} — ${rp.xp}/${rp.nextXp} RP`
       : `RANK ${rp.level + 1} · ${rp.name} — ${rp.xp} RP · MAX RANK`;
-    // Crew: each ability, its key, its member, READY or the seconds left.
-    el('crew').innerHTML = `<div><b>CREW</b></div>` + CREW.map((c, i) => {
+    // Crew: one compact line per ability — key, ability, member, READY or seconds.
+    el('crew').innerHTML = CREW.map((c, i) => {
       const cd = s.crew.state.cooldowns[i];
       const status = cd > 0 ? `${Math.ceil(cd)}s` : 'READY';
-      return `<div>${c.key} ${c.ability} · ${c.name} — ${status}</div>`;
+      return `<div><b>${c.key}</b> ${c.ability} · ${c.name} — ${status}</div>`;
     }).join('') + (s.crew.state.eyesOut > 0 ? `<div>EYES OUT — POLICE MARKED ${Math.ceil(s.crew.state.eyesOut)}s</div>` : '');
-    // Weapon panel: the live slot big, all four slots below it.
+    // Weapon panel: four slot chips, the live one lit; holstered reads plainly.
     const loadout = s.combat.state.loadout;
     const w = WEAPONS[loadout.active];
-    el('ammo').textContent = s.combat.state.reloading ? 'RELOADING' : (w.pellets === 0 ? 'FISTS ∞' : `${w.name} ${loadout.ammo[loadout.active]}/${loadout.reserve[loadout.active]}`);
-    el('weapon-name').textContent = w.name;
-    el('weapon-sub').textContent = w.blurb;
+    const holstered = !!loadout.holstered;
+    el('weapon-name').textContent = holstered ? 'WEAPON HOLSTERED' : w.name;
+    el('weapon-mag').textContent = holstered ? '—' : (w.pellets === 0 ? '∞' : `${loadout.ammo[loadout.active]}`);
+    el('weapon-reserve').textContent = holstered ? '—' : (w.pellets === 0 ? '∞' : `${loadout.reserve[loadout.active]}`);
+    el('weapon-sub').textContent = holstered ? 'Q — DRAW WEAPON' : w.blurb;
     el('weapon-slots').innerHTML = WEAPONS.map((sw, i) => {
       const locked = !loadout.unlocked[i];
-      const label = locked ? `LOCKED · RANK ${RANKS[sw.unlockRank].name}` : (sw.pellets === 0 ? '∞' : `${loadout.ammo[i]}/${loadout.reserve[i]}`);
+      const label = locked ? 'LOCKED' : (sw.pellets === 0 ? '∞' : `${loadout.ammo[i]}/${loadout.reserve[i]}`);
       return `<span class="${i === loadout.active ? 'wslot-active' : ''}">${sw.key} ${sw.name.split(' ')[0]} ${label}</span>`;
-    }).join(' · ');
-    if (s.combat.state.reloading) {
-      el('weapon-mag').textContent = '––';
-      el('weapon-reserve').textContent = `${loadout.reserve[loadout.active]}`;
-      el('weapon-hint').textContent = 'RELOADING…';
-    } else if (w.pellets === 0) {
-      el('weapon-mag').textContent = '∞';
-      el('weapon-reserve').textContent = '∞';
-      el('weapon-hint').textContent = 'FISTS — NO AMMO · GET CLOSE';
-    } else {
-      el('weapon-mag').textContent = `${loadout.ammo[loadout.active]}`;
-      el('weapon-reserve').textContent = `${loadout.reserve[loadout.active]}`;
-      el('weapon-hint').textContent = '1-4 SWITCH · R RELOAD · CLICK FIRE';
-    }
+    }).join(' ');
+    el('weapon-hint').textContent = holstered
+      ? 'Q — DRAW WEAPON'
+      : 'Q — HOLSTER · 1-4 SWITCH · R RELOAD · CLICK FIRE';
     const speed = p.mode === 'car' ? Math.abs(s.heroCar.speed) * 3.6 : Math.abs(p.speed) * 3.6;
     el('speed').textContent = `${Math.round(speed)} KM/H`;
     // In-game clock: HH:MM plus the phase of day. Hidden while the clock is
@@ -293,12 +324,35 @@ export function createHud(callbacks) {
     el('district').textContent = `${DISTRICTS[di].name} · ${s.standing[di] >= 60 ? 'FRIENDLY' : s.standing[di] >= 40 ? 'NEUTRAL' : 'WARY'} ${s.standing[di]}`;
     el('shells').textContent = `SHELLS ${s.shellsTaken}/20 · EXPORTS ${s.exportsDone.length}/5`;
 
+    // Enter-car hint: on foot and near the hero car (or a stealable parked car).
+    const hint = el('enter-hint');
+    if (p.mode === 'foot') {
+      const dCar = Math.hypot(s.heroCar.x - p.x, s.heroCar.z - p.z);
+      if (dCar < 6) {
+        hint.textContent = 'E — ENTER CAR';
+        hint.style.display = 'block';
+      } else {
+        let steal = false;
+        for (const c of s.traffic.cars) {
+          if (Math.hypot(c.x - p.x, c.z - p.z) < 5 && Math.abs(c.speed) < 1) { steal = true; break; }
+        }
+        if (steal) {
+          hint.textContent = 'E — STEAL CAR';
+          hint.style.display = 'block';
+        } else {
+          hint.style.display = 'none';
+        }
+      }
+    } else {
+      hint.style.display = 'none';
+    }
+
     // Dispatch panel: header counts the units, each line names the unit, its job
     // and its live distance.
     const disp = s.police.state.dispatch;
     el('dispatch').style.display = disp.length > 0 ? 'block' : 'none';
     el('dispatch-list').innerHTML = `<div><b>KPD RESPONSE · ${disp.length} UNIT${disp.length === 1 ? '' : 'S'}</b></div>` + disp.map((u) => `<div><b>${u.id}</b> · ${u.role} · ${u.dist} m</div>`).join('');
-    // Dialog.
+    // Dialog, bottom centre — never over the hero or the cruisers flanking him.
     const dlg = s.missions.state.dialog;
     if (dlg) {
       el('dialog').style.display = 'flex';
@@ -309,9 +363,22 @@ export function createHud(callbacks) {
       el('dialog').style.display = 'none';
     }
 
-    // Minimap: square, 110 px, bottom left.
+    // Minimap: square, 110 px, bottom left. Click it for the full-city map.
     drawMap(mm, 110, s, false);
-    if (screen === 'paused' && bm) drawMap(bm, 360, s, true);
+    if (screen === 'paused' && bm) drawMap(bm, 560, s, true);
+    if (screen === 'paused' && pauseTab === 'stats') {
+      const sm = el('statsmap');
+      if (sm) drawMap(sm.getContext('2d'), 360, s, true);
+    }
+    if (bigMapOpen() && fm) {
+      drawMap(fm, 640, s, true);
+      const info = el('bigmap-info');
+      const px = p.mode === 'car' ? s.heroCar.x : p.x;
+      const pz = p.mode === 'car' ? s.heroCar.z : p.z;
+      info.textContent = waypoint
+        ? `WAYPOINT ${Math.round(Math.hypot(waypoint.x - px, waypoint.z - pz))} M · ${DISTRICTS[di].name} · CLICK THE MAP TO MOVE IT · CLICK X OR PRESS ESC TO CLOSE`
+        : `${DISTRICTS[di].name} · ${s.objective.text.toUpperCase()} · CLICK THE MAP TO SET A WAYPOINT · CLICK X OR PRESS ESC TO CLOSE`;
+    }
 
     // Feed + results fade.
     if (feedTimer > 0) {
@@ -323,8 +390,13 @@ export function createHud(callbacks) {
       if (resultsTimer <= 0) el('results').style.display = 'none';
     }
 
-    // Ledger line (only visible in the pause STATS tab).
-    if (ledger) el('ledger').textContent = `RENDER ${ledger.calls} CALLS · ${ledger.triangles.toLocaleString('en-US')} TRI`;
+    // Ledger line (only visible in the pause STATS tab). The element is built
+    // by fillPause, so it does not exist on screens that never opened pause
+    // (cover / title / play shots) — guard it instead of crashing update().
+    if (ledger) {
+      const ledgerEl = el('ledger');
+      if (ledgerEl) ledgerEl.textContent = `RENDER ${ledger.calls} CALLS · ${ledger.triangles.toLocaleString('en-US')} TRI`;
+    }
     void time;
   }
 
@@ -359,6 +431,8 @@ export function createHud(callbacks) {
         pushFeed(`${ev.name} — NEEDS RANK ${ev.rank}`);
       } else if (ev.type === 'heli') {
         pushFeed('AIR UNIT DEPLOYED — HELICOPTER OVERHEAD');
+      } else if (ev.type === 'holster') {
+        pushFeed(ev.holstered ? 'WEAPON HOLSTERED — Q TO DRAW' : 'WEAPON DRAWN');
       } else if (ev.type === 'chain-complete') {
         showResults('WHEELMAN', 'All four jobs done. Solmarina is yours.');
       }
@@ -373,44 +447,164 @@ export function createHud(callbacks) {
     if (name === 'paused') el('pause').style.display = 'block';
   }
 
-  function fillTitle(slots, best) {
+  function fmtTime(sec) {
+    const m = Math.floor((sec || 0) / 60);
+    const s = Math.floor((sec || 0) % 60);
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  function slotCard(slot, i) {
+    if (!slot) return `<b>SLOT ${i + 1} · EMPTY</b><span>New game — no save yet</span>`;
+    const last = slot.missionUnlocked > 1
+      ? `${MISSIONS[slot.missionUnlocked - 2].id} ${MISSIONS[slot.missionUnlocked - 2].name}`
+      : 'NO MISSIONS YET';
+    return `<b>SLOT ${i + 1} · ${slot.completion || 0}% COMPLETE</b><span>${last} · ${slot.district || ''}</span><span>$${(slot.cash || 0).toLocaleString('en-US')} · ${fmtTime(slot.time)} · ${(slot.savedAt || '').slice(0, 10)}</span>`;
+  }
+
+  function fillTitle(slots, best, st) {
+    if (st) settings = st;
     el('best-line').textContent = best > 0 ? `BEST CASH $${best.toLocaleString('en-US')}` : '';
     const wrap = el('slots');
     wrap.innerHTML = '';
     slots.forEach((slot, i) => {
       const card = document.createElement('button');
       card.className = 'slot';
-      if (!slot) {
-        card.innerHTML = `<b>SLOT ${i + 1} · EMPTY</b><span>New game</span>`;
-      } else {
-        card.innerHTML = `<b>SLOT ${i + 1} · ${slot.district || ''}</b><span>$${(slot.cash || 0).toLocaleString('en-US')} · Missions ${slot.missionUnlocked - 1}/4 · ${slot.completion || 0}%</span>`;
-      }
+      card.innerHTML = slotCard(slot, i);
       card.addEventListener('click', () => callbacks.onSlot(i, slot));
       wrap.appendChild(card);
     });
+    // CONTINUE loads the most recent save; LOAD GAME just spotlights the slots.
+    let latest = -1;
+    let latestAt = '';
+    slots.forEach((slot, i) => {
+      if (slot && slot.savedAt && slot.savedAt > latestAt) { latestAt = slot.savedAt; latest = i; }
+    });
+    const cont = el('continue-button');
+    cont.disabled = latest < 0;
+    cont.classList.toggle('dim', latest < 0);
+    cont.onclick = () => { if (latest >= 0) callbacks.onContinue(latest); };
+    el('load-button').onclick = () => {
+      wrap.classList.add('flash');
+      window.setTimeout(() => wrap.classList.remove('flash'), 900);
+    };
+    el('title-settings-button').onclick = () => {
+      const panel = el('title-settings');
+      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    };
+    const vol = el('vol-title');
+    vol.value = String(Math.round(settings.volume * 100));
+    el('vol-title-val').textContent = `${Math.round(settings.volume * 100)}%`;
+    vol.oninput = () => {
+      settings = { ...settings, volume: Number(vol.value) / 100 };
+      el('vol-title-val').textContent = `${vol.value}%`;
+      callbacks.onVolume(settings.volume);
+    };
+    for (const q of ['high', 'low']) {
+      const btn = el(`quality-title-${q}`);
+      btn.classList.toggle('active', settings.quality === q);
+      btn.onclick = () => {
+        settings = { ...settings, quality: q };
+        for (const q2 of ['high', 'low']) el(`quality-title-${q2}`).classList.toggle('active', q2 === q);
+        callbacks.onQuality(q);
+      };
+    }
   }
 
-  function fillPause(state, slots) {
+  function fillPause(state, slots, st) {
+    if (st) settings = st;
     el('pause-missions').innerHTML = state.missionsList.map((mm) => (
       `<div class="prow"><b>${mm.id} · ${mm.name}</b><span>${mm.status}</span></div>`
     )).join('') + `<div class="prow"><b>RATINGS</b><span>${['M1', 'M2', 'M3', 'M4'].map((id) => `${id} ${state.ratings[id] || '—'}`).join(' · ')}</span></div>`
       + `<div class="prow"><b>PAR TIMES</b><span>M1 150s · M2 180s · M3 240s · M4 300s</span></div>`;
-    el('pause-stats').innerHTML = [
-      `COMPLETION ${state.completion}%`,
-      `RANK ${state.rank.level + 1} · ${RANKS[state.rank.level].name} · ${state.rank.xp} RP`,
-      `Crew abilities used ${state.crewUsed}`,
-      `Missions ${state.missionsDone}/4 · Shells ${state.shells}/20 · Exports ${state.exports}/5`,
-      `Distance ${(state.distance / 1000).toFixed(1)} km · Cars stolen ${state.carsStolen} · Cops escaped ${state.copsEscaped}`,
-      `Shots ${state.shots} · Cash $${state.cash.toLocaleString('en-US')}`,
-      `District standing: ${state.standing.map((v, i) => `${state.districtNames[i]} ${v}`).join(' · ')}`,
-    ].map((l) => `<div>${l}</div>`).join('');
+    // STATS tab: donut, checklist, mission ratings, career — all from live state.
+    const friendly = state.standing.filter((v) => v >= 60).length;
+    const gold = ['M1', 'M2', 'M3', 'M4'].filter((id) => state.ratings[id] === 'GOLD').length;
+    const pct = state.completion;
+    const circ = 2 * Math.PI * 60;
+    const dash = (pct / 100) * circ;
+    const bar = (done, total) => {
+      const w = total > 0 ? Math.round((done / total) * 100) : 0;
+      return `<span class="cbar"><span style="width:${w}%"></span></span>`;
+    };
+    const row = (label, done, total) => (
+      `<div class="crow"><span>${label}</span>${bar(done, total)}<b>${done}/${total}</b></div>`
+    );
+    const ratingLetter = (id) => ({ GOLD: 'G', SILVER: 'S', BRONZE: 'B' })[state.ratings[id]] || '–';
+    const ratingClass = (id) => (state.ratings[id] || 'none').toLowerCase();
+    el('pause-stats').innerHTML = `
+      <div class="stats-grid">
+        <div class="stats-left">
+          <div class="donut-wrap">
+            <svg width="140" height="140" viewBox="0 0 140 140">
+              <circle cx="70" cy="70" r="60" fill="none" stroke="#2c313a" stroke-width="12"/>
+              <circle cx="70" cy="70" r="60" fill="none" stroke="#f2c94c" stroke-width="12"
+                stroke-dasharray="${dash.toFixed(1)} ${circ.toFixed(1)}" stroke-linecap="round"
+                transform="rotate(-90 70 70)"/>
+              <text x="70" y="66" text-anchor="middle" fill="#f5f0e6" font-size="26" font-weight="800">${pct}%</text>
+              <text x="70" y="86" text-anchor="middle" fill="#f2c94c" font-size="11" font-weight="700" letter-spacing="2">COMPLETE</text>
+            </svg>
+          </div>
+          <div class="checklist">
+            ${row('Story missions', state.missionsDone, 4)}
+            ${row('Golden Shells', state.shells, 20)}
+            ${row('Export list', state.exports, 5)}
+            ${row('Districts FRIENDLY', friendly, 7)}
+            ${row('Crew recruited', 3, 3)}
+            ${row('Gold mission ratings', gold, 4)}
+          </div>
+          <div class="ratings"><b>MISSION RATINGS</b><div class="rating-circles">
+            ${['M1', 'M2', 'M3', 'M4'].map((id, i) => `<span class="rcircle ${ratingClass(id)}"><span class="rnum">${i + 1}</span><span class="rlet">${ratingLetter(id)}</span></span>`).join('')}
+          </div></div>
+          <div class="formula">Missions 45 · Shells 20 · Exports 15 · Friendly 15 · Crew 5</div>
+        </div>
+        <div class="stats-right">
+          <div class="stats-map"><canvas id="statsmap" width="360" height="360"></canvas>
+          <div class="stats-map-cap">SOLMARINA — GOLD: OBJECTIVE · RED: POLICE · CLICK MAP TAB FOR THE FULL MAP</div></div>
+          <div class="career">
+            <div class="prow"><b>RANK</b><span>${state.rank.level + 1} · ${RANKS[state.rank.level].name} · ${state.rank.xp} RP</span></div>
+            <div class="prow"><b>CASH</b><span>$${state.cash.toLocaleString('en-US')}</span></div>
+            <div class="prow"><b>DISTANCE</b><span>${(state.distance / 1000).toFixed(1)} km</span></div>
+            <div class="prow"><b>CARS STOLEN</b><span>${state.carsStolen}</span></div>
+            <div class="prow"><b>COPS ESCAPED</b><span>${state.copsEscaped}</span></div>
+            <div class="prow"><b>SHOTS FIRED</b><span>${state.shots}</span></div>
+            <div class="prow"><b>CREW ABILITIES USED</b><span>${state.crewUsed}</span></div>
+          </div>
+        </div>
+      </div>
+      <div id="ledger"></div>`;
+    // CREW tab: the three crew members, ability, key, cooldown right now.
+    el('pause-crew').innerHTML = CREW.map((c, i) => {
+      const cd = state.crewCooldowns[i];
+      const status = cd > 0 ? `COOLING — ${Math.ceil(cd)}s` : 'READY';
+      return `<div class="prow"><b>${c.key} · ${c.name} — ${c.role}</b><span>${status}</span></div>`
+        + `<div class="crow-sub">${c.ability} — ${c.desc}${c.needsCar ? ' · NEEDS A CAR' : ''}</div>`;
+    }).join('') + `<div class="crow-sub">Abilities used this game: ${state.crewUsed}</div>`;
+    // SETTINGS tab: volume + graphics quality, both live immediately.
+    const vol = el('vol-pause');
+    vol.value = String(Math.round(settings.volume * 100));
+    el('vol-pause-val').textContent = `${Math.round(settings.volume * 100)}%`;
+    vol.oninput = () => {
+      settings = { ...settings, volume: Number(vol.value) / 100 };
+      el('vol-pause-val').textContent = `${vol.value}%`;
+      callbacks.onVolume(settings.volume);
+    };
+    for (const q of ['high', 'low']) {
+      const btn = el(`quality-pause-${q}`);
+      btn.classList.toggle('active', settings.quality === q);
+      btn.onclick = () => {
+        settings = { ...settings, quality: q };
+        for (const q2 of ['high', 'low']) el(`quality-pause-${q2}`).classList.toggle('active', q2 === q);
+        callbacks.onQuality(q);
+      };
+    }
+    // SAVE tab.
     const wrap = el('pause-slots');
     wrap.innerHTML = '';
     slots.forEach((slot, i) => {
       const card = document.createElement('button');
       card.className = 'slot';
       card.innerHTML = slot
-        ? `<b>SAVE SLOT ${i + 1}</b><span>$${(slot.cash || 0).toLocaleString('en-US')} · ${slot.completion || 0}% · ${slot.district || ''} · ${slot.savedAt ? slot.savedAt.slice(0, 10) : ''}</span>`
+        ? `<b>SAVE SLOT ${i + 1}</b><span>${slot.completion || 0}% · $${(slot.cash || 0).toLocaleString('en-US')} · ${slot.district || ''} · ${fmtTime(slot.time)} · ${(slot.savedAt || '').slice(0, 10)}</span>`
         : `<b>SAVE SLOT ${i + 1} · EMPTY</b><span>Save here</span>`;
       card.addEventListener('click', () => callbacks.onSave(i));
       wrap.appendChild(card);
@@ -418,18 +612,69 @@ export function createHud(callbacks) {
   }
 
   function setPauseTab(tab) {
-    for (const t of ['map', 'story', 'stats', 'save']) {
+    if (!TABS.includes(tab)) return;
+    pauseTab = tab;
+    for (const t of TABS) {
       el(`tab-${t}`).style.display = t === tab ? 'block' : 'none';
       el(`tabbtn-${t}`).classList.toggle('active', t === tab);
     }
   }
 
+  function nextTab() {
+    setPauseTab(TABS[(TABS.indexOf(pauseTab) + 1) % TABS.length]);
+  }
+
+  function prevTab() {
+    setPauseTab(TABS[(TABS.indexOf(pauseTab) - 1 + TABS.length) % TABS.length]);
+  }
+
+  function openBigMap() {
+    el('bigmap-overlay').style.display = 'flex';
+  }
+
+  function closeBigMap() {
+    el('bigmap-overlay').style.display = 'none';
+  }
+
+  function bigMapOpen() {
+    return el('bigmap-overlay').style.display !== 'none' && el('bigmap-overlay').style.display !== '';
+  }
+
+  // Click the minimap: the full-city map. Click the big map: set a waypoint.
+  function mapClickToWorld(canvas, event) {
+    const rect = canvas.getBoundingClientRect();
+    const size = canvas.width;
+    const px = ((event.clientX - rect.left) / rect.width) * size;
+    const py = ((event.clientY - rect.top) / rect.height) * size;
+    return { x: (px / size) * 760 - 380, z: (py / size) * 760 - 380 };
+  }
+  el('mapwrap').addEventListener('click', () => openBigMap());
+  el('bigmap-close').addEventListener('click', () => closeBigMap());
+  el('bigmap-overlay').addEventListener('click', (event) => {
+    if (event.target.id === 'bigmap-overlay') closeBigMap();
+  });
+  if (fullmap) {
+    fullmap.addEventListener('click', (event) => {
+      waypoint = mapClickToWorld(fullmap, event);
+    });
+  }
+  if (bigmap) {
+    bigmap.addEventListener('click', (event) => {
+      waypoint = mapClickToWorld(bigmap, event);
+    });
+  }
+
   el('start-button').addEventListener('click', () => callbacks.onStart());
   el('resume-button').addEventListener('click', () => callbacks.onResume());
   el('restart-button').addEventListener('click', () => callbacks.onRestart());
-  for (const t of ['map', 'story', 'stats', 'save']) {
+  for (const t of TABS) {
     el(`tabbtn-${t}`).addEventListener('click', () => setPauseTab(t));
   }
 
-  return { update, drainEvents, showScreen, fillTitle, fillPause, setPauseTab, pushFeed, showResults };
+  return {
+    update, drainEvents, showScreen, fillTitle, fillPause, setPauseTab,
+    nextTab, prevTab, pushFeed, showResults,
+    openBigMap, closeBigMap, bigMapOpen,
+    waypoint: () => waypoint,
+  };
 }

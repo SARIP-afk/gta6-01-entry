@@ -137,9 +137,14 @@ export function stageShot(name, world) {
     ];
     for (let i = 0; i < coverCars.length; i += 1) {
       const c = s.traffic.cars[i];
+      s.traffic.setCar(i, coverCars[i][0], coverCars[i][1], coverCars[i][2]);
+      // Staged lanes: northbound on the west side of the road, southbound on
+      // the east side — restore the staged offsets (setCar snaps to the
+      // centreline; the cover never steps after staging, so these hold).
       c.x = coverCars[i][0];
       c.z = coverCars[i][1];
-      c.heading = coverCars[i][2];
+      c.lat = coverCars[i][0] - 312;
+      c.targetLat = c.lat;
       c.tx = 312;
       c.tz = coverCars[i][2] > 0 ? -100 : 300;
     }
@@ -180,6 +185,24 @@ export function stageShot(name, world) {
     }
     return { screen: SCREEN_TITLE };
   }
+  if (name === 'stats') {
+    // Play until M1 is done (or 150 s), so the STATS tab shows a real rating
+    // and a completion above a fresh game — the same autopilot as 'play'.
+    let entered = false;
+    for (let i = 0; i < 150 / STEP; i += 1) {
+      let input = autopilot(world);
+      if (!entered && s.player.mode === 'foot' && Math.hypot(s.heroCar.x - s.player.x, s.heroCar.z - s.player.z) < 5) {
+        input = { ...input, enter: true };
+        entered = true;
+      }
+      world.step(STEP, input);
+      if (s.missions.state.completed.includes('M1')) break;
+      if (s.player.health <= 0) break;
+    }
+    if (s.police.state.wanted > 2) s.police.setWanted(2, []);
+    s.heroCar.damage = Math.min(s.heroCar.damage, 15);
+    return { screen: SCREEN_PLAY, statsTab: true };
+  }
   const seconds = name === 'end' ? END_SECONDS : PLAY_SECONDS;
   if (name === 'end') {
     s.missions.state.active = 3;
@@ -193,7 +216,7 @@ export function stageShot(name, world) {
   let entered = false;
   for (let i = 0; i < seconds / STEP; i += 1) {
     let input = autopilot(world);
-    if (!entered && s.player.mode === 'foot' && Math.hypot(s.heroCar.x - s.player.x, s.heroCar.z - s.player.z) < 3) {
+    if (!entered && s.player.mode === 'foot' && Math.hypot(s.heroCar.x - s.player.x, s.heroCar.z - s.player.z) < 5) {
       input = { ...input, enter: true };
       entered = true;
     }
@@ -213,9 +236,11 @@ export function stageShot(name, world) {
       const c = s.traffic.cars[i];
       const d = 16 + i * 13;
       const lat = i % 2 === 0 ? 3.2 : -3.2;
-      c.x = focus.x + fx * d + rx * lat;
-      c.z = focus.z + fz * d + rz * lat;
-      c.heading = i % 2 === 0 ? focus.heading : focus.heading + Math.PI;
+      const nx = focus.x + fx * d + rx * lat;
+      const nz = focus.z + fz * d + rz * lat;
+      s.traffic.setCar(i, nx, nz, i % 2 === 0 ? focus.heading : focus.heading + Math.PI);
+      c.x = nx;
+      c.z = nz;
       c.tx = focus.x + fx * 200;
       c.tz = focus.z + fz * 200;
     }

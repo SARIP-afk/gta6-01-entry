@@ -9,6 +9,7 @@ export function createRadio() {
   let master = null;
   let timer = null;
   let station = -1; // -1 = off
+  let volume = 0.7;
   let beat = 0;
   let nextTime = 0;
 
@@ -18,7 +19,7 @@ export function createRadio() {
       const AC = window.AudioContext || window.webkitAudioContext;
       ctx = new AC();
       master = ctx.createGain();
-      master.gain.value = 0.16;
+      master.gain.value = 0.16 * volume;
       master.connect(ctx.destination);
       return true;
     } catch {
@@ -85,9 +86,14 @@ export function createRadio() {
     return station < 0 ? null : RADIO[station];
   }
 
+  function setVolume(v) {
+    volume = Math.max(0, Math.min(1, v));
+    if (master) master.gain.value = 0.16 * volume;
+  }
+
   function label() {
     return station < 0 ? 'RADIO OFF' : `♪ ${RADIO[station].name}`;
   }
 
-  return { next, label, start, stop, station: () => station };
+  return { next, label, start, stop, setVolume, volume: () => volume, station: () => station };
 }

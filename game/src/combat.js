@@ -35,7 +35,7 @@ export function createCombat(random) {
         maxLife: BLOOD.life,
       });
     }
-    state.decals.push({ x, z, life: BLOOD.decalLife, size: (big ? 1.6 : 1.1) + random() * 0.7 });
+    state.decals.push({ x, z, life: BLOOD.decalLife, size: (big ? 2.2 : 1.6) + random() * 0.7 });
     if (state.decals.length > BLOOD.maxDecals) state.decals.shift();
   }
 
@@ -67,6 +67,7 @@ export function createCombat(random) {
   function shoot(ox, oz, angle, hitTest, events) {
     const w = activeWeapon(state.loadout);
     if (w.pellets === 0) return false; // fists: no trigger to pull
+    if (state.loadout.holstered) return false; // weapon put away: Q draws it first
     if (state.cooldown > 0 || state.reloading) return false;
     if (state.loadout.ammo[state.loadout.active] <= 0) {
       reload();
@@ -93,14 +94,22 @@ export function createCombat(random) {
           if (events) events.push({ type: 'enemy-down', reward: ENEMY.reward, x: e.x, z: e.z });
         }
       } else if (hit && hit.kind === 'ped') {
+        // A bystander caught the round: blood at the wound, and the law notices.
+        spawnBlood(ox + Math.cos(a) * hit.dist, 1.2, oz - Math.sin(a) * hit.dist, Math.cos(a), -Math.sin(a), false);
         if (events) events.push({ type: 'crime', cause: 'shots fired', wanted: 0 });
       }
     }
     return true;
   }
 
-  function reload() {
-    const w = activeWeapon(state.loadout);
+  /** Q: put the weapon away / take it out again. Holstered, Rio walks empty-handed and cannot fire. */
+  function toggleHolster(events) {
+    state.loadout.holstered = !state.loadout.holstered;
+    if (events) events.push({ type: 'holster', holstered: state.loadout.holstered });
+    return state.loadout.holstered;
+  }
+
+  function reload() {    const w = activeWeapon(state.loadout);
     const slot = state.loadout.active;
     if (state.reloading || state.loadout.reserve[slot] <= 0 || state.loadout.ammo[slot] === w.mag) return;
     state.reloading = true;
@@ -157,6 +166,7 @@ export function createCombat(random) {
 
   function reset() {
     state.loadout = createLoadout();
+    state.loadout.holstered = false;
     state.cooldown = 0;
     state.reloadTimer = 0;
     state.reloading = false;
@@ -167,7 +177,7 @@ export function createCombat(random) {
   }
 
   return {
-    state, spawnEnemies, clearEnemies, shoot, reload, step, reset,
+    state, spawnEnemies, clearEnemies, shoot, reload, toggleHolster, step, reset,
     selectWeapon: (index, rankLevel) => selectWeapon(state.loadout, index, rankLevel),
     unlockForRank: (rankLevel) => unlockForRank(state.loadout, rankLevel),
     loadoutSnapshot: () => loadoutSnapshot(state.loadout),

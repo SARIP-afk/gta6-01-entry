@@ -74,12 +74,12 @@ export const ENEMY = { health: 100, shootInterval: 1.3, damage: 8, range: 55, re
 // splatter stays on the ground, fading out. All of it is seeded, so a replay
 // shows the same burst.
 export const BLOOD = {
-  particles: 14, // per hit; a kill bursts twice that
+  particles: 22, // per hit; a kill bursts twice that
   life: 1.2, // seconds a particle flies / sticks
-  decalLife: 3.0, // seconds a ground splatter stays
+  decalLife: 4.5, // seconds a ground splatter stays
   gravity: 12,
   maxParticles: 160,
-  maxDecals: 6,
+  maxDecals: 8,
 };
 
 export const WANTED_TIERS = [

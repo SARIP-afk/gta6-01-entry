@@ -6,6 +6,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { BLOOD, CITY, PALETTE, CAR_MODELS } from './config.js';
 import { WEAPONS } from './weapons.js';
 import { sampleDayNight } from './daynight.js';
+import { resolveQuality } from './settings.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -46,11 +47,13 @@ function mergeBoxes(parts) {
   return out;
 }
 
-function roadTexture(city) {
-  // 2048 px over 840 m: ~0.4 m per texel, so the asphalt grain, the centre
+function roadTexture(city, maxAniso) {
+  // 4096 px over 840 m: ~0.2 m per texel, so the asphalt grain, the centre
   // dashes and the sidewalk joints still read as texture at chase-cam range
-  // instead of blurring into one flat sheet (the 1024 canvas was ~0.8 m/px).
-  const S = 2048;
+  // instead of blurring into one flat sheet (the 2048 canvas was ~0.4 m/px).
+  // Anisotropy at the device maximum keeps the road crisp at grazing
+  // angles; mipmaps stay on (LinearMipmapLinear) so distance never shimmers.
+  const S = 4096;
   const cv = document.createElement('canvas');
   cv.width = S;
   cv.height = S;
@@ -80,7 +83,7 @@ function roadTexture(city) {
     speckSeed = (speckSeed * 1103515245 + 12345) & 0x7fffffff;
     return speckSeed / 0x7fffffff;
   };
-  for (let i = 0; i < 60000; i += 1) {
+  for (let i = 0; i < 160000; i += 1) {
     g.fillStyle = speckRnd() < 0.5 ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.10)';
     g.fillRect(speckRnd() * S, speckRnd() * S, 2, 2);
   }
@@ -99,7 +102,7 @@ function roadTexture(city) {
     g.fill();
   }
   // Sand grain: dense two-tone speckle so the beach is texture, not a tan sheet.
-  for (let i = 0; i < 30000; i += 1) {
+  for (let i = 0; i < 60000; i += 1) {
     const sx = speckRnd() * S;
     const sz = toZ(208) + speckRnd() * (S - toZ(208));
     g.fillStyle = speckRnd() < 0.45 ? 'rgba(120,85,45,0.28)' : speckRnd() < 0.75 ? 'rgba(255,235,200,0.30)' : 'rgba(90,60,30,0.20)';
@@ -107,7 +110,7 @@ function roadTexture(city) {
   }
   // Footprints: short paired dashes wandering the sand, deterministic.
   g.fillStyle = 'rgba(110,80,45,0.35)';
-  for (let i = 0; i < 2000; i += 1) {
+  for (let i = 0; i < 4000; i += 1) {
     const fx = speckRnd() * S;
     const fz = toZ(215) + speckRnd() * (S - toZ(215) - 8);
     g.fillRect(fx, fz, 2.5, 1.6);
@@ -240,7 +243,7 @@ function roadTexture(city) {
     // Road-concentrated grain: the whole-canvas speckle above lands mostly on
     // blocks and sand, so the roads get their own dense pass — dark and light
     // grit only inside the asphalt strips, at full contrast.
-    for (let i = 0; i < 1600; i += 1) {
+    for (let i = 0; i < 3200; i += 1) {
       const gx = CITY.gridMin + speckRnd() * (CITY.gridMax - CITY.gridMin);
       const gz = r + (speckRnd() - 0.5) * 11;
       g.fillStyle = speckRnd() < 0.55 ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.16)';
@@ -278,34 +281,42 @@ function roadTexture(city) {
   g.fillRect(toX(CITY.pier.x - 18), toZ(-41), 2, 82 / 728 * S);
   g.fillRect(toX(CITY.pier.x + 16), toZ(-41), 2, 82 / 728 * S);
   const tex = new THREE.CanvasTexture(cv);
-  tex.anisotropy = 8;
+  tex.anisotropy = Math.max(1, Math.min(16, maxAniso || 8));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
   return tex;
 }
 
 function signTexture(text, sub) {
   const cv = document.createElement('canvas');
-  cv.width = 512;
-  cv.height = 160;
+  cv.width = 1024;
+  cv.height = 320;
   const g = cv.getContext('2d');
   g.fillStyle = '#1d2733';
-  g.fillRect(0, 0, 512, 160);
+  g.fillRect(0, 0, 1024, 320);
   g.strokeStyle = '#f2c94c';
-  g.lineWidth = 6;
-  g.strokeRect(8, 8, 496, 144);
+  g.lineWidth = 12;
+  g.strokeRect(16, 16, 992, 288);
   g.fillStyle = '#f5f0e6';
-  g.font = 'bold 54px system-ui, sans-serif';
+  g.font = 'bold 108px system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(text, 256, 66);
+  g.fillText(text, 512, 132);
   g.fillStyle = '#f2c94c';
-  g.font = 'bold 30px system-ui, sans-serif';
-  g.fillText(sub, 256, 122);
+  g.font = 'bold 60px system-ui, sans-serif';
+  g.fillText(sub, 512, 244);
   return new THREE.CanvasTexture(cv);
 }
 
 export function createRenderer(canvas, city) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // No tone mapping: the palette was tuned for it across six rounds and the
+  // approved sunset cover depends on those exact colours. Depth comes from
+  // light contrast, saturation and contact shadows instead (see below).
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(PALETTE.fog, 380, 1400);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
@@ -342,23 +353,23 @@ export function createRenderer(canvas, city) {
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(1400, 24, 12), skyMat));
 
-  const hemi = new THREE.HemisphereLight(0xbfdfff, 0x8a6a4a, 0.95);
+  const hemi = new THREE.HemisphereLight(0xbfdfff, 0x8a6a4a, 0.88);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff2cc, 2.9);
+  const sun = new THREE.DirectionalLight(0xfff2cc, 3.2);
   sun.position.set(-120, 180, 60);
   scene.add(sun);
   // Fill light from the south, behind the camera: it lifts the faces the sun
   // never reaches — the hero car's tail, the south faces of the towers — so
   // nothing on the camera side falls to black. Kept dimmer than before, so
   // the sun side and the shadow side actually differ (contrast, not wash).
-  const fill = new THREE.DirectionalLight(0xffe0b3, 0.55);
+  const fill = new THREE.DirectionalLight(0xffe0b3, 0.42);
   fill.position.set(60, 90, 260);
   scene.add(fill);
 
   // Ground: one road-textured plane over the whole playable area, pier included.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(840, 728),
-    new THREE.MeshLambertMaterial({ map: roadTexture(city) }),
+    new THREE.MeshLambertMaterial({ map: roadTexture(city, maxAniso) }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(56, 0, 0);
@@ -386,7 +397,7 @@ export function createRenderer(canvas, city) {
   }
   const GLASS_DARK = [0x3d6a8f, 0x33506e];
   city.buildings.forEach((b, bi) => {
-    solids.push({ x: b.x, y: b.h / 2, z: b.z, w: b.w, h: b.h, d: b.d, color: saturate(b.color, 1.45) });
+    solids.push({ x: b.x, y: b.h / 2, z: b.z, w: b.w, h: b.h, d: b.d, color: saturate(b.color, 1.6) });
     // Ground-floor storefront band, proud of the facade.
     solids.push({ x: b.x, y: 1.5, z: b.z, w: b.w + 0.3, h: 3, d: b.d + 0.3, color: BAND_COLORS[bi % BAND_COLORS.length] });
     // Bright parapet rim so the roofline reads as a hard edge against the sky.
@@ -394,7 +405,7 @@ export function createRenderer(canvas, city) {
     solids.push({ x: b.x, y: b.h + 0.4, z: b.z, w: b.w * 0.7, h: 0.8, d: b.d * 0.7, color: ROOF_COLORS[bi % ROOF_COLORS.length] });
     // Stepped crown on tall towers: the skyline stops being a row of flat slabs.
     if (b.h > 30) {
-      solids.push({ x: b.x, y: b.h + 4, z: b.z, w: b.w * 0.42, h: 7, d: b.d * 0.42, color: saturate(PALETTE.building[(bi + 3) % PALETTE.building.length], 1.45) });
+      solids.push({ x: b.x, y: b.h + 4, z: b.z, w: b.w * 0.42, h: 7, d: b.d * 0.42, color: saturate(PALETTE.building[(bi + 3) % PALETTE.building.length], 1.6) });
       solids.push({ x: b.x, y: b.h + 7.75, z: b.z, w: b.w * 0.46, h: 0.5, d: b.d * 0.46, color: 0xf5e6c4 });
     }
     if (b.h > 20) {
@@ -467,12 +478,51 @@ export function createRenderer(canvas, city) {
     solids.push({ x: boat.x, y: 1.6, z: boat.z, w: 3.4, h: 1.4, d: 2.4, color: 0x22303c, ry: boat.ry });
     solids.push({ x: boat.x, y: 4.5, z: boat.z, w: 0.25, h: 6, d: 0.25, color: 0x2c313a, ry: boat.ry });
   }
+  // Traffic lights at eight junctions: a dark pole + arm (merged with the
+  // buildings) and a three-lamp head — red, amber, green — in the unlit
+  // window mesh, so the lamps glow like the lit windows instead of going
+  // dark with the Lambert shading. One pole per corner, off the carriageway.
+  const LIGHT_JUNCTIONS = [[-104, -52], [52, -104], [104, 52], [-52, 104], [0, -156], [156, 0], [0, 156], [-156, 0]];
+  for (const [jx, jz] of LIGHT_JUNCTIONS) {
+    const px = jx + 7.5;
+    const pz = jz + 7.5;
+    solids.push({ x: px, y: 2.75, z: pz, w: 0.35, h: 5.5, d: 0.35, color: 0x2c313a });
+    solids.push({ x: px - 1.8, y: 5.3, z: pz, w: 3.8, h: 0.3, d: 0.3, color: 0x2c313a });
+    const hx = px - 3.4;
+    solids.push({ x: hx, y: 4.7, z: pz, w: 0.7, h: 1.9, d: 0.7, color: 0x14181d });
+    windows.push({ x: hx, y: 5.25, z: pz + 0.36, w: 0.4, h: 0.4, d: 0.08, color: 0xff2a2a });
+    windows.push({ x: hx, y: 4.7, z: pz + 0.36, w: 0.4, h: 0.4, d: 0.08, color: 0xf2c94c });
+    windows.push({ x: hx, y: 4.15, z: pz + 0.36, w: 0.4, h: 0.4, d: 0.08, color: 0x35d05a });
+  }
+  // Bollards along the marina promenade, east of the coastal road: small
+  // dark posts with gold caps, so the walk reads as a promenade, not a void.
+  for (let bz = -80; bz <= 240; bz += 32) {
+    solids.push({ x: 322, y: 0.45, z: bz, w: 0.35, h: 0.9, d: 0.35, color: 0x2c313a });
+    solids.push({ x: 322, y: 0.95, z: bz, w: 0.42, h: 0.12, d: 0.42, color: 0xf2c94c });
+  }
   const buildingMesh = new THREE.Mesh(mergeBoxes(solids), new THREE.MeshLambertMaterial({ vertexColors: true }));
   scene.add(buildingMesh);
   const frameMesh = new THREE.Mesh(mergeBoxes(frames), new THREE.MeshBasicMaterial({ vertexColors: true }));
   scene.add(frameMesh);
   const windowMesh = new THREE.Mesh(mergeBoxes(windows), new THREE.MeshBasicMaterial({ vertexColors: true }));
   scene.add(windowMesh);
+
+  // Contact shadows: no real-time shadow map in this build — a 2048 shadow
+  // pass would re-rasterise every caster and push triangles toward the 500k
+  // budget on software renderers — so each tower, stall, umbrella and palm
+  // gets a soft dark strip on its west + south base, the sides away from the
+  // sunset sun over the sea. One merged transparent mesh, one draw call,
+  // fading out at night with the lamps coming on.
+  const shadowParts = [];
+  for (const b of city.buildings) {
+    shadowParts.push({ x: b.x - b.w / 2 - 2.2, y: 0.02, z: b.z, w: 4.4, h: 0.04, d: b.d + 1.2, color: 0x000000 });
+    shadowParts.push({ x: b.x, y: 0.02, z: b.z + b.d / 2 + 2.2, w: b.w + 1.2, h: 0.04, d: 4.4, color: 0x000000 });
+  }
+  for (const st of city.stalls) shadowParts.push({ x: st.x, y: 0.02, z: st.z, w: 6, h: 0.04, d: 4, color: 0x000000 });
+  for (const u of city.umbrellas) shadowParts.push({ x: u.x, y: 0.02, z: u.z, w: 4.6, h: 0.04, d: 4.6, color: 0x000000 });
+  for (const p of city.palms) shadowParts.push({ x: p.x, y: 0.02, z: p.z, w: 3, h: 0.04, d: 3, color: 0x000000 });
+  const contactShadowMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.28, depthWrite: false });
+  scene.add(new THREE.Mesh(mergeBoxes(shadowParts), contactShadowMat));
 
   // Palms: trunks and fronds, merged — seven broad fronds so the crown reads
   // as a palm at distance instead of a green smudge.
@@ -565,16 +615,16 @@ export function createRenderer(canvas, city) {
   // travel together with the hour of day when the clock runs free.
   function sunGlowTexture() {
     const cv = document.createElement('canvas');
-    cv.width = 256;
-    cv.height = 256;
+    cv.width = 512;
+    cv.height = 512;
     const g = cv.getContext('2d');
-    const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    const grad = g.createRadialGradient(256, 256, 0, 256, 256, 256);
     grad.addColorStop(0, 'rgba(255,244,200,0.95)');
     grad.addColorStop(0.25, 'rgba(255,220,130,0.55)');
     grad.addColorStop(0.55, 'rgba(255,170,90,0.22)');
     grad.addColorStop(1, 'rgba(255,150,70,0)');
     g.fillStyle = grad;
-    g.fillRect(0, 0, 256, 256);
+    g.fillRect(0, 0, 512, 512);
     return new THREE.CanvasTexture(cv);
   }
   const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(18, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffdf8a, fog: false }));
@@ -1059,12 +1109,12 @@ export function createRenderer(canvas, city) {
       // Renderer-side contrast trim (day/night data untouched): a touch less
       // ambient and fill than the keyframes say, so sun and shadow sides
       // differ instead of washing flat — game-wide, not just the cover.
-      hemi.intensity = dn.hemiI * 0.92;
+      hemi.intensity = dn.hemiI * 0.88;
       sun.color.setRGB(dn.sunCol[0], dn.sunCol[1], dn.sunCol[2]);
       sun.intensity = dn.sunI;
       sun.position.set(dn.sunDir[0] * 200, Math.max(dn.sunDir[1], 0.12) * 200, dn.sunDir[2] * 200);
       fill.color.setRGB(dn.fillCol[0], dn.fillCol[1], dn.fillCol[2]);
-      fill.intensity = dn.fillI * 0.7;
+      fill.intensity = dn.fillI * 0.6;
       scene.fog.color.setRGB(dn.fog[0], dn.fog[1], dn.fog[2]);
       scene.fog.near = dn.fogNear;
       scene.fog.far = dn.fogFar;
@@ -1080,6 +1130,8 @@ export function createRenderer(canvas, city) {
       heroBeam.material.opacity = 0.1 * dn.night;
     }
     trafficHeadlights.visible = nightNow > 0.02;
+    // Contact shadows fade out as night falls (the lamps take over).
+    contactShadowMat.opacity = 0.28 * (1 - nightNow);
     const focus = player.mode === 'car' ? heroCar : player;
     const heading = focus.heading;
 
@@ -1408,12 +1460,56 @@ export function createRenderer(canvas, city) {
     renderer.dispose();
   }
 
-  /** Graphics quality: high renders at the device pixel ratio (capped at 2),
-   * low renders at 1x — fewer pixels, same city. Called from the settings tab. */
+  // Graphics quality (v4.7): the tier is a render scale on top of the device
+  // pixel ratio — LOW renders at 0.75x and lets the canvas upscale (soft,
+  // fast), MED renders native 1x, HIGH supersamples at 1.5x — all capped at
+  // a total pixel ratio of 2, so a DPR-2 phone never renders at 3x. Textures
+  // stay at device-max anisotropy on every tier (it costs almost nothing
+  // and is what keeps the road sharp at grazing angles). 'auto' resolves
+  // once through settings.detectQuality; the FPS guard in main.js may step
+  // the effective tier down at runtime, never up, and never silently.
+  const QUALITY_SCALE = { low: 0.75, med: 1, high: 1.5 };
+  let storedQuality = 'auto';
+  let effectiveQuality = 'high';
   function setQuality(q) {
-    renderer.setPixelRatio(q === 'low' ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+    storedQuality = q;
+    effectiveQuality = resolveQuality(q);
+    const dpr = window.devicePixelRatio || 1;
+    renderer.setPixelRatio(Math.min(dpr * QUALITY_SCALE[effectiveQuality], 2));
     resize();
+    return effectiveQuality;
   }
 
-  return { draw, project, screenToGround, dispose, setFollow, setQuality, cameraHeading: () => camYaw.value, debugCam: () => ({ pos: [camPos.x, camPos.y, camPos.z], look: [camLook.x, camLook.y, camLook.z], yaw: camYaw.value }) };
+  /** FPS-guard entry: force one effective tier without touching the stored
+   * choice ('auto' stays 'auto' — the guard is runtime-only, session-only). */
+  function setEffective(tier) {
+    effectiveQuality = tier;
+    const dpr = window.devicePixelRatio || 1;
+    renderer.setPixelRatio(Math.min(dpr * QUALITY_SCALE[effectiveQuality], 2));
+    resize();
+    return effectiveQuality;
+  }
+
+  /** Render-pipeline facts for the audit/verify drivers (no sim state). */
+  function debugGL() {
+    const gl = renderer.getContext();
+    const c = renderer.domElement;
+    return {
+      storedQuality,
+      effectiveQuality,
+      pixelRatio: renderer.getPixelRatio(),
+      cssW: c.clientWidth,
+      cssH: c.clientHeight,
+      bufferW: c.width,
+      bufferH: c.height,
+      drawingBufferW: gl.drawingBufferWidth,
+      drawingBufferH: gl.drawingBufferHeight,
+      maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
+      antialias: gl.getContextAttributes().antialias,
+      toneMapping: renderer.toneMapping,
+      roadTextureSize: 4096,
+    };
+  }
+
+  return { draw, project, screenToGround, dispose, setFollow, setQuality, setEffective, debugGL, cameraHeading: () => camYaw.value, debugCam: () => ({ pos: [camPos.x, camPos.y, camPos.z], look: [camLook.x, camLook.y, camLook.z], yaw: camYaw.value }) };
 }

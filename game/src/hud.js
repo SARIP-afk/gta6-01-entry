@@ -594,15 +594,29 @@ export function createHud(callbacks) {
       el('vol-title-val').textContent = `${vol.value}%`;
       callbacks.onVolume(settings.volume);
     };
-    for (const q of ['high', 'low']) {
+    for (const q of ['auto', 'low', 'med', 'high']) {
       const btn = el(`quality-title-${q}`);
       btn.classList.toggle('active', settings.quality === q);
       btn.onclick = () => {
         settings = { ...settings, quality: q };
-        for (const q2 of ['high', 'low']) el(`quality-title-${q2}`).classList.toggle('active', q2 === q);
+        for (const q2 of ['auto', 'low', 'med', 'high']) el(`quality-title-${q2}`).classList.toggle('active', q2 === q);
         callbacks.onQuality(q);
+        showEffectiveQuality('title');
       };
     }
+    showEffectiveQuality('title');
+  }
+
+  // The tier actually rendering right now (AUTO resolves, the FPS guard may
+  // step it down) plus the real render buffer — so the setting is honest
+  // about what the screen is showing, not just what was picked.
+  function showEffectiveQuality(where) {
+    const line = el(where === 'title' ? 'quality-title-effective' : 'quality-pause-effective');
+    if (!line) return;
+    const dbg = window.__renderer?.debugGL?.();
+    line.textContent = dbg
+      ? `EFFECTIVE: ${dbg.effectiveQuality.toUpperCase()} · RENDER ${dbg.bufferW}×${dbg.bufferH} · DPR ${window.devicePixelRatio || 1}`
+      : '';
   }
 
   function fillPause(state, slots, st) {
@@ -683,15 +697,17 @@ export function createHud(callbacks) {
       el('vol-pause-val').textContent = `${vol.value}%`;
       callbacks.onVolume(settings.volume);
     };
-    for (const q of ['high', 'low']) {
+    for (const q of ['auto', 'low', 'med', 'high']) {
       const btn = el(`quality-pause-${q}`);
       btn.classList.toggle('active', settings.quality === q);
       btn.onclick = () => {
         settings = { ...settings, quality: q };
-        for (const q2 of ['high', 'low']) el(`quality-pause-${q2}`).classList.toggle('active', q2 === q);
+        for (const q2 of ['auto', 'low', 'med', 'high']) el(`quality-pause-${q2}`).classList.toggle('active', q2 === q);
         callbacks.onQuality(q);
+        showEffectiveQuality('pause');
       };
     }
+    showEffectiveQuality('pause');
     // SAVE tab.
     const wrap = el('pause-slots');
     wrap.innerHTML = '';

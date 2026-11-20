@@ -21,6 +21,11 @@ const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
 const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
 const seed = Number.isInteger(seedParam) ? seedParam : 1;
+// Test hook only: ?paint=N caps the staged-shot paint loop at N frames
+// (default 120). Same fixed count every run, so a shot stays deterministic;
+// it only shortens the settle wait on slow software renderers.
+const paintParam = Number.parseInt(params.get('paint') ?? '', 10);
+const PAINT_FRAMES = Number.isInteger(paintParam) && paintParam >= 1 && paintParam <= 120 ? paintParam : 120;
 
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
@@ -32,6 +37,12 @@ const radio = createRadio();
 const settings = loadSettings();
 radio.setVolume(settings.volume);
 renderer.setQuality(settings.quality);
+// Session-only override: ?quality=low|med|high|auto applies for this load
+// without being saved — the verify drivers pin a tier with it.
+const qualityParam = params.get('quality');
+if (qualityParam && ['auto', 'low', 'med', 'high'].includes(qualityParam)) {
+  renderer.setQuality(qualityParam);
+}
 
 function readBest() {
   try {
@@ -139,9 +150,13 @@ function runShot(name) {
     shotHud.update(world.state, hudScreen, ledger, renderer.project, world.state.time);
     painted += 1;
     // Keep painting: the follow camera needs frames to settle behind the car.
-    // Ready after exactly 120 frames — no wall-clock cutoff, so a slow software
-    // renderer settles to the same frame as a fast one (deterministic shots).
-    if (painted < 120 && performance.now() - t0 < 30000) requestAnimationFrame(paint);
+    // Ready after exactly PAINT_FRAMES frames — no wall-clock cutoff, so a
+    // slow software renderer settles to the same frame as a fast one
+    // (deterministic shots). The 600 s bound is only a hang guard: at ~2 s
+    // per SwiftShader frame, 120 frames need ~240 s, and the bound must
+    // never decide how many frames a shot paints (v4.6's 30 s bound did —
+    // it cut 1080p shots short and cost 3 pixels of determinism).
+    if (painted < PAINT_FRAMES && performance.now() - t0 < 600000) requestAnimationFrame(paint);
     else {
       window.__shotReady = true;
       window.__ledger = ledger;
@@ -264,8 +279,44 @@ function runGame() {
     window.__ledger = ledger;
   }
 
+  // FPS guard (AUTO mode only): if the live game sustains under 22 fps for
+  // 5 straight seconds, step the effective tier down one notch (high->med->
+  // low) and say so in the feed. One-way, never back up, and never silent:
+  // quality must be stable, not oscillating like a dynamic-resolution
+  // scaler. Manual tiers are never touched, staged shots never run this
+  // loop, and the sim never sees it — only the render scale changes.
+  // The stored 'auto' choice is untouched (setEffective, not setQuality).
+  let fpsWindowStart = 0;
+  let fpsFrames = 0;
+  let fpsLowSeconds = 0;
+  let fpsGuardTier = null;
+
   function frame(now) {
     requestAnimationFrame(frame);
+    if (settings.quality === 'auto') {
+      if (!fpsWindowStart) fpsWindowStart = now;
+      fpsFrames += 1;
+      if (now - fpsWindowStart >= 1000) {
+        const fps = (fpsFrames * 1000) / (now - fpsWindowStart);
+        fpsWindowStart = now;
+        fpsFrames = 0;
+        window.__fps = Math.round(fps * 10) / 10;
+        const order = ['low', 'med', 'high'];
+        const cur = fpsGuardTier || renderer.debugGL().effectiveQuality;
+        if (fps < 22 && cur !== 'low') {
+          fpsLowSeconds += 1;
+          if (fpsLowSeconds >= 5) {
+            fpsGuardTier = order[order.indexOf(cur) - 1];
+            renderer.setEffective(fpsGuardTier);
+            fpsLowSeconds = 0;
+            hud.pushFeed(`GRAPHICS AUTO → ${fpsGuardTier.toUpperCase()} — LOW FPS`);
+          }
+        } else {
+          fpsLowSeconds = 0;
+        }
+        window.__quality = { stored: settings.quality, effective: renderer.debugGL().effectiveQuality, fps: window.__fps, guardTier: fpsGuardTier };
+      }
+    }
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     const actions = input.takeActions();

@@ -227,7 +227,8 @@
       <button id="title-settings-button" class="menu-btn">SETTINGS</button>
       <div id="title-settings">
         <div>VOLUME <input id="vol-title" type="range" min="0" max="100" value="70"> <span id="vol-title-val">70%</span></div>
-        <div>GRAPHICS <button id="quality-title-high" class="qbtn active">HIGH</button><button id="quality-title-low" class="qbtn">LOW</button></div>
+        <div>GRAPHICS <button id="quality-title-auto" class="qbtn active">AUTO</button><button id="quality-title-high" class="qbtn">HIGH</button><button id="quality-title-med" class="qbtn">MED</button><button id="quality-title-low" class="qbtn">LOW</button></div>
+        <div id="quality-title-effective" style="font-size:12px; color:#cfd6de"></div>
       </div>
     </div>
     <div>
@@ -259,8 +260,9 @@
     <div id="tab-crew" style="display:none"><div id="pause-crew"></div></div>
     <div id="tab-settings" style="display:none">
       <div>VOLUME <input id="vol-pause" type="range" min="0" max="100" value="70"> <span id="vol-pause-val">70%</span></div>
-      <div style="margin-top:10px">GRAPHICS <button id="quality-pause-high" class="qbtn active">HIGH</button><button id="quality-pause-low" class="qbtn">LOW</button></div>
-      <div style="margin-top:10px; font-size:12px; color:#cfd6de">HIGH renders at your screen's pixel ratio; LOW renders at 1x for a smoother frame rate. Volume changes the radio straight away.</div>
+      <div style="margin-top:10px">GRAPHICS <button id="quality-pause-auto" class="qbtn active">AUTO</button><button id="quality-pause-high" class="qbtn">HIGH</button><button id="quality-pause-med" class="qbtn">MED</button><button id="quality-pause-low" class="qbtn">LOW</button></div>
+      <div id="quality-pause-effective" style="margin-top:6px; font-size:12px; color:#ffd27a"></div>
+      <div style="margin-top:10px; font-size:12px; color:#cfd6de">AUTO picks a tier for your device (HIGH = supersampled, MED = native, LOW = 0.75x) and steps down only if the frame rate stays low — never back up, never silently. Volume changes the radio straight away.</div>
     </div>
     <div id="tab-controls" style="display:none"><div class="controls-table">
       <div><b>WASD / ARROWS</b> Drive &amp; walk (Shift: run / boost)</div>

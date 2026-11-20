@@ -4,7 +4,10 @@
 // radio label, the results banner, and the two big overlays: title (with save slots)
 // and pause (MAP / STORY / STATS / SAVE tabs). All of it is DOM, so it costs zero
 // draw calls.
-import { CITY, DISTRICTS, WANTED_TIERS, WEAPON, CAR_MODELS } from './config.js';
+import { CITY, DISTRICTS, WANTED_TIERS, CAR_MODELS } from './config.js';
+import { WEAPONS } from './weapons.js';
+import { CREW } from './crew.js';
+import { RANKS, rankProgress } from './rank.js';
 
 function el(id) {
   return document.getElementById(id);
@@ -94,12 +97,21 @@ export function createHud(callbacks) {
       ctx.fillRect(-r, -r, r * 2, r * 2);
       ctx.restore();
     }
-    // Police blips.
+    // Police blips — bigger while EYES OUT marks them.
+    const eyes = state.crew.state.eyesOut > 0;
     ctx.fillStyle = '#ff4a4a';
     for (const u of state.police.units) {
       ctx.beginPath();
-      ctx.arc(toX(u.x), toZ(u.z), big ? 4 : 2.5, 0, Math.PI * 2);
+      ctx.arc(toX(u.x), toZ(u.z), big ? (eyes ? 6 : 4) : (eyes ? 4 : 2.5), 0, Math.PI * 2);
       ctx.fill();
+    }
+    // Helicopter ring, when air support is up.
+    if (state.heli && state.heli.state.active) {
+      ctx.strokeStyle = '#ff4a4a';
+      ctx.lineWidth = big ? 3 : 2;
+      ctx.beginPath();
+      ctx.arc(toX(state.heli.state.x), toZ(state.heli.state.z), big ? 8 : 5, 0, Math.PI * 2);
+      ctx.stroke();
     }
     // Gold van ring.
     const van = state.traffic.van();
@@ -199,18 +211,40 @@ export function createHud(callbacks) {
     el('cash').textContent = `$${s.cash.toLocaleString('en-US')}`;
     el('health-fill').style.width = `${Math.max(0, p.health)}%`;
     el('health-num').textContent = `${Math.round(p.health)}`;
-    el('ammo').textContent = s.combat.state.reloading ? 'RELOADING' : `${WEAPON.name} ${s.combat.state.ammo}/${s.combat.state.reserve}`;
-    // Weapon panel: big name, big ammo, reload hint — the one panel a shooter reads.
-    el('weapon-name').textContent = WEAPON.name;
-    el('weapon-sub').textContent = `${WEAPON.damage} DMG · ${WEAPON.range} M RANGE`;
+    // Rank: number, name, XP to the next rung and what it opens.
+    const rp = rankProgress(s.rank);
+    el('rank').textContent = rp.nextXp !== null
+      ? `RANK ${rp.level + 1} · ${rp.name} — ${rp.xp}/${rp.nextXp} RP · NEXT: ${rp.nextUnlock}`
+      : `RANK ${rp.level + 1} · ${rp.name} — ${rp.xp} RP · MAX RANK`;
+    // Crew: each ability, its key, its member, READY or the seconds left.
+    el('crew').innerHTML = `<div><b>CREW</b></div>` + CREW.map((c, i) => {
+      const cd = s.crew.state.cooldowns[i];
+      const status = cd > 0 ? `${Math.ceil(cd)}s` : 'READY';
+      return `<div>${c.key} ${c.ability} · ${c.name} — ${status}</div>`;
+    }).join('') + (s.crew.state.eyesOut > 0 ? `<div>EYES OUT — POLICE MARKED ${Math.ceil(s.crew.state.eyesOut)}s</div>` : '');
+    // Weapon panel: the live slot big, all four slots below it.
+    const loadout = s.combat.state.loadout;
+    const w = WEAPONS[loadout.active];
+    el('ammo').textContent = s.combat.state.reloading ? 'RELOADING' : (w.pellets === 0 ? 'FISTS ∞' : `${w.name} ${loadout.ammo[loadout.active]}/${loadout.reserve[loadout.active]}`);
+    el('weapon-name').textContent = w.name;
+    el('weapon-sub').textContent = w.blurb;
+    el('weapon-slots').innerHTML = WEAPONS.map((sw, i) => {
+      const locked = !loadout.unlocked[i];
+      const label = locked ? `LOCKED · RANK ${RANKS[sw.unlockRank].name}` : (sw.pellets === 0 ? '∞' : `${loadout.ammo[i]}/${loadout.reserve[i]}`);
+      return `<span class="${i === loadout.active ? 'wslot-active' : ''}">${sw.key} ${sw.name.split(' ')[0]} ${label}</span>`;
+    }).join(' · ');
     if (s.combat.state.reloading) {
       el('weapon-mag').textContent = '––';
-      el('weapon-reserve').textContent = `${s.combat.state.reserve}`;
+      el('weapon-reserve').textContent = `${loadout.reserve[loadout.active]}`;
       el('weapon-hint').textContent = 'RELOADING…';
+    } else if (w.pellets === 0) {
+      el('weapon-mag').textContent = '∞';
+      el('weapon-reserve').textContent = '∞';
+      el('weapon-hint').textContent = 'FISTS — NO AMMO · GET CLOSE';
     } else {
-      el('weapon-mag').textContent = `${s.combat.state.ammo}`;
-      el('weapon-reserve').textContent = `${s.combat.state.reserve}`;
-      el('weapon-hint').textContent = 'R — RELOAD · CLICK — FIRE';
+      el('weapon-mag').textContent = `${loadout.ammo[loadout.active]}`;
+      el('weapon-reserve').textContent = `${loadout.reserve[loadout.active]}`;
+      el('weapon-hint').textContent = '1-4 SWITCH · R RELOAD · CLICK FIRE';
     }
     const speed = p.mode === 'car' ? Math.abs(s.heroCar.speed) * 3.6 : Math.abs(p.speed) * 3.6;
     el('speed').textContent = `${Math.round(speed)} KM/H`;
@@ -240,8 +274,8 @@ export function createHud(callbacks) {
       el('dialog').style.display = 'none';
     }
 
-    // Minimap.
-    drawMap(mm, 90, s, false);
+    // Minimap: square, 110 px, bottom left.
+    drawMap(mm, 110, s, false);
     if (screen === 'paused' && bm) drawMap(bm, 360, s, true);
 
     // Feed + results fade.
@@ -278,6 +312,18 @@ export function createHud(callbacks) {
         showResults('EXPORT DELIVERED', `${ev.model} to the marina — +$${ev.reward}`);
       } else if (ev.type === 'enemy-down') {
         pushFeed(`GUNMAN DOWN — +$${ev.reward}`);
+      } else if (ev.type === 'rank-up') {
+        showResults(`RANK UP — ${ev.name}`, `${ev.unlock}${ev.opened && ev.opened.length ? ` · ${ev.opened.join(', ')} UNLOCKED` : ''}`);
+      } else if (ev.type === 'crew') {
+        pushFeed(`${ev.ability} — ${ev.name}`);
+      } else if (ev.type === 'crew-cooling') {
+        pushFeed(`${ev.ability} — COOLING ${ev.seconds}s`);
+      } else if (ev.type === 'crew-need-car') {
+        pushFeed(`${ev.ability} — NEED A CAR`);
+      } else if (ev.type === 'weapon-locked') {
+        pushFeed(`${ev.name} — NEEDS RANK ${ev.rank}`);
+      } else if (ev.type === 'heli') {
+        pushFeed('AIR UNIT DEPLOYED — HELICOPTER OVERHEAD');
       } else if (ev.type === 'chain-complete') {
         showResults('WHEELMAN', 'All four jobs done. Solmarina is yours.');
       }
@@ -316,6 +362,8 @@ export function createHud(callbacks) {
       + `<div class="prow"><b>PAR TIMES</b><span>M1 150s · M2 180s · M3 240s · M4 300s</span></div>`;
     el('pause-stats').innerHTML = [
       `COMPLETION ${state.completion}%`,
+      `RANK ${state.rank.level + 1} · ${RANKS[state.rank.level].name} · ${state.rank.xp} RP`,
+      `Crew abilities used ${state.crewUsed}`,
       `Missions ${state.missionsDone}/4 · Shells ${state.shells}/20 · Exports ${state.exports}/5`,
       `Distance ${(state.distance / 1000).toFixed(1)} km · Cars stolen ${state.carsStolen} · Cops escaped ${state.copsEscaped}`,
       `Shots ${state.shots} · Cash $${state.cash.toLocaleString('en-US')}`,

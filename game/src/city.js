@@ -154,6 +154,9 @@ export function buildCity(random) {
     // Boardwalk parasols on the promenade east of the coastal road, in the
     // cover frame's mid-right instead of an empty tan lot.
     [340, 120], [336, 40], [344, -40],
+    // Beach parasols in the cover frame's right foreground, on the sand strip
+    // the camera looks across.
+    [330, 268], [348, 232], [336, 292], [344, 200], [326, 210], [352, 168],
   ];
   for (let i = 0; i < umbrellaSpots.length; i += 1) {
     umbrellas.push({ x: umbrellaSpots[i][0], z: umbrellaSpots[i][1], color: umbrellaColors[i % umbrellaColors.length] });

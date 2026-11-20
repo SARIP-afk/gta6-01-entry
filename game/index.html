@@ -20,18 +20,23 @@
   #cash { position: absolute; top: 76px; right: 16px; font-size: 22px; font-weight: 800; color: #7ddf8a; }
   #leftcol { position: absolute; top: 14px; left: 16px; display: flex; flex-direction: column; gap: 8px; }
   #mapwrap { position: absolute; left: 16px; bottom: 14px; }
-  #minimap { border: 2px solid rgba(242, 201, 76, 0.6); border-radius: 50%; background: rgba(20,28,36,0.85); }
+  #minimap { border: 2px solid rgba(242, 201, 76, 0.6); border-radius: 6px; background: rgba(20,28,36,0.85); }
   #weapon { position: absolute; right: 16px; bottom: 76px; text-align: right; min-width: 200px; }
   #weapon-name { font-size: 19px; font-weight: 800; letter-spacing: 2px; color: #f2c94c; }
   #weapon-ammo { font-size: 34px; font-weight: 900; line-height: 1.1; }
   #weapon-ammo .dim { color: #cfd6de; font-size: 20px; }
   #weapon-sub { font-size: 11px; letter-spacing: 1px; color: #ffd27a; font-weight: 700; }
+  #weapon-slots { font-size: 11px; letter-spacing: 1px; color: #cfd6de; margin-top: 4px; }
+  #weapon-slots .wslot-active { color: #f2c94c; font-weight: 800; }
   #weapon-hint { font-size: 11px; letter-spacing: 1px; color: #cfd6de; margin-top: 2px; }
   #district { font-size: 12px; max-width: 280px; }
+  #rank { font-size: 12px; max-width: 280px; color: #ffd27a; font-weight: 700; }
+  #crew { font-size: 12px; max-width: 280px; }
+  #crew b { color: #f2c94c; }
   #shells { font-size: 12px; }
   #dispatch { font-size: 13px; max-width: 260px; }
   #dispatch b { color: #ff8a8a; }
-  #crimefeed { position: absolute; left: 16px; bottom: 150px; font-size: 13px; color: #ffd27a; text-shadow: 0 1px 2px #000; }
+  #crimefeed { position: absolute; left: 16px; bottom: 300px; font-size: 13px; color: #ffd27a; text-shadow: 0 1px 2px #000; }
   #crimefeed div { margin-top: 2px; }
   #bottombar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; }
   #health { width: 180px; }
@@ -41,7 +46,7 @@
   #speed { font-size: 28px; font-weight: 900; color: #ffffff; line-height: 1; }
   #carname { font-size: 15px; font-weight: 800; color: #ffd27a; }
   #radio { font-size: 13px; font-weight: 700; color: #4fc3f7; white-space: nowrap; }
-  #dialog { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); display: none; gap: 10px; align-items: center; min-width: 480px; }
+  #dialog { position: absolute; left: 16px; bottom: 150px; display: none; gap: 10px; align-items: center; width: 420px; }
   #portrait { border-radius: 6px; }
   #dialog-name { color: #f2c94c; font-weight: 800; letter-spacing: 1px; font-size: 13px; }
   #dialog-line { font-size: 15px; font-style: italic; }
@@ -78,15 +83,18 @@
 <div id="hud">
   <div id="leftcol">
     <div id="district" class="panel">DOWNTOWN</div>
+    <div id="rank" class="panel">RANK 1 · NEW ARRIVAL — 0/300 RP</div>
+    <div id="crew" class="panel"><div><b>CREW</b></div><div>Z SWAP PLATES · SANA — READY</div><div>X QUICK FIX · BEX — READY</div><div>C EYES OUT · NIA — READY</div></div>
     <div id="shells" class="panel">SHELLS 0/20 · EXPORTS 0/5</div>
     <div id="dispatch" class="panel" style="display:none"><div id="dispatch-list"></div></div>
   </div>
-  <div id="mapwrap"><canvas id="minimap" width="90" height="90"></canvas></div>
+  <div id="mapwrap"><canvas id="minimap" width="110" height="110"></canvas></div>
   <div id="weapon" class="panel">
     <div id="weapon-name">SOL-9 PISTOL</div>
     <div id="weapon-ammo"><span id="weapon-mag">12</span><span class="dim"> / <span id="weapon-reserve">48</span></span></div>
     <div id="weapon-sub">34 DMG · 70 M RANGE</div>
-    <div id="weapon-hint">R — RELOAD · CLICK — FIRE</div>
+    <div id="weapon-slots">1 FISTS ∞ · 2 SOL-9 12/48 · 3 SOL-7 LOCKED · 4 SOL-12 LOCKED</div>
+    <div id="weapon-hint">1-4 SWITCH · R RELOAD · CLICK FIRE</div>
   </div>
   <div id="banner" class="panel">
     <div id="banner-line1">M1 · FIRST DROP</div>
@@ -124,7 +132,7 @@
   <div id="slots"></div>
   <button id="start-button">NEW GAME</button>
   <div class="hint">
-    WASD drive / walk · E enter &amp; exit cars (steal parked ones) · Mouse aim, click shoot · R reload · T radio · M map · P pause<br>
+    WASD drive / walk · E enter &amp; exit cars (steal parked ones) · Mouse aim, click shoot · 1-4 weapons · R reload · Z/X/C crew · T radio · M map · P pause<br>
     Four jobs for the fixer DANTE: FIRST DROP · THE HANDOFF · TAIL THE VAN · LOSE THE HEAT — finish them all and earn the title WHEELMAN.
   </div>
 </div>

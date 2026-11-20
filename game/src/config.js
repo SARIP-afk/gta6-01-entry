@@ -68,18 +68,6 @@ export const TRAFFIC = {
   despawn: 230,
 };
 
-// One pistol: the only weapon. Mag 12, reserve 48, 34 damage a hit, 3 hits drop a gunman.
-export const WEAPON = {
-  name: 'SOL-9 PISTOL',
-  mag: 12,
-  reserve: 48,
-  damage: 34,
-  range: 70,
-  fireInterval: 0.22,
-  reloadTime: 1.1,
-  spread: 0.012,
-};
-
 export const ENEMY = { health: 100, shootInterval: 1.3, damage: 8, range: 55, reward: 150 };
 
 // Blood on a hit: no numbers, no bars — red particles burst from the wound and a
@@ -108,7 +96,7 @@ export const BUST_CASH_LOSS = 0.25;
 
 export const MISSIONS = [
   {
-    id: 'M1', name: 'FIRST DROP', reward: 500, par: 150,
+    id: 'M1', name: 'FIRST DROP', reward: 500, par: 150, xp: 500,
     brief: 'DANTE: "One package. Pier. Don\'t keep me waiting."',
     stages: [
       { name: 'PICK UP THE PACKAGE', text: 'Pick up the package downtown', x: -58, z: -162, radius: 10, footOnly: false },
@@ -116,7 +104,7 @@ export const MISSIONS = [
     ],
   },
   {
-    id: 'M2', name: 'THE HANDOFF', reward: 800, par: 180,
+    id: 'M2', name: 'THE HANDOFF', reward: 800, par: 180, xp: 600,
     brief: 'DANTE: "Sana only trusts a face she can see. Get out and walk."',
     stages: [
       { name: 'MEET SANA', text: 'Meet Sana at the stadium — on foot', x: -162, z: 150, radius: 8, footOnly: true },
@@ -124,7 +112,7 @@ export const MISSIONS = [
     ],
   },
   {
-    id: 'M3', name: 'TAIL THE VAN', reward: 1200, par: 240,
+    id: 'M3', name: 'TAIL THE VAN', reward: 1200, par: 240, xp: 800,
     brief: 'DANTE: "My van runs downtown to the marina. Stay on it. Don\'t be seen losing it."',
     stages: [
       { name: 'FIND DANTE\'S VAN', text: 'Close in on the gold van', vanDist: 40 },
@@ -132,7 +120,7 @@ export const MISSIONS = [
     ],
   },
   {
-    id: 'M4', name: 'LOSE THE HEAT', reward: 2000, par: 300, title: 'WHEELMAN',
+    id: 'M4', name: 'LOSE THE HEAT', reward: 2000, par: 300, xp: 1200, title: 'WHEELMAN',
     brief: 'DANTE: "It\'s a trap. Lose them — then bring it home."',
     stages: [
       { name: 'LOSE THE COPS', text: 'Lose the cordon — wanted back to zero', wantedZero: true },
@@ -159,9 +147,9 @@ export const CAR_MODELS = [
 ];
 
 export const PALETTE = {
-  sky: 0xffb36b,
-  horizon: 0xffd9a0,
-  fog: 0xf7b98a,
+  sky: 0x2b7cd3,
+  horizon: 0xffc46b,
+  fog: 0xefd9b8,
   ground: 0x9c8a6a,
   sand: 0xd9b380,
   sea: 0x1f5f7e,

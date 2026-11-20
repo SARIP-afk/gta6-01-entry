@@ -7,7 +7,7 @@ import { BEST_KEY, DISTRICTS, MISSIONS, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld } from './world.js';
 import { districtAt } from './city.js';
-import { ACTION_CONFIRM, ACTION_ENTER, ACTION_MAP, ACTION_PAUSE, ACTION_RADIO, ACTION_RELOAD, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_CREW_1, ACTION_CREW_2, ACTION_CREW_3, ACTION_ENTER, ACTION_MAP, ACTION_PAUSE, ACTION_RADIO, ACTION_RELOAD, ACTION_WEAPON_1, ACTION_WEAPON_2, ACTION_WEAPON_3, ACTION_WEAPON_4, createInput } from './input.js';
 import { createRenderer, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { createHud } from './hud.js';
 import { createRadio } from './radio.js';
@@ -69,10 +69,11 @@ function runShot(name) {
   const scene = stageShot(name, world);
   enrichState();
   // The cover pulls the camera in close behind the hero on the coastal road:
-  // towers flank the avenue, the pier, the sea and the sunset beyond. The
-  // camera stays on the road centreline (side 0): any lateral offset puts it
-  // inside the roadside towers.
-  if (name === 'cover') renderer.setFollow(44, 14);
+  // towers flank the avenue, the pier, the sea and the sun beyond. The hero
+  // car reads big in the middle of the road, the way the first build framed
+  // it — the camera stays on the road centreline (side 0): any lateral offset
+  // puts it inside the roadside towers.
+  if (name === 'cover') renderer.setFollow(12, 4.5);
   // The HUD is DOM, so a shot without it would show a bare city: build it too.
   const shotHud = createHud({ onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {} });
   if (name === 'start') {
@@ -142,6 +143,9 @@ function runGame() {
       ratings: s.missions.state.ratings,
       standing: s.standing,
       districtNames: DISTRICTS.map((d) => d.name),
+      rank: { xp: s.rank.state.xp, level: s.rank.state.level },
+      crewUsed: s.crew.state.used,
+      crewCooldowns: s.crew.state.cooldowns.slice(),
     };
   }
 
@@ -225,6 +229,13 @@ function runGame() {
       const inputState = buildInput();
       if (actions & ACTION_ENTER) inputState.enter = true;
       if (actions & ACTION_RELOAD) inputState.reload = true;
+      if (actions & ACTION_WEAPON_1) inputState.weaponSelect = 0;
+      else if (actions & ACTION_WEAPON_2) inputState.weaponSelect = 1;
+      else if (actions & ACTION_WEAPON_3) inputState.weaponSelect = 2;
+      else if (actions & ACTION_WEAPON_4) inputState.weaponSelect = 3;
+      if (actions & ACTION_CREW_1) inputState.crewUse = 0;
+      else if (actions & ACTION_CREW_2) inputState.crewUse = 1;
+      else if (actions & ACTION_CREW_3) inputState.crewUse = 2;
       while (accumulator >= STEP) {
         step(inputState);
         accumulator -= STEP;

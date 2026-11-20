@@ -3,12 +3,16 @@
 // nothing else. No THREE, no DOM, no Math.random: the only randomness is the seeded
 // generator passed in, so the same seed and the same inputs always give the same
 // trace. The renderer and the HUD only read `state`.
-import { CITY, DISTRICTS, PLAYER, CAR, WEAPON, STEP, TRACE, CAR_MODELS, EXPORT_MODELS, BUST_CASH_LOSS } from './config.js';
+import { CITY, DISTRICTS, PLAYER, CAR, STEP, TRACE, CAR_MODELS, EXPORT_MODELS, BUST_CASH_LOSS } from './config.js';
 import { buildCity, districtAt, distToRoad } from './city.js';
 import { createTraffic } from './traffic.js';
 import { createPolice } from './police.js';
 import { createMissions } from './missions.js';
 import { createCombat } from './combat.js';
+import { CREW, createCrew, resetCrew, stepCrew, useAbility } from './crew.js';
+import { RANKS, XP_ENEMY_DOWN, XP_EXPORT, XP_MISSION, XP_SHELL, addXp, cooldownMult, createRank, exportMult, missionMult, resetRank } from './rank.js';
+import { createHeli, resetHeli, stepHeli } from './heli.js';
+import { WEAPONS } from './weapons.js';
 
 export const EVENT_BUST = 1;
 export const EVENT_MISSION = 2;
@@ -43,6 +47,9 @@ export function createWorld(random) {
   const police = createPolice(random);
   const missions = createMissions();
   const combat = createCombat(random);
+  const crew = createCrew();
+  const rank = createRank();
+  const heli = createHeli(random);
 
   const player = {
     x: city.spawn.x, z: city.spawn.z, heading: city.spawn.heading,
@@ -55,7 +62,7 @@ export function createWorld(random) {
   };
   const state = {
     time: 0, cash: 0, seed: 0,
-    player, heroCar, city, traffic, police, missions, combat,
+    player, heroCar, city, traffic, police, missions, combat, crew, rank, heli,
     standing: DISTRICTS.map(() => 50),
     shellsTaken: 0,
     exportsDone: [],
@@ -77,12 +84,31 @@ export function createWorld(random) {
       playerMode: () => player.mode,
       wanted: () => police.state.wanted,
       van: () => traffic.van(),
-      addCash: (n) => { state.cash += n; },
+      addCash: (n) => { state.cash += Math.round(n * missionMult(rank)); },
       setWanted: (n) => police.setWanted(n, state.events),
       markVan: () => traffic.markVan(CITY.downtownPickup, CITY.marinaDrop),
       unmarkVan: () => traffic.unmarkVan(),
       spawnEnemies: () => combat.spawnEnemies({ x: 300, z: 40 }),
     };
+  }
+
+  /** The crew's world: what an ability needs to touch, nothing more. */
+  function crewApi() {
+    return {
+      inCar: () => player.mode === 'car',
+      clearWanted: () => police.clearWanted(),
+      fixCar: () => { heroCar.damage = 0; },
+    };
+  }
+
+  /** Feed XP to rank; a climb opens its unlocks and announces itself. */
+  function awardXp(amount) {
+    if (!amount) return;
+    const climbed = addXp(rank, amount);
+    for (const c of climbed) {
+      const opened = combat.unlockForRank(c.level);
+      state.events.push({ type: 'rank-up', level: c.level, name: c.name, unlock: c.unlock, opened });
+    }
   }
 
   function reset(seed) {
@@ -114,6 +140,9 @@ export function createWorld(random) {
     police.reset();
     missions.reset();
     combat.reset();
+    resetCrew(crew);
+    resetRank(rank);
+    resetHeli(heli);
     for (const s of city.shells) s.taken = false;
     missions.start(missionApi());
     updateObjective();
@@ -285,8 +314,9 @@ export function createWorld(random) {
     const d = Math.hypot(heroCar.x - CITY.marinaDrop.x, heroCar.z - CITY.marinaDrop.z);
     if (d < 12) {
       state.exportsDone.push(modelName);
-      state.cash += 300;
-      state.events.push({ type: 'export', model: modelName, reward: 300 });
+      state.cash += 300 * exportMult(rank);
+      awardXp(XP_EXPORT);
+      state.events.push({ type: 'export', model: modelName, reward: 300 * exportMult(rank) });
     }
   }
 
@@ -358,6 +388,26 @@ export function createWorld(random) {
     const eventMark = state.events.length;
 
     if (input.enter) tryEnterExit();
+    // One-shot picks, consumed here so a press between substeps fires once:
+    // a weapon switch, and a crew ability on its key.
+    if (input.weaponSelect !== undefined && input.weaponSelect !== null && input.weaponSelect >= 0) {
+      const picked = input.weaponSelect;
+      input.weaponSelect = -1;
+      const switched = combat.selectWeapon(picked, rank.state.level);
+      if (switched === 'locked') {
+        state.events.push({ type: 'weapon-locked', name: WEAPONS[picked].name, rank: RANKS[WEAPONS[picked].unlockRank].name });
+      }
+    }
+    if (input.crewUse !== undefined && input.crewUse !== null && input.crewUse >= 0) {
+      const picked = input.crewUse;
+      input.crewUse = -1;
+      const used = useAbility(crew, picked, crewApi(), state.events, cooldownMult(rank));
+      if (used === 'cooling') {
+        state.events.push({ type: 'crew-cooling', ability: CREW[picked].ability, seconds: Math.ceil(crew.state.cooldowns[picked]) });
+      } else if (used === 'need-car') {
+        state.events.push({ type: 'crew-need-car', ability: CREW[picked].ability });
+      }
+    }
     if (player.mode === 'car') stepCar(dt, input);
     else stepFoot(dt, input);
 
@@ -380,6 +430,19 @@ export function createWorld(random) {
     if (input.reload) combat.reload();
 
     const busted = police.step(dt, player, heroCar, state.events);
+    // Air support answers the wanted level after the cruisers do; the dispatch
+    // panel names it like any other unit.
+    const pxNow = player.mode === 'car' ? heroCar.x : player.x;
+    const pzNow = player.mode === 'car' ? heroCar.z : player.z;
+    stepHeli(heli, dt, pxNow, pzNow, police.state.wanted, state.events);
+    if (heli.state.active) {
+      state.police.state.dispatch.push({
+        id: 'AIR-1',
+        role: 'AIR SUPPORT',
+        dist: Math.round(Math.hypot(heli.state.x - pxNow, heli.state.z - pzNow)),
+      });
+    }
+    stepCrew(crew, dt);
     if (busted) {
       const lost = police.doBust(player, heroCar, state.cash);
       state.cash = Math.max(0, state.cash - lost);
@@ -399,9 +462,11 @@ export function createWorld(random) {
         state.stats.missionsDone += 1;
         const d = districtAt(player.x, player.z);
         state.standing[d] = Math.min(100, state.standing[d] + 8);
+        awardXp(XP_MISSION[ev.id] || 0);
       } else if (ev.type === 'enemy-down') {
         state.cash += ev.reward;
         state.stats.hits += 1;
+        awardXp(XP_ENEMY_DOWN);
       } else if (ev.type === 'player-hit') {
         player.health -= ev.damage;
         player.lastHurt = state.time;
@@ -428,6 +493,7 @@ export function createWorld(random) {
         s.taken = true;
         state.shellsTaken += 1;
         state.cash += 25;
+        awardXp(XP_SHELL);
         state.events.push({ type: 'shell', total: state.shellsTaken });
       }
     }
@@ -488,6 +554,12 @@ export function createWorld(random) {
       time: state.time,
       district: DISTRICTS[districtAt(player.x, player.z)].name,
       completion: completion(),
+      rankXp: rank.state.xp,
+      rankLevel: rank.state.level,
+      loadout: combat.loadoutSnapshot(),
+      crewCooldowns: crew.state.cooldowns.slice(),
+      crewEyesOut: crew.state.eyesOut,
+      crewUsed: crew.state.used,
     };
   }
 
@@ -507,6 +579,12 @@ export function createWorld(random) {
     heroCar.x = s.carX ?? city.spawn.x;
     heroCar.z = s.carZ ?? city.spawn.z;
     heroCar.heading = s.carHeading ?? 0;
+    rank.state.xp = s.rankXp || 0;
+    rank.state.level = s.rankLevel || 0;
+    combat.loadoutApply(s.loadout);
+    if (Array.isArray(s.crewCooldowns)) crew.state.cooldowns = s.crewCooldowns.slice(0, 3);
+    crew.state.eyesOut = s.crewEyesOut || 0;
+    crew.state.used = s.crewUsed || 0;
     for (let i = 0; i < state.shellsTaken && i < city.shells.length; i += 1) city.shells[i].taken = true;
     missions.start(missionApi());
   }

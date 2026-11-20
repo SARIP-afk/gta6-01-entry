@@ -133,26 +133,28 @@ export function stageShot(name, world) {
       c.tx = 312;
       c.tz = coverCars[i][2] > 0 ? -100 : 300;
     }
-    // Three cruisers in the frame: one ahead in the chase, one just behind the
-    // hero, one closing from the beach side.
+    // Three cruisers in the frame: a flanking pair just ahead of the hero, one
+    // on each side of the road like the first build framed it, and a leader
+    // further up the boulevard.
     if (s.police.units[0]) {
-      s.police.units[0].x = s.heroCar.x;
-      s.police.units[0].z = s.heroCar.z - 34;
+      s.police.units[0].x = s.heroCar.x - 5.5;
+      s.police.units[0].z = s.heroCar.z - 9;
       s.police.units[0].heading = Math.PI / 2;
     }
     if (s.police.units[1]) {
-      s.police.units[1].x = s.heroCar.x;
-      s.police.units[1].z = s.heroCar.z + 26;
+      s.police.units[1].x = s.heroCar.x + 5.5;
+      s.police.units[1].z = s.heroCar.z - 9;
       s.police.units[1].heading = Math.PI / 2;
     }
     if (s.police.units[2]) {
-      s.police.units[2].x = s.heroCar.x + 8;
-      s.police.units[2].z = s.heroCar.z - 14;
+      s.police.units[2].x = s.heroCar.x;
+      s.police.units[2].z = s.heroCar.z - 32;
       s.police.units[2].heading = Math.PI / 2;
     }
     // Walkers on the sidewalks along the coastal road, in the frame — the nearest
-    // four on the beach by the camera, so the street reads as lived-in.
-    const coverPeds = [[300, 298], [320, 288], [305, 278], [318, 268], [304.5, 200], [319.5, 150], [304.5, 100], [319.5, 60], [296, 292], [326, 296], [332, 282], [292, 282]];
+    // four on the beach by the camera, so the street reads as lived-in, plus a
+    // group on the sand to the east so the beach is inhabited, not empty.
+    const coverPeds = [[300, 298], [320, 288], [305, 278], [318, 268], [304.5, 200], [319.5, 150], [304.5, 100], [319.5, 60], [296, 292], [326, 296], [332, 282], [292, 282], [336, 262], [348, 246], [330, 236], [352, 272], [342, 216], [328, 190], [356, 196]];
     for (let i = 0; i < coverPeds.length; i += 1) {
       const p = s.traffic.peds[i];
       p.x = coverPeds[i][0];

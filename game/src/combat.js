@@ -1,13 +1,15 @@
-// Combat: one pistol, three gunmen at most, and the feedback that makes a shot read
-// — blood that bursts from the wound, a splatter that stays on the ground, tracers,
-// and a wanted bump for firing in the street. Enemies stand their ground and trade
-// shots; they never chase across the map. Pure sim: positions and numbers only.
-import { WEAPON, ENEMY, BLOOD } from './config.js';
+// Combat: a four-slot loadout, three gunmen at most, and the feedback that makes
+// a shot read — blood that bursts from the wound, a splatter that stays on the
+// ground, tracers, and a wanted bump for firing in the street. Enemies stand
+// their ground and trade shots; they never chase across the map. The shotgun
+// fires a spread of pellets, the SMG fires fast and light, the pistol hits
+// hardest per round; fists fire nothing at all. Pure sim: positions and numbers only.
+import { ENEMY, BLOOD } from './config.js';
+import { activeWeapon, createLoadout, loadoutApply, loadoutSnapshot, selectWeapon, unlockForRank } from './weapons.js';
 
 export function createCombat(random) {
   const state = {
-    ammo: WEAPON.mag,
-    reserve: WEAPON.reserve,
+    loadout: createLoadout(),
     cooldown: 0,
     reloadTimer: 0,
     reloading: false,
@@ -56,44 +58,53 @@ export function createCombat(random) {
   }
 
   /**
-   * Fire one round from (ox, oz) along `angle` (radians, world space). `hitTest` is
-   * the world's callback: it answers the nearest thing the bullet meets, so combat
-   * never has to know about buildings or traffic itself.
+   * Fire one trigger pull from (ox, oz) along `angle` (radians, world space).
+   * `hitTest` is the world's callback: it answers the nearest thing the bullet
+   * meets, so combat never has to know about buildings or traffic itself. A
+   * pull spends one round of ammo and sends every pellet downrange; each pellet
+   * that finds a gunman hurts him and bursts blood from the wound.
    */
   function shoot(ox, oz, angle, hitTest, events) {
+    const w = activeWeapon(state.loadout);
+    if (w.pellets === 0) return false; // fists: no trigger to pull
     if (state.cooldown > 0 || state.reloading) return false;
-    if (state.ammo <= 0) {
+    if (state.loadout.ammo[state.loadout.active] <= 0) {
       reload();
       return false;
     }
-    state.ammo -= 1;
-    state.cooldown = WEAPON.fireInterval;
-    const jitter = (random() - 0.5) * WEAPON.spread;
-    const a = angle + jitter;
-    const hit = hitTest(ox, oz, a, WEAPON.range);
-    const ex = ox + Math.cos(a) * (hit ? hit.dist : WEAPON.range);
-    const ez = oz - Math.sin(a) * (hit ? hit.dist : WEAPON.range);
-    state.shots.push({ x0: ox, z0: oz, x1: ex, z1: ez, life: 0.12 });
-    if (hit && hit.kind === 'enemy') {
-      const e = hit.enemy;
-      e.health -= WEAPON.damage;
-      e.hitFlash = 0.15;
-      // Blood straight out of the wound, spraying along the shot.
-      spawnBlood(ox + Math.cos(a) * hit.dist, 1.4, oz - Math.sin(a) * hit.dist, Math.cos(a), -Math.sin(a), e.health <= 0);
-      if (e.health <= 0) {
-        e.alive = false;
-        if (events) events.push({ type: 'enemy-down', reward: ENEMY.reward, x: e.x, z: e.z });
+    state.loadout.ammo[state.loadout.active] -= 1;
+    state.cooldown = w.fireInterval;
+    for (let p = 0; p < w.pellets; p += 1) {
+      const jitter = (random() - 0.5) * w.spread * (w.pellets > 1 ? 2 : 1);
+      const a = angle + jitter;
+      const hit = hitTest(ox, oz, a, w.range);
+      const ex = ox + Math.cos(a) * (hit ? hit.dist : w.range);
+      const ez = oz - Math.sin(a) * (hit ? hit.dist : w.range);
+      state.shots.push({ x0: ox, z0: oz, x1: ex, z1: ez, life: 0.12 });
+      if (hit && hit.kind === 'enemy') {
+        const e = hit.enemy;
+        if (!e.alive) continue;
+        e.health -= w.damage;
+        e.hitFlash = 0.15;
+        // Blood straight out of the wound, spraying along the shot.
+        spawnBlood(ox + Math.cos(a) * hit.dist, 1.4, oz - Math.sin(a) * hit.dist, Math.cos(a), -Math.sin(a), e.health <= 0);
+        if (e.health <= 0) {
+          e.alive = false;
+          if (events) events.push({ type: 'enemy-down', reward: ENEMY.reward, x: e.x, z: e.z });
+        }
+      } else if (hit && hit.kind === 'ped') {
+        if (events) events.push({ type: 'crime', cause: 'shots fired', wanted: 0 });
       }
-    } else if (hit && hit.kind === 'ped') {
-      if (events) events.push({ type: 'crime', cause: 'shots fired', wanted: 0 });
     }
     return true;
   }
 
   function reload() {
-    if (state.reloading || state.reserve <= 0 || state.ammo === WEAPON.mag) return;
+    const w = activeWeapon(state.loadout);
+    const slot = state.loadout.active;
+    if (state.reloading || state.loadout.reserve[slot] <= 0 || state.loadout.ammo[slot] === w.mag) return;
     state.reloading = true;
-    state.reloadTimer = WEAPON.reloadTime;
+    state.reloadTimer = w.reloadTime;
   }
 
   function step(dt, player, events) {
@@ -101,10 +112,12 @@ export function createCombat(random) {
     if (state.reloading) {
       state.reloadTimer -= dt;
       if (state.reloadTimer <= 0) {
-        const need = WEAPON.mag - state.ammo;
-        const take = Math.min(need, state.reserve);
-        state.ammo += take;
-        state.reserve -= take;
+        const w = activeWeapon(state.loadout);
+        const slot = state.loadout.active;
+        const need = w.mag - state.loadout.ammo[slot];
+        const take = Math.min(need, state.loadout.reserve[slot]);
+        state.loadout.ammo[slot] += take;
+        state.loadout.reserve[slot] -= take;
         state.reloading = false;
       }
     }
@@ -143,8 +156,7 @@ export function createCombat(random) {
   }
 
   function reset() {
-    state.ammo = WEAPON.mag;
-    state.reserve = WEAPON.reserve;
+    state.loadout = createLoadout();
     state.cooldown = 0;
     state.reloadTimer = 0;
     state.reloading = false;
@@ -154,5 +166,11 @@ export function createCombat(random) {
     state.decals = [];
   }
 
-  return { state, spawnEnemies, clearEnemies, shoot, reload, step, reset };
+  return {
+    state, spawnEnemies, clearEnemies, shoot, reload, step, reset,
+    selectWeapon: (index, rankLevel) => selectWeapon(state.loadout, index, rankLevel),
+    unlockForRank: (rankLevel) => unlockForRank(state.loadout, rankLevel),
+    loadoutSnapshot: () => loadoutSnapshot(state.loadout),
+    loadoutApply: (snap) => loadoutApply(state.loadout, snap),
+  };
 }

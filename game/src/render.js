@@ -67,22 +67,34 @@ function roadTexture(city) {
       g.fillRect(toX(gx + 6), toZ(gz + 6), 40 / 840 * S, 40 / 728 * S);
     }
   }
-  // Asphalt grain: deterministic speckle over the whole ground (fixed LCG seed,
-  // so the texture is identical on every load).
+  // Asphalt grain: dense deterministic speckle over the whole ground (fixed LCG
+  // seed, so the texture is identical on every load). Dense enough that the
+  // asphalt reads as grit, not a flat grey sheet.
   let speckSeed = 12345;
   const speckRnd = () => {
     speckSeed = (speckSeed * 1103515245 + 12345) & 0x7fffffff;
     return speckSeed / 0x7fffffff;
   };
-  for (let i = 0; i < 4000; i += 1) {
-    g.fillStyle = speckRnd() < 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.05)';
-    g.fillRect(speckRnd() * S, speckRnd() * S, 1.5, 1.5);
+  for (let i = 0; i < 12000; i += 1) {
+    g.fillStyle = speckRnd() < 0.5 ? 'rgba(0,0,0,0.13)' : 'rgba(255,255,255,0.07)';
+    g.fillRect(speckRnd() * S, speckRnd() * S, 1.6, 1.6);
   }
   // Beach sand on the south strip, sea blue past the pier.
   g.fillStyle = '#d9b380';
   g.fillRect(0, toZ(208), S, S - toZ(208));
+  // Sand tonal patches: broad soft blotches in three tans, so the beach is
+  // terrain with variation instead of one flat tan sheet.
+  for (let i = 0; i < 42; i += 1) {
+    const px = speckRnd() * S;
+    const py = toZ(208) + speckRnd() * (S - toZ(208));
+    const pr = 18 + speckRnd() * 46;
+    g.fillStyle = speckRnd() < 0.4 ? 'rgba(180,140,90,0.20)' : speckRnd() < 0.75 ? 'rgba(255,235,200,0.22)' : 'rgba(120,85,45,0.16)';
+    g.beginPath();
+    g.ellipse(px, py, pr, pr * 0.55, 0, 0, Math.PI * 2);
+    g.fill();
+  }
   // Sand grain: dense two-tone speckle so the beach is texture, not a tan sheet.
-  for (let i = 0; i < 5200; i += 1) {
+  for (let i = 0; i < 12000; i += 1) {
     const sx = speckRnd() * S;
     const sz = toZ(208) + speckRnd() * (S - toZ(208));
     g.fillStyle = speckRnd() < 0.45 ? 'rgba(120,85,45,0.28)' : speckRnd() < 0.75 ? 'rgba(255,235,200,0.30)' : 'rgba(90,60,30,0.20)';
@@ -90,7 +102,7 @@ function roadTexture(city) {
   }
   // Footprints: short paired dashes wandering the sand, deterministic.
   g.fillStyle = 'rgba(110,80,45,0.35)';
-  for (let i = 0; i < 260; i += 1) {
+  for (let i = 0; i < 600; i += 1) {
     const fx = speckRnd() * S;
     const fz = toZ(215) + speckRnd() * (S - toZ(215) - 8);
     g.fillRect(fx, fz, 2.5, 1.6);
@@ -148,7 +160,7 @@ function roadTexture(city) {
   }
   // Asphalt roads with centre dashes.
   for (const r of city.roads) {
-    g.fillStyle = '#3a3f46';
+    g.fillStyle = '#33373d';
     g.fillRect(0, toZ(r) - 6 / 728 * S, S, 12 / 728 * S);
     g.fillRect(toX(r) - 6 / 840 * S, 0, 12 / 840 * S, S);
     // Sidewalks: lighter strips just off the asphalt on both sides.
@@ -167,8 +179,23 @@ function roadTexture(city) {
     }
     g.fillStyle = '#f2c94c';
     for (let v = CITY.gridMin; v < CITY.gridMax; v += 16) {
-      g.fillRect(toX(v), toZ(r) - 1, 8 / 840 * S, 2);
-      g.fillRect(toX(r) - 1, toZ(v), 2, 8 / 728 * S);
+      g.fillRect(toX(v), toZ(r) - 1.2, 10 / 840 * S, 2.5);
+      g.fillRect(toX(r) - 1.2, toZ(v), 2.5, 10 / 728 * S);
+    }
+    // Oil stains and tyre wear on the asphalt: dark soft patches along each
+    // road so the blacktop is never one flat sheet.
+    for (let k = 0; k < 7; k += 1) {
+      const ox = toX(CITY.gridMin + speckRnd() * (CITY.gridMax - CITY.gridMin));
+      const oz = toZ(r) + (speckRnd() - 0.5) * 7 / 728 * S;
+      g.fillStyle = 'rgba(0,0,0,0.14)';
+      g.beginPath();
+      g.ellipse(ox, oz, 6 + speckRnd() * 12, 3 + speckRnd() * 4, 0, 0, Math.PI * 2);
+      g.fill();
+      const ox2 = toX(r) + (speckRnd() - 0.5) * 7 / 840 * S;
+      const oz2 = toZ(CITY.gridMin + speckRnd() * (CITY.gridMax - CITY.gridMin));
+      g.beginPath();
+      g.ellipse(ox2, oz2, 3 + speckRnd() * 4, 6 + speckRnd() * 12, 0, 0, Math.PI * 2);
+      g.fill();
     }
     // Zebra crossings at every junction: chunky bars parallel to traffic.
     g.fillStyle = '#e8e4da';
@@ -180,7 +207,7 @@ function roadTexture(city) {
     }
   }
   // Causeway to the pier.
-  g.fillStyle = '#3a3f46';
+  g.fillStyle = '#33373d';
   g.fillRect(toX(CITY.gridMax), toZ(-6) - 6 / 728 * S, toX(CITY.pier.x + 20) - toX(CITY.gridMax), 12 / 728 * S);
   // Pier deck: warm planks with dark joints across the whole deck.
   g.fillStyle = '#8a6a42';
@@ -225,16 +252,17 @@ export function createRenderer(canvas, city) {
   scene.fog = new THREE.Fog(PALETTE.fog, 380, 1400);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
 
-  // Sunset sky dome: a gradient sphere (deep purple up top, orange mid-band, gold
-  // at the horizon) with a warm glow toward the sun over the sea. One draw call,
-  // fully deterministic, no texture and no external asset.
+  // Daylight sky with a sunset accent at the horizon: bright blue overhead so
+  // the city reads sharp (the flat-shading lesson from the first build), warm
+  // gold low down where the sun sits over the sea. One draw call, fully
+  // deterministic, no texture and no external asset.
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x3d1e5e) },
-      mid: { value: new THREE.Color(0xff5e2a) },
+      top: { value: new THREE.Color(0x2b7cd3) },
+      mid: { value: new THREE.Color(0x8ec9ee) },
       bot: { value: new THREE.Color(0xffc46b) },
       sunDir: { value: new THREE.Vector3(480, 55, -60).normalize() },
       sunCol: { value: new THREE.Color(0xfff2c0) },
@@ -247,18 +275,24 @@ export function createRenderer(canvas, city) {
       '  float h = clamp(vDir.y, -0.08, 1.0);',
       '  vec3 col = h < 0.16 ? mix(bot, mid, h / 0.16) : mix(mid, top, pow((h - 0.16) / 0.84, 0.8));',
       '  float d = max(dot(normalize(vDir), normalize(sunDir)), 0.0);',
-      '  col += sunCol * (pow(d, 90.0) * 0.9 + pow(d, 10.0) * 0.22 + pow(d, 3.0) * 0.07);',
+      '  col += sunCol * (pow(d, 200.0) * 0.7 + pow(d, 90.0) * 0.5 + pow(d, 10.0) * 0.18 + pow(d, 3.0) * 0.06);',
       '  gl_FragColor = vec4(col, 1.0);',
       '}',
     ].join('\n'),
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(1400, 24, 12), skyMat));
 
-  const hemi = new THREE.HemisphereLight(0xffe0b3, 0x7a5a3a, 0.95);
+  const hemi = new THREE.HemisphereLight(0xbfdfff, 0x8a6a4a, 1.05);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffd9a0, 2.3);
+  const sun = new THREE.DirectionalLight(0xfff2cc, 2.6);
   sun.position.set(-120, 180, 60);
   scene.add(sun);
+  // Fill light from the south, behind the camera: it lifts the faces the sun
+  // never reaches — the hero car's tail, the south faces of the towers — so
+  // nothing on the camera side falls to black.
+  const fill = new THREE.DirectionalLight(0xffe0b3, 0.85);
+  fill.position.set(60, 90, 260);
+  scene.add(fill);
 
   // Ground: one road-textured plane over the whole playable area, pier included.
   const ground = new THREE.Mesh(
@@ -433,28 +467,39 @@ export function createRenderer(canvas, city) {
     scene.add(post);
   }
 
-  // Sun setting over the sea to the east — a bright core, two layered halos,
-  // and clouds that cross the disc so it is never a flat pale circle.
-  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(30, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfff8dc, fog: false }));
+  // Sun low over the sea to the east — a smaller, hotter core with three
+  // layered halos, so it reads as a blazing sun with real glow instead of a
+  // flat pale disc. Clouds are puffy clusters (a base slab plus a smaller cap
+  // and a side puff, in white, cream, pink and pale blue) scattered at varied
+  // heights — never one flat plate, and never a bar drawn across the sun.
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(22, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfffbe8, fog: false }));
   sunDisc.position.set(480, 55, -60);
   scene.add(sunDisc);
-  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(46, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffb36b, transparent: true, opacity: 0.22, fog: false }));
+  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(34, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.45, fog: false }));
   halo1.position.set(480, 55, -60);
   scene.add(halo1);
-  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(72, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff7e3d, transparent: true, opacity: 0.09, fog: false }));
+  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(58, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.18, fog: false }));
   halo2.position.set(480, 55, -60);
   scene.add(halo2);
   const cloudParts = [];
-  const CLOUD_COLS = [0xffdfc0, 0xffb38a, 0xffe9d0, 0xff9a6a];
-  for (let i = 0; i < 18; i += 1) {
-    cloudParts.push({ x: -260 + i * 62, y: 62 + (i % 4) * 9, z: -280 + (i % 5) * 120, w: 60 + (i % 3) * 22, h: 3, d: 24, color: CLOUD_COLS[i % CLOUD_COLS.length] });
+  const CLOUD_COLS = [0xffffff, 0xffe9d0, 0xffd9c0, 0xd6ecff, 0xfff6e0];
+  for (let i = 0; i < 26; i += 1) {
+    const cx = -320 + i * 36 + ((i * 37) % 40);
+    const cy = 58 + (i % 5) * 11 + ((i * 13) % 7);
+    const cz = -300 + (i % 6) * 120 + ((i * 29) % 50);
+    const w = 46 + (i % 4) * 18;
+    const col = CLOUD_COLS[i % CLOUD_COLS.length];
+    cloudParts.push({ x: cx, y: cy, z: cz, w, h: 4, d: 22, color: col });
+    // Cap + side puff: the stepped silhouette that makes a cloud read as a
+    // cloud instead of a slab.
+    cloudParts.push({ x: cx - w * 0.18, y: cy + 3.5, z: cz, w: w * 0.5, h: 3.5, d: 16, color: col });
+    cloudParts.push({ x: cx + w * 0.28, y: cy + 1.5, z: cz + 2, w: w * 0.32, h: 3, d: 14, color: CLOUD_COLS[(i + 1) % CLOUD_COLS.length] });
   }
-  // Three cloud bars cross the sun itself, breaking the disc. They are wide
-  // PLATES (long in both x and z) so they read as bars from the north (cover)
-  // and from the east (play, driving into the sun) alike.
-  cloudParts.push({ x: 440, y: 52, z: -60, w: 90, h: 5, d: 60, color: 0xffb38a });
-  cloudParts.push({ x: 445, y: 72, z: -30, w: 70, h: 4, d: 50, color: 0xffe9d0 });
-  cloudParts.push({ x: 430, y: 38, z: -95, w: 80, h: 4, d: 55, color: 0xff9a6a });
+  // Two small wisps near the sun, offset so they frame it without crossing it.
+  cloudParts.push({ x: 420, y: 78, z: -110, w: 60, h: 3.5, d: 20, color: 0xffe9d0 });
+  cloudParts.push({ x: 420, y: 74, z: -102, w: 30, h: 3, d: 14, color: 0xffffff });
+  cloudParts.push({ x: 440, y: 34, z: -10, w: 55, h: 3.5, d: 18, color: 0xffd9c0 });
+  cloudParts.push({ x: 444, y: 31, z: -4, w: 26, h: 3, d: 12, color: 0xffffff });
   scene.add(new THREE.Mesh(mergeBoxes(cloudParts), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
 
   // Hero car: one group of boxes, recoloured when Rio steals another model.
@@ -623,6 +668,40 @@ export function createRenderer(canvas, city) {
     enemies.push(g);
   }
 
+  // Helicopter: air support at wanted 4-5. One merged body (fuselage, tail boom,
+  // glass, skids), a spinning main rotor and tail rotor, a searchlight cone that
+  // leans onto its ground pool, and the pool itself. The whole group stays
+  // invisible — zero draw calls — until the helicopter is actually up.
+  const heliGroup = new THREE.Group();
+  const heliBody = new THREE.Mesh(mergeBoxes([
+    { x: 0, y: 0, z: 0, w: 3.6, h: 1.6, d: 2.2, color: 0xf2f2f2 },
+    { x: -3.4, y: 0.2, z: 0, w: 4.2, h: 0.7, d: 0.7, color: 0xe8e8e8 },
+    { x: 1.5, y: 0.2, z: 0, w: 1.2, h: 0.9, d: 1.9, color: 0x2c3e50 },
+    { x: 0, y: -0.9, z: 0, w: 3.0, h: 0.12, d: 0.5, color: 0xff2a2a },
+    { x: 0.9, y: -1.3, z: 0.9, w: 2.6, h: 0.12, d: 0.12, color: 0x2c313a },
+    { x: 0.9, y: -1.3, z: -0.9, w: 2.6, h: 0.12, d: 0.12, color: 0x2c313a },
+  ]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+  heliGroup.add(heliBody);
+  const heliRotor = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.12, 0.5), new THREE.MeshLambertMaterial({ color: 0x2c313a }));
+  heliRotor.position.set(0, 1.05, 0);
+  heliGroup.add(heliRotor);
+  const heliTailRotor = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.7, 0.3), new THREE.MeshLambertMaterial({ color: 0x2c313a }));
+  heliTailRotor.position.set(-5.2, 0.4, 0.5);
+  heliGroup.add(heliTailRotor);
+  heliGroup.visible = false;
+  scene.add(heliGroup);
+  const heliConeGeo = new THREE.ConeGeometry(7, 42, 12, 1, true);
+  heliConeGeo.translate(0, -21, 0); // apex at the origin, opening downward
+  const heliCone = new THREE.Mesh(heliConeGeo, new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+  heliCone.visible = false;
+  heliCone.frustumCulled = false;
+  scene.add(heliCone);
+  const heliDisc = new THREE.Mesh(new THREE.CircleGeometry(6.5, 20), new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.28, depthWrite: false }));
+  heliDisc.rotation.x = -Math.PI / 2;
+  heliDisc.visible = false;
+  scene.add(heliDisc);
+  const DOWN = new THREE.Vector3(0, -1, 0);
+
   // Tracers: eight reusable lines.
   const tracerMat = new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.9 });
   const tracers = [];
@@ -698,7 +777,7 @@ export function createRenderer(canvas, city) {
 
   /** Paint one frame and return the render ledger (calls / triangles). */
   function draw(state, screen, time) {
-    const { player, heroCar, traffic, police, combat, city } = state;
+    const { player, heroCar, traffic, police, combat, city, heli } = state;
     const focus = player.mode === 'car' ? heroCar : player;
     const heading = focus.heading;
 
@@ -707,6 +786,11 @@ export function createRenderer(canvas, city) {
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;
     camYaw.value += d * Math.min(1, 0.06);
+    // A setFollow() snap must land on the final camera in one frame: take the
+    // target heading before computing the want point, so the first frame after
+    // a snap is already the settled frame and a staged shot never depends on
+    // how many frames the renderer manages to paint.
+    if (follow.dirty) camYaw.value = heading;
     const dist = follow.dist || (player.mode === 'car' ? 11 : 7.5);
     const height = follow.height || (player.mode === 'car' ? 5.5 : 3.6);
     // Pull the camera in when the spot behind the car is inside a building, so
@@ -869,6 +953,27 @@ export function createRenderer(canvas, city) {
       g.position.set(e.x, 0, e.z);
       g.rotation.y = Math.atan2(-(player.z - e.z), player.x - e.x);
       g.position.y = e.hitFlash > 0 ? 0.15 : 0;
+    }
+
+    // Helicopter: body on its orbit, rotors spinning, searchlight leaning from
+    // the belly onto the pool of light that follows Rio on the ground.
+    const h = heli.state;
+    heliGroup.visible = h.active;
+    heliCone.visible = h.active;
+    heliDisc.visible = h.active;
+    if (h.active) {
+      heliGroup.position.set(h.x, h.y, h.z);
+      heliGroup.rotation.y = h.heading;
+      heliRotor.rotation.y = h.rotor;
+      heliTailRotor.rotation.x = h.rotor * 2.5;
+      const dx = h.lightX - h.x;
+      const dz = h.lightZ - h.z;
+      const dy = -h.y;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      heliCone.position.set(h.x, h.y - 1, h.z);
+      heliCone.quaternion.setFromUnitVectors(DOWN, new THREE.Vector3(dx / len, dy / len, dz / len));
+      heliCone.scale.set(1, len / 42, 1);
+      heliDisc.position.set(h.lightX, 0.08, h.lightZ);
     }
 
     // Tracers.

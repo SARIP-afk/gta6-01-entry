@@ -8,6 +8,13 @@ export const ACTION_ENTER = 4;
 export const ACTION_RELOAD = 8;
 export const ACTION_RADIO = 16;
 export const ACTION_MAP = 32;
+export const ACTION_WEAPON_1 = 64;
+export const ACTION_WEAPON_2 = 128;
+export const ACTION_WEAPON_3 = 256;
+export const ACTION_WEAPON_4 = 512;
+export const ACTION_CREW_1 = 1024;
+export const ACTION_CREW_2 = 2048;
+export const ACTION_CREW_3 = 4096;
 
 const CONFIRM = new Set(['Space', 'Enter']);
 const PAUSE = new Set(['KeyP', 'Escape']);
@@ -15,6 +22,13 @@ const ENTER = new Set(['KeyE']);
 const RELOAD = new Set(['KeyR']);
 const RADIO = new Set(['KeyT']);
 const MAP = new Set(['KeyM']);
+const WEAPON_1 = new Set(['Digit1']);
+const WEAPON_2 = new Set(['Digit2']);
+const WEAPON_3 = new Set(['Digit3']);
+const WEAPON_4 = new Set(['Digit4']);
+const CREW_1 = new Set(['KeyZ']);
+const CREW_2 = new Set(['KeyX']);
+const CREW_3 = new Set(['KeyC']);
 
 export function createInput(target) {
   const held = new Set();
@@ -30,6 +44,13 @@ export function createInput(target) {
     else if (RELOAD.has(event.code)) actions |= ACTION_RELOAD;
     else if (RADIO.has(event.code)) actions |= ACTION_RADIO;
     else if (MAP.has(event.code)) actions |= ACTION_MAP;
+    else if (WEAPON_1.has(event.code)) actions |= ACTION_WEAPON_1;
+    else if (WEAPON_2.has(event.code)) actions |= ACTION_WEAPON_2;
+    else if (WEAPON_3.has(event.code)) actions |= ACTION_WEAPON_3;
+    else if (WEAPON_4.has(event.code)) actions |= ACTION_WEAPON_4;
+    else if (CREW_1.has(event.code)) actions |= ACTION_CREW_1;
+    else if (CREW_2.has(event.code)) actions |= ACTION_CREW_2;
+    else if (CREW_3.has(event.code)) actions |= ACTION_CREW_3;
     else return;
     event.preventDefault();
   });

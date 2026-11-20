@@ -1,7 +1,7 @@
 // Solmarina (fresh build) — the DOM HUD and the square minimap.
 // Panels hug the edges and stay compact; the centre of the screen stays
 // clean for the game, the way the Karimbu reference frames do it.
-import { MISSIONS, wantedTier } from './sim.js';
+import { MISSIONS, WEAPON_ORDER, wantedTier } from './sim.js';
 import { districtAt, GRID_MIN, GRID_MAX, ROAD_STEP, BEACH_Z, SEA_Z, PIER, MARKET, STADIUM } from './layout.js';
 
 const $ = (id) => document.getElementById(id);
@@ -13,6 +13,8 @@ export class Hud {
     this.onAction = onAction;
     this.map = $('minimap');
     this.mapCtx = this.map.getContext('2d');
+    this.bigmap = $('bigmap');
+    this.bigmapCtx = this.bigmap ? this.bigmap.getContext('2d') : null;
     this.cache = {};
     this.mapTimer = 0;
     this.bindButtons();
@@ -44,18 +46,34 @@ export class Hud {
       const fx = (e.clientX - r.left) / r.width, fz = (e.clientY - r.top) / r.height;
       this.onAction('map-click', { x: GRID_MIN - 48 + fx * (432 - (GRID_MIN - 48)), z: GRID_MIN - 48 + fz * (384 - (GRID_MIN - 48)) });
     });
+    // big map (pause > MAP tab): click sets a waypoint, click again clears it
+    if (this.bigmap) {
+      this.bigmap.addEventListener('click', (e) => {
+        const r = this.bigmap.getBoundingClientRect();
+        const fx = (e.clientX - r.left) / r.width, fz = (e.clientY - r.top) / r.height;
+        this.onAction('waypoint', { x: GRID_MIN - 48 + fx * (432 - (GRID_MIN - 48)), z: GRID_MIN - 48 + fz * (384 - (GRID_MIN - 48)) });
+        this.drawBigMap();
+      });
+    }
   }
 
   showTab(tab) {
     document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tabpage').forEach((p) => { p.style.display = p.id === `tab-${tab}` ? 'block' : 'none'; });
-    if (tab === 'map') this.drawMap(true);
+    if (tab === 'map') { this.drawMap(true); this.drawBigMap(); }
     if (tab === 'story') this.renderStory();
     if (tab === 'stats') this.renderStats();
   }
 
   setText(id, value) {
     if (this.cache[id] !== value) { this.cache[id] = value; const el = $(id); if (el) el.textContent = value; }
+  }
+
+  setWidth(id, pct) {
+    // bars: only touch the DOM when the value actually changed — writing
+    // style.width every frame forces a style recalc for nothing
+    const v = `${Math.round(pct * 10) / 10}%`;
+    if (this.cache[`w:${id}`] !== v) { this.cache[`w:${id}`] = v; const el = $(id); if (el) el.style.width = v; }
   }
 
   update(dt) {
@@ -72,15 +90,15 @@ export class Hud {
     this.setText('district-tag', d.tag);
     const standing = s.standing[d.name] ?? 58;
     this.setText('standing', `${standing >= 70 ? 'FRIENDLY' : standing >= 40 ? 'NEUTRAL' : 'HOSTILE'} · ${standing}`);
-    $('standing-fill').style.width = `${standing}%`;
-    $('health-fill').style.width = `${p.health}%`;
-    $('armour-fill').style.width = `${p.armour}%`;
+    this.setWidth('standing-fill', standing);
+    this.setWidth('health-fill', p.health);
+    this.setWidth('armour-fill', p.armour);
     this.setText('health-num', String(Math.round(p.health)));
     this.setText('armour-num', String(Math.round(p.armour)));
     this.setText('ammo', p.mode === 'car' ? '—' : s.weapon === 'FISTS' ? '∞' : `${s.ammo} / ${s.reserve}`);
-    // weapon slots: highlight the active weapon (FISTS/SOL-9/SMG/12G = 1-4)
+    // weapon slots: highlight the active weapon (FISTS/SOL-9/SMG/12G/MAR-7 = 1-5)
     const wslots = document.querySelectorAll('#weapons .wslot');
-    const widx = ['FISTS', 'SOL-9', 'SMG', '12G'].indexOf(s.weapon);
+    const widx = WEAPON_ORDER.indexOf(s.weapon);
     wslots.forEach((el, i) => el.classList.toggle('active', i === widx));
     this.setText('speed', p.mode === 'car' ? String(Math.round(Math.abs(s.heroCar.speed) * 3.6)) : String(Math.round(0)));
     this.setText('speed-unit', p.mode === 'car' ? 'KM/H' : '');
@@ -88,13 +106,22 @@ export class Hud {
     this.setText('car-damage', p.mode === 'car' ? `${Math.round(s.heroCar.damage)}% DENTED` : '');
     this.setText('rank-name', `RANK ${s.rank}`);
     this.setText('rp', `${s.rp.toLocaleString('en-US')} / ${(s.rank + 1) * 200} RP`);
-    $('rp-fill').style.width = `${Math.min(100, (s.rp % ((s.rank + 1) * 200)) / ((s.rank + 1) * 200) * 100)}%`;
+    this.setWidth('rp-fill', Math.min(100, (s.rp % ((s.rank + 1) * 200)) / ((s.rank + 1) * 200) * 100));
     const m = MISSIONS[s.missions.active];
     this.setText('mission-name', `MISSION ${s.missions.active + 1} · ${m.name}`);
     this.setText('mission-stage', `STAGE ${Math.min(s.missions.stage + 1, m.stages.length)}/${m.stages.length} · ${s.objective.label.toUpperCase()}`);
     const objD = Math.hypot(s.objective.x - p.x, s.objective.z - p.z);
     this.setText('mission-dist', `${Math.round(objD)} m`);
     this.setText('mission-time', s.missions.started ? `${Math.floor(s.missions.missionTime / 60)}:${String(Math.floor(s.missions.missionTime % 60)).padStart(2, '0')}` : '');
+    // waypoint line: distance + compass bearing (N = -z, E = +x)
+    const wp = s.waypoint;
+    if (wp) {
+      const dx = wp.x - p.x, dz = wp.z - p.z;
+      const ang = Math.atan2(-dz, dx);
+      const dirs = ['E', 'NE', 'N', 'NW', 'W', 'SW', 'S', 'SE'];
+      const di = Math.round(((ang + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8;
+      this.setText('waypoint-line', `◆ WAYPOINT ${Math.round(Math.hypot(dx, dz))} m ${dirs[di]}`);
+    } else this.setText('waypoint-line', '');
     // dispatch panel
     const disp = $('dispatch');
     if (disp) {
@@ -112,9 +139,15 @@ export class Hud {
     if (feed) {
       const html = s.events.slice(0, 3).map((e) => `<div>${e}</div>`).join('');
       if (this.cache.feed !== html) { this.cache.feed = html; feed.innerHTML = html; }
-      const missionEl = $('mission');
-      const belowMission = missionEl ? missionEl.offsetTop + missionEl.offsetHeight + 8 : 118;
-      feed.style.top = `${s.wanted > 0 ? 218 : belowMission}px`;
+      if (window.innerWidth <= 700) {
+        // small screens: the feed lives top-centre (see the media query),
+        // so clear the inline top and let CSS place it
+        feed.style.top = '';
+      } else {
+        const missionEl = $('mission');
+        const belowMission = missionEl ? missionEl.offsetTop + missionEl.offsetHeight + 8 : 118;
+        feed.style.top = `${s.wanted > 0 ? 218 : belowMission}px`;
+      }
     }
     // dialog
     const dlg = $('dialog');
@@ -142,12 +175,23 @@ export class Hud {
       this.setText('over-sub', s.won ? 'All four jobs done. Solmarina is yours.' : 'The KPD got you. The city keeps your cash — half of it, anyway.');
     }
     this.mapTimer += dt;
-    if (this.mapTimer > 0.15) { this.mapTimer = 0; this.drawMap(false); }
+    if (this.mapTimer > 0.15) {
+      this.mapTimer = 0;
+      this.drawMap(false);
+      if (this.bigmapCtx && $('pause-screen').style.display === 'flex') this.drawBigMap();
+    }
   }
 
   drawMap(big) {
-    const ctx = this.mapCtx;
-    const W = this.map.width, H = this.map.height;
+    this.drawMapOn(this.mapCtx, this.map.width, this.map.height);
+  }
+
+  drawBigMap() {
+    if (!this.bigmapCtx) return;
+    this.drawMapOn(this.bigmapCtx, this.bigmap.width, this.bigmap.height);
+  }
+
+  drawMapOn(ctx, W, H) {
     const x0 = GRID_MIN - 48, x1 = 432, z0 = GRID_MIN - 48, z1 = 384;
     const px = (x) => ((x - x0) / (x1 - x0)) * W;
     const pz = (z) => ((z - z0) / (z1 - z0)) * H;
@@ -189,6 +233,25 @@ export class Hud {
     ctx.beginPath();
     ctx.moveTo(ox, oz - 6); ctx.lineTo(ox + 5, oz); ctx.lineTo(ox, oz + 6); ctx.lineTo(ox - 5, oz);
     ctx.closePath(); ctx.fill();
+    // waypoint marker (cyan diamond + ring)
+    if (s.waypoint) {
+      const wx = px(s.waypoint.x), wz = pz(s.waypoint.z);
+      ctx.fillStyle = '#22d3ee';
+      ctx.beginPath();
+      ctx.moveTo(wx, wz - 6); ctx.lineTo(wx + 5, wz); ctx.lineTo(wx, wz + 6); ctx.lineTo(wx - 5, wz);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(wx, wz, 9, 0, 7); ctx.stroke();
+    }
+    // roadblock marker (orange square)
+    if (s.roadblock) {
+      ctx.fillStyle = '#ff9500';
+      ctx.fillRect(px(s.roadblock.x) - 4, pz(s.roadblock.z) - 4, 8, 8);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px(s.roadblock.x) - 4, pz(s.roadblock.z) - 4, 8, 8);
+    }
     // player arrow
     const p = s.player;
     ctx.fillStyle = '#fff';

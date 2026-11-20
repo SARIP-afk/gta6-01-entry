@@ -16,6 +16,11 @@ export class Sound {
     this.engineOsc = null;
     this.engineGain = null;
     this.master = null;
+    this.sirenGain = null;
+    this.stepTimer = 0;
+    this.stepAlt = false;
+    this.volume = 0.5;
+    this.volumes = [0.5, 0.25, 0, 1];
   }
   ensure() {
     if (this.ctx) {
@@ -26,7 +31,7 @@ export class Sound {
     if (!AC) return;
     this.ctx = new AC();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.5;
+    this.master.gain.value = this.volume;
     this.master.connect(this.ctx.destination);
     this.engineOsc = this.ctx.createOscillator();
     this.engineOsc.type = 'sawtooth';
@@ -40,7 +45,84 @@ export class Sound {
     filt.connect(this.engineGain);
     this.engineGain.connect(this.master);
     this.engineOsc.start();
+    // police siren: two-tone "nee-naw" — a triangle osc whose pitch is
+    // swept by a slow square LFO, silent until wanted > 0 (gain driven
+    // per frame by siren(), louder the nearer the closest cruiser)
+    this.sirenOsc = this.ctx.createOscillator();
+    this.sirenOsc.type = 'triangle';
+    this.sirenOsc.frequency.value = 950;
+    const lfo = this.ctx.createOscillator();
+    lfo.type = 'square';
+    lfo.frequency.value = 0.55;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 260;
+    lfo.connect(lfoGain);
+    lfoGain.connect(this.sirenOsc.frequency);
+    this.sirenGain = this.ctx.createGain();
+    this.sirenGain.gain.value = 0;
+    this.sirenOsc.connect(this.sirenGain);
+    this.sirenGain.connect(this.master);
+    this.sirenOsc.start();
+    lfo.start();
     this.nextNote = this.ctx.currentTime + 0.1;
+  }
+  /** Cycle the master volume 50% -> 25% -> mute -> 100% -> 50%. */
+  cycleVolume() {
+    const i = (this.volumes.indexOf(this.volume) + 1) % this.volumes.length;
+    this.volume = this.volumes[i];
+    if (this.master) this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
+    return this.volumeLabel();
+  }
+  volumeLabel() { return this.volume === 0 ? 'MUTED' : `VOL ${Math.round(this.volume * 100)}%`; }
+  /** Police siren: on while wanted, louder the closer the nearest cruiser. */
+  siren(active, nearestDist) {
+    if (!this.ctx || !this.sirenGain) return;
+    const target = active ? Math.max(0.015, Math.min(0.09, 0.12 - (nearestDist || 200) * 0.0006)) : 0;
+    this.sirenGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+  }
+  /** Two-tone car horn (H key). */
+  horn() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (const f of [370, 466]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+      g.gain.setValueAtTime(0.12, t + 0.28);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+      o.connect(g);
+      g.connect(this.master);
+      o.start(t);
+      o.stop(t + 0.4);
+    }
+  }
+  /** Footsteps on foot: a soft filtered thud every ~0.38 s while moving. */
+  footsteps(moving, dt) {
+    if (!this.ctx) return;
+    if (!moving) { this.stepTimer = 0; return; }
+    this.stepTimer += dt;
+    if (this.stepTimer < 0.38) return;
+    this.stepTimer = 0;
+    this.stepAlt = !this.stepAlt;
+    const t = this.ctx.currentTime;
+    const len = Math.floor(44100 * 0.07);
+    const buf = this.ctx.createBuffer(1, len, 44100);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = this.stepAlt ? 320 : 260;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.16;
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(this.master);
+    src.start(t);
   }
   setStation(i) {
     this.station = ((i % STATIONS.length) + STATIONS.length) % STATIONS.length;

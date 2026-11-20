@@ -227,6 +227,7 @@ function paletteAt(hour) {
 
 const dummy = new THREE.Object3D();
 const tmpColor = new THREE.Color();
+const sunDirTmp = new THREE.Vector3(); // reused: update() ran `new Vector3` every frame
 
 export class Renderer {
   constructor(world, canvas, quality = 'med') {
@@ -980,6 +981,12 @@ export class Renderer {
       new THREE.MeshBasicMaterial({ color: 0xf2c94c }),
     );
     scene.add(this.marker);
+    // waypoint marker: smaller cyan diamond over the map waypoint
+    this.wpMarker = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.8),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee }),
+    );
+    scene.add(this.wpMarker);
     // safehouse ring
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(22, 24, 40),
@@ -1059,7 +1066,7 @@ export class Renderer {
     this.sun.color = pal.sun;
     this.sun.intensity = pal.sunI;
     const ang = ((hour - 6) / 12) * Math.PI;
-    const sunDir = new THREE.Vector3(Math.cos(ang), Math.max(0.08, Math.sin(ang)), 0.45).normalize();
+    const sunDir = sunDirTmp.set(Math.cos(ang), Math.max(0.08, Math.sin(ang)), 0.45).normalize();
     const hx = s.player.x, hz = s.player.z;
     this.sun.position.set(hx + sunDir.x * 160, sunDir.y * 160, hz + sunDir.z * 160);
     this.sun.target.position.set(hx, 0, hz);
@@ -1323,6 +1330,12 @@ export class Renderer {
     this.marker.position.set(o.x, 7 + Math.sin(this.time * 2.5) * 0.8, o.z);
     this.marker.rotation.y = this.time * 1.5;
     this.marker.visible = s.screen === 'play' && s.missions.started;
+    // waypoint marker follows the map waypoint
+    if (s.waypoint) {
+      this.wpMarker.position.set(s.waypoint.x, 5 + Math.sin(this.time * 2.5) * 0.6, s.waypoint.z);
+      this.wpMarker.rotation.y = this.time * 1.5;
+    }
+    this.wpMarker.visible = !!s.waypoint;
 
     // ---- camera: third-person follow, smoothed ----
     if (this.camOverride) {

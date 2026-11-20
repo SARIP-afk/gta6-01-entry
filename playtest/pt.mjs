@@ -399,16 +399,32 @@ try {
     await stats('wanted');
   }
 
+  // ---------- ROADBLOCK ----------
+  if (want('roadblock')) {
+    const rb = await ev(`JSON.stringify(window.__pt.probeRoadblock())`, true).catch((e) => ({ error: String(e) }));
+    log('roadblock', typeof rb === 'string' ? JSON.parse(rb) : rb);
+    // staged screenshot: wanted 3, hero on the z=0 road, fast-forward until
+    // the block is set, then a few rendered frames for the camera to settle
+    await ev(`window.__pt.reset(1)`);
+    await ev(`(() => { const s = window.__solmarina.world.state; s.screen = 'play'; window.__pt.teleport(-72, 0, 'car'); s.heroCar.heading = 0; s.wanted = 3; })()`);
+    await ev(`window.__pt.ff(4)`);
+    await sleep(2500); await shot('17-roadblock');
+    await stats('roadblock');
+  }
+
   // ---------- COMBAT / WEAPONS ----------
   if (want('combat')) {
     await ev(`window.__pt.reset(1)`);
-    // weapon keys 1-4 via real key events
+    // weapon keys 1-5 via real key events
     const wkeys = {};
-    for (const [code, k] of [['Digit1', '1'], ['Digit2', '2'], ['Digit3', '3'], ['Digit4', '4']]) {
+    for (const [code, k] of [['Digit1', '1'], ['Digit2', '2'], ['Digit3', '3'], ['Digit4', '4'], ['Digit5', '5']]) {
       await keyTap(code, k); await sleep(800);
       wkeys[code] = await ev(`JSON.stringify({ weapon: window.__solmarina.world.state.weapon || 'SOL-9', ammo: window.__solmarina.world.state.ammo, activeSlot: [...document.querySelectorAll('.wslot')].findIndex(el => el.classList.contains('active')) })`);
     }
     log('combat-weapon-keys', { keys: wkeys });
+    // MAR-7 rifle (slot 5): select + kill a gunman at 30 m (dmg 70, range 40)
+    const mar7 = await ev(`(async () => JSON.stringify(await window.__pt.probeWeapon5()))()`, true).catch((e) => ({ error: String(e) }));
+    log('combat-mar7', typeof mar7 === 'string' ? JSON.parse(mar7) : mar7);
     // shooting from a car must not fire (sim-level, fast-forward)
     const carShoot = await ev(`JSON.stringify((() => {
       const W = window.__solmarina.world, s = W.state;
@@ -447,13 +463,50 @@ try {
       // drained to out-of-ammo.
       s.weapon = 'SOL-9'; s.ammo = 48; s.reserve = 90;
       s.player.health = 100; s.player.armour = 27;
-      const g = s.gunmen[0];
+      const g = s.gunmen.find((gg) => gg.alive);
       const r = window.__pt.shootAt(g, { timeout: 30 });
       return { underFire, shoot: { killed: r.killed, time: r.time, sawFlash: r.sawFlash, shotsFired: r.after ? r.after.shots - r.before.shots : null, cashDelta: r.after ? r.after.cash - r.before.cash : null, wantedAfter: r.after ? r.after.wanted : null } };
     })())`, true).catch((e) => ({ error: String(e) }));
     log('combat-gunmen', typeof gun === 'string' ? JSON.parse(gun) : gun);
     await sleep(2000); await shot('10-combat');
     await stats('combat');
+  }
+
+  // ---------- SOUND: horn, siren, footsteps, volume ----------
+  if (want('sound')) {
+    await ev(`window.__pt.reset(1)`);
+    await ev(`window.__pt.startPlay()`);
+    const snd = await ev(`JSON.stringify((() => {
+      const snd = window.__solmarina.sound;
+      const out = { ctxBefore: !!snd.ctx, volumeBefore: snd.volume };
+      snd.ensure();
+      out.ctxState = snd.ctx ? snd.ctx.state : null;
+      out.masterGain = snd.master ? +snd.master.gain.value.toFixed(2) : null;
+      snd.horn();
+      snd.siren(true, 20);
+      snd.footsteps(true, 0.4);
+      snd.footsteps(true, 0.4);
+      out.hornSirenSteps = 'no-throw';
+      return out;
+    })())`, true).catch((e) => ({ error: String(e) }));
+    await sleep(900); // siren gain slews with a 0.2 s time constant
+    // the main loop drives the siren from the live wanted level, so the
+    // test's siren(true) above is overridden while wanted is 0 — measure
+    // it at wanted 2 instead, which is what real play does
+    await ev(`window.__pt.setWanted(2)`);
+    await sleep(1500);
+    const sirenAfter = await ev(`JSON.stringify({ wanted: window.__solmarina.world.state.wanted, sirenGain: window.__solmarina.sound.sirenGain ? +window.__solmarina.sound.sirenGain.gain.value.toFixed(3) : null, nearestCop: Math.round(Math.min(...window.__solmarina.world.state.police.map((pc) => Math.hypot(pc.x - window.__solmarina.world.state.player.x, pc.z - window.__solmarina.world.state.player.z)))) })`);
+    const vols = await ev(`JSON.stringify((() => {
+      const snd = window.__solmarina.sound;
+      return [snd.cycleVolume(), snd.cycleVolume(), snd.cycleVolume(), snd.cycleVolume()];
+    })())`, true).catch((e) => ({ error: String(e) }));
+    log('sound', { ...(typeof snd === 'string' ? JSON.parse(snd) : snd), sirenGainAfter0_9s: JSON.parse(sirenAfter).sirenGain, volumeCycle: typeof vols === 'string' ? JSON.parse(vols) : vols });
+    // real keys: H horn, V volume (station line shows the new volume)
+    await keyTap('KeyH', 'h'); await sleep(500);
+    await keyTap('KeyV', 'v'); await sleep(500);
+    const radio = await ev(`document.getElementById('station-name').textContent`);
+    log('sound-keys', { radioLineAfterV: radio });
+    await stats('sound');
   }
 
   // ---------- SYSTEMS: save/load, pause, minimap, radio, day/night, crew ----------
@@ -541,6 +594,33 @@ try {
     const clockHud = await ev(`document.getElementById('clock').textContent`);
     log('systems-day-night', { hourBefore: h0, hourAfter240s: h1, deltaHours: +(h1 - h0).toFixed(2), clockHud });
     await stats('systems');
+  }
+
+  // ---------- WAYPOINT (big map click) ----------
+  if (want('waypoint')) {
+    await ev(`window.__pt.reset(1)`);
+    await ev(`window.__pt.startPlay()`);
+    await keyTap('KeyP', 'p'); await sleep(1200);
+    await ev(`document.querySelector('[data-tab="map"]').click()`);
+    await sleep(600);
+    const bm = await ev(`JSON.stringify((() => { const r = document.getElementById('bigmap').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })())`);
+    const b = JSON.parse(bm);
+    // click at fraction (0.7, 0.3) of the big map -> world (201.6, -120)
+    await clickAt(b.x + b.w * 0.7, b.y + b.h * 0.3); await sleep(600);
+    const wp = await ev(`JSON.stringify({ waypoint: window.__solmarina.world.state.waypoint, line: document.getElementById('waypoint-line').textContent, wpMarkerVisible: window.__solmarina.renderer.wpMarker.visible, expected: { x: Math.round(-336 + 0.7 * 768), z: Math.round(-336 + 0.3 * 720) } })`);
+    log('waypoint-set', JSON.parse(wp));
+    await sleep(1500); await shot('18-waypoint-map');
+    // resume and drive to it: the waypoint must clear on arrival
+    await ev(`document.getElementById('btn-resume').click()`);
+    await sleep(800);
+    const clear = await ev(`JSON.stringify((() => {
+      const W = window.__solmarina.world, s = W.state;
+      const wp = s.waypoint;
+      const r = window.__pt.driveTo(wp.x, wp.z, { timeout: 180, arriveR: 10 });
+      return { driveOk: r.ok, time: r.time, reason: r.reason || null, waypointAfter: s.waypoint, lineAfter: document.getElementById('waypoint-line').textContent };
+    })())`, true).catch((e) => ({ error: String(e) }));
+    log('waypoint-arrive', typeof clear === 'string' ? JSON.parse(clear) : clear);
+    await stats('waypoint');
   }
 
   // ---------- HUD at 1280x720 and 640x360 ----------

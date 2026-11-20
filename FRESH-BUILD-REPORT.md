@@ -352,6 +352,132 @@ traffic ahead + parked cars on the edges, market/nightmarket show a real
 crowd + vendors + string lights, beach shows goers + sailboat + third
 umbrella row. NOT submitted — last slot untouched, awaiting syarif's word.
 
+## Phase 2 — close the 6 gaps (21 Nov, "buat 100% semuanya")
+
+All six items from the playtest report are implemented and verified.
+M1–M4 still complete GOLD (`won=true`) after all changes.
+
+### 1. 5th weapon — MAR-7 rifle (key 5)
+- `sim.js`: `WEAPONS['MAR-7'] = {dmg: 70, range: 40, spread: 0.06, mag: 8}`;
+  `WEAPON_ORDER` is now `['FISTS','SOL-9','SMG','12G','MAR-7']`;
+  `ammoStore['MAR-7'] = {ammo: 24, reserve: 48}`.
+- `main.js`: `FIRE_INTERVAL['MAR-7'] = 600`; weapon keys extended Digit1–Digit5.
+- `hud.js` + `index.html`: 5th `.wslot` (`5 MAR-7`); controls line says `1–5`.
+- Playtest (`combat-mar7`): Digit5 → MAR-7, ammo 24, reserve 48; killed a
+  gunman at 30 m in 2 shots (0.1 s), +$50, wanted 2. Reload: MAR-7 3→8,
+  reserve 90→85. Shooting from a car still blocked (ammo 48→48).
+
+### 2. Police roadblock
+- `sim.js`: at wanted ≥ 3, with ≥ 3 police and the hero travelling on a road,
+  3 cruisers form a block 60 m ahead (perpendicular offsets −3.6/0/+3.6 m,
+  outer cars angled ±0.45 so the three span the 12 m road), staged 22 m past
+  the block so they drive in and are set before the hero arrives. Blockers
+  hold still facing the oncoming hero. Release on 40 s timer, hero 25 m past,
+  or wanted < 3; 45 s cooldown after clearing. The gold-van route stays
+  > 30 m clear of the block point. Traffic also stops for blocking cruisers.
+  Breach: ramming a blocker at speed > 8 → +5 damage, speed ×0.55, blocker
+  shoved 4 m, event "Roadblock breached". HUD: event-feed line + orange
+  square on minimap/big map.
+- Playtest (`roadblock`): formed t=0 at (−12, 0), 3 blockers, in position
+  t=3.1 while the hero was still 22 m short, breach t=5.3 (+5 dmg), hero
+  through to x=50.6, block cleared. The roadblock also fired live during
+  the M4 escape ("KPD roadblock ahead — find another route") and M4 still
+  finished GOLD. Minor: the breach radius can catch a side blocker too, so
+  the event can appear twice — cosmetic only.
+
+### 3. Full sound (procedural WebAudio)
+- `sound.js`: `horn()` (two-tone 370 + 466 Hz square, 0.35 s); persistent
+  police siren (triangle ~950 Hz swept ±260 Hz by a 0.55 Hz LFO, gain driven
+  per frame); `footsteps(moving, dt)` (filtered-noise thud every 0.38 s,
+  alternating pitch); `cycleVolume()` 50% → 25% → mute → 100% → 50% with
+  `volumeLabel()`. Siren target gain `max(0.015, min(0.09, 0.12 − dist·0.0006))`.
+- `main.js`: KeyH → horn; KeyV → volume cycle (station line shows
+  `station · VOL x%`); per-frame `sound.siren(wanted > 0, nearestCop)` +
+  `sound.footsteps(walking, STEP)`.
+- Playtest (`sound`): ctx `running`, masterGain 0.5, volume cycle
+  `[VOL 25%, MUTED, VOL 100%, VOL 50%]`, radio line after V:
+  "SOL 98.1 · COAST FM · VOL 25%", siren gain 0.078 at wanted 2 (target
+  0.09, slewing with a 0.2 s constant — correct).
+
+### 4. Waypoint on the big map
+- `sim.js`: state `waypoint: null`, cleared when the hero comes within 12 m
+  (event "Waypoint reached"). `main.js` `handleAction('waypoint')` sets it;
+  tapping within 15 m of the existing waypoint clears it.
+- `hud.js`: big-map canvas (`#bigmap`, 480×450) in the pause MAP tab; click
+  sets the waypoint (same world mapping as the minimap); `drawMap` refactored
+  to `drawMapOn(ctx, W, H)` shared by minimap + big map; waypoint drawn as a
+  cyan diamond + ring on both maps; roadblock as an orange square; mission
+  panel shows `◆ WAYPOINT <dist> m <compass>` (N = −z, E = +x); big map
+  redraws on the 0.15 s timer while paused.
+- `gfx.js`: cyan octahedron `wpMarker` (1 extra draw call, only when a
+  waypoint is set), bobs over the waypoint.
+- Playtest (`waypoint`): real P key → MAP tab → real big-map click at
+  fraction (0.7, 0.3) → waypoint (200.33, −120.64) vs expected (202, −120);
+  line "◆ WAYPOINT 299 m NE"; `wpMarkerVisible: true`; drive-to cleared it
+  in 23.7 s (`waypointAfter: null`).
+
+### 5. Responsive HUD 640×360 — bugs found by measurement, then fixed
+The first 360 pass still overlapped, so the layout was verified with a
+`getBoundingClientRect` probe (not by eye) and fixed until the probe
+reported zero overlaps:
+- **Found:** at 1280×720 the 5th weapon slot was hidden behind the crew
+  panel — `#crew` sat at `top: 340px` but 5 slots make the weapons panel
+  end at ~377 px. Fixed: `#crew { top: 388px }` (desktop). All 5 slots now
+  visible at 720.
+- **Found at 640×360:** crew strip × mission panel (36 px), feed × crew
+  strip (7 px), vitals × dialog (21 px), rank bar × weapons panel (16 px).
+  Root cause: panels have no `border-box`, so each is 16–22 px wider than
+  its CSS width (padding + border).
+- **Fixes (media query ≤ 700 px only):** mission 164 px; crew strip
+  compacted (gap 6 px, font 10 px, READY status + crew-name suffix hidden
+  — ability name + key badge stay); dispatch top 116 px; district-panel
+  width 170 px; vitals 150 px; dialog 238 px (260 px border-box); rank
+  padding 4 px 6 px; weapons top 142 px; radio line hidden.
+- **Verified:** rect probe at 640×360 reports `overlaps: []` — mission
+  8–190, crew 194–446, feed 220–420, dispatch 199–441, top-right 482–632,
+  weapons 458–632, district 8–196, minimap 8–96, vitals 8–180, dialog
+  190–450, speed 565–632. Screenshots `15-hud-720` + `16-hud-360` viewed:
+  every panel readable at both sizes, dialog clear of vitals, rank bar
+  fully visible. Trade-off: at ≤ 700 px the crew rows show only key +
+  ability name (no crew-member name, no READY/COOLDOWN status).
+
+### 6. 60 FPS audit — honest statement
+- `gfx.js`: per-frame `new THREE.Vector3` for the sun direction replaced
+  with a reused module-level `sunDirTmp`.
+- `hud.js`: new `setWidth()` helper — bar widths (standing, health,
+  armour, RP) only written to the DOM when the value changed (previously
+  every frame).
+- **Honest result: real-hardware FPS cannot be measured in this VM.**
+  Headless Chromium runs on SwiftShader at 1–2 FPS — that is a software-
+  renderer artefact, not a game measurement. What is verified instead: the
+  render budget (max 106/250 draw calls, ~428k/500k triangles — see below)
+  and no heavy per-frame work (no per-frame allocations in the hot path
+  after the two fixes above). **60 FPS on real hardware is NOT claimed.**
+
+### Regression: M1–M4 + render + determinism
+- Playtest `missions`: M1 GOLD (legs 17.9 s / 62 s, +$500), M2 GOLD (+$800),
+  M3 GOLD (tail), M4 GOLD (+$2000, 61.3 s, `won=true`). One M1 run-over
+  ("WANTED HEAT 2 — pedestrian down") is the designed mechanic with the
+  denser peds — mission still GOLD.
+- Driver (all 8 shots, 0 console errors) — calls / triangles, identical to
+  the density round because the waypoint marker is hidden with no waypoint
+  set and the roadblock reuses existing police meshes: cover 106 / 424,902;
+  start 92 / 428,126; play 72 / 418,014; end 69 / 417,210; market 55 /
+  423,286; nightmarket 55 / 423,286; beach 64 / 422,350; chase 102 /
+  425,282. Budget ≤ 250 calls, ≤ 500k triangles.
+- Determinism re-verified (Node, 60 s, seed 1): trace hash `811c9dc5`
+  twice (changed from `55ad5650` because the sim content changed — roadblock
+  + MAR-7 + waypoint — which is expected; seed unchanged).
+- `verify-shots/` refreshed with the new 8 PNGs; `playtest/shots/` gains
+  `17-roadblock.png` (cruisers blocking the road, feed line visible) and
+  `18-waypoint-map.png` (cyan waypoint diamond on the big map).
+- Curiosity, not a blocker: the isolated `combat-gunmen` probe reports the
+  kill at 12.1 sim-seconds while an instrumented browser probe of the same
+  sim kills in 3 steps (0.05 s) — the kill itself is confirmed (3 shots,
+  +$50, wanted 2) and the M4 combat kills all 3 gunmen in 0.2–0.4 s each,
+  so the 12 s is scenario-context, not sim logic. NOT submitted — last slot
+  untouched, awaiting syarif's word.
+
 ## What is NOT done / needs a human
 
 - **Not submitted.** No submit, no fee, no slot used — the last slot (3/3) is untouched; submission needs syarif's explicit word (deadline 24 Nov 22:00 WIB).

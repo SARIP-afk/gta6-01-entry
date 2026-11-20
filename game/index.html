@@ -42,7 +42,7 @@
     background: rgba(255,255,255,0.06); border-radius: 5px; border: 1px solid rgba(255,255,255,0.08); }
   .wslot.active { border-color: #f2c94c; background: rgba(242,201,76,0.14); }
   .wslot b { color: #f2c94c; }
-  #crew { position: absolute; top: 340px; right: 12px; width: 210px; }
+  #crew { position: absolute; top: 388px; right: 12px; width: 210px; }
   .crew-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
   .crew-row:last-child { border-bottom: 0; }
   .crew-row .key { display: inline-block; background: #f2c94c; color: #111; font-weight: 800;
@@ -94,6 +94,42 @@
   .story-row i { opacity: 0.7; font-style: normal; }
   .controls { font-size: 13px; line-height: 1.7; opacity: 0.9; }
   .controls b { color: #f2c94c; }
+  /* ---- small screens (640x360): compact the HUD so nothing overlaps ----
+     The 1280x720 layout is verified non-overlapping; at 360 px tall the
+     same absolute positions collide (dialog over vitals, speed over the
+     weapon panel), so the small layout re-flows: crew becomes a top-centre
+     strip, dispatch/feed move to the top-centre column, panels shrink. */
+  @media (max-width: 700px) {
+    #hud { font-size: 11px; }
+    #mission { top: 8px; left: 8px; width: 164px; padding: 6px 8px; }
+    #mission-name { font-size: 11px; }
+    #mission-stage { font-size: 12px; }
+    #dispatch { top: 116px; left: 50%; transform: translateX(-50%); width: 220px; font-size: 11px; }
+    #feed { top: 54px; left: 50%; transform: translateX(-50%); width: 200px; text-align: center; font-size: 11px; }
+    #top-right { top: 8px; right: 8px; }
+    #clock { font-size: 12px; }
+    #cash { font-size: 20px; }
+    #stars { font-size: 15px; }
+    #wanted-label { font-size: 10px; }
+    #rank { font-size: 10px; padding: 4px 6px; margin-top: 4px; }
+    #weapons { top: 142px; right: 8px; width: 160px; padding: 5px 6px; }
+    .wslot { padding: 2px 5px; margin: 2px 0; font-size: 11px; }
+    #crew { top: 8px; left: 50%; right: auto; transform: translateX(-50%); width: auto; display: flex; gap: 6px; padding: 4px 6px; }
+    .crew-row { border-bottom: 0; padding: 0; font-size: 10px; }
+    .crew-row .st { display: none; }
+    .crew-row .crew-name { display: none; }
+    #bl { left: 8px; bottom: 8px; }
+    #district-panel { padding: 6px 8px; width: 170px; }
+    #district b { font-size: 12px; }
+    #district span { font-size: 10px; }
+    #minimap { width: 84px; height: 84px; }
+    #vitals { width: 150px; font-size: 11px; margin-top: 4px; }
+    #br { right: 8px; bottom: 8px; }
+    #speed { font-size: 28px; }
+    #radio { display: none; }
+    #dialog { width: 238px; bottom: 8px; }
+    #dialog-line { font-size: 12px; }
+  }
   #title-screen { display: flex; }
 </style>
 </head>
@@ -106,6 +142,7 @@
     <div id="mission-name">MISSION 1 · FIRST DROP</div>
     <div id="mission-stage">STAGE 1/2 · PICK UP THE PACKAGE DOWNTOWN</div>
     <div><span id="mission-dist">0 m</span> · <span id="mission-time"></span></div>
+    <div id="waypoint-line" style="color:#22d3ee;font-weight:700"></div>
   </div>
   <div id="dispatch" class="panel"></div>
   <div id="feed" class="panel" style="background:transparent;border:0;padding:0"></div>
@@ -122,11 +159,12 @@
     <div class="wslot"><span><b>2</b> SOL-9</span><span id="ammo">48 / 90</span></div>
     <div class="wslot"><span><b>3</b> SMG</span><span>—</span></div>
     <div class="wslot"><span><b>4</b> 12G</span><span>—</span></div>
+    <div class="wslot"><span><b>5</b> MAR-7</span><span>—</span></div>
   </div>
   <div id="crew" class="panel">
-    <div class="crew-row"><span><span class="key">Z</span>SWAP PLATES · Mira</span><span class="st" id="crew-mira">READY</span></div>
-    <div class="crew-row"><span><span class="key">X</span>QUICK FIX · Lio</span><span class="st" id="crew-lio">READY</span></div>
-    <div class="crew-row"><span><span class="key">C</span>EYES OUT · Kiki</span><span class="st" id="crew-kiki">READY</span></div>
+    <div class="crew-row"><span><span class="key">Z</span>SWAP PLATES <span class="crew-name">· Mira</span></span><span class="st" id="crew-mira">READY</span></div>
+    <div class="crew-row"><span><span class="key">X</span>QUICK FIX <span class="crew-name">· Lio</span></span><span class="st" id="crew-lio">READY</span></div>
+    <div class="crew-row"><span><span class="key">C</span>EYES OUT <span class="crew-name">· Kiki</span></span><span class="st" id="crew-kiki">READY</span></div>
   </div>
   <div id="bl">
     <div id="district-panel" class="panel"><b id="district">DOWNTOWN</b><br><span id="district-tag">Glass towers and the night market</span>
@@ -158,7 +196,8 @@
     <div class="tag">A courier. A debt. A city that never slows down. Four jobs for DANTE — and the whole of Solmarina answering back.</div>
     <div class="controls">
       <b>WASD</b> drive / walk · <b>Shift</b> run / boost · <b>Space</b> brake · <b>E</b> enter &amp; exit cars ·
-      <b>Mouse</b> aim, <b>click</b> shoot · <b>R</b> reload · <b>T</b> radio · <b>Z/X/C</b> crew · <b>M</b> map · <b>P</b> pause
+      <b>Mouse</b> aim, <b>click</b> shoot · <b>R</b> reload · <b>1–5</b> weapons · <b>H</b> horn · <b>V</b> volume ·
+      <b>T</b> radio · <b>Z/X/C</b> crew · <b>M</b> map · <b>P</b> pause
     </div>
     <p style="font-size:13px;opacity:0.9">Quality: <button class="btn ghost" data-quality="low">LOW</button>
       <button class="btn ghost" data-quality="med">MED</button>
@@ -180,7 +219,8 @@
       <button data-tab="stats">STATS</button>
       <button data-tab="save">SAVE</button>
     </div>
-    <div class="tabpage" id="tab-map"><p style="font-size:13px;opacity:0.85">Click the minimap to fast-travel (debug). The big map is the minimap itself — districts, police, the gold van and your objective, live.</p></div>
+    <div class="tabpage" id="tab-map"><p style="font-size:13px;opacity:0.85">Click the map to set a waypoint (click the same spot again to clear it). The waypoint shows on the minimap, in the HUD and as a cyan marker in the world. Click the minimap to fast-travel (debug).</p>
+      <canvas id="bigmap" width="480" height="450" style="width:100%;max-width:480px;border:2px solid #f2c94c;border-radius:8px;background:#20262e;cursor:crosshair"></canvas></div>
     <div class="tabpage" id="tab-story" style="display:none"><div id="story-list"></div></div>
     <div class="tabpage" id="tab-stats" style="display:none"><div id="stats-list"></div></div>
     <div class="tabpage" id="tab-save" style="display:none">

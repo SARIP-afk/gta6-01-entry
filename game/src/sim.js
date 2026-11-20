@@ -50,8 +50,9 @@ export const WEAPONS = {
   'SOL-9': { dmg: 34, range: 26, spread: 0.12, mag: 12 },
   'SMG': { dmg: 16, range: 22, spread: 0.16, mag: 30 },
   '12G': { dmg: 55, range: 14, spread: 0.28, mag: 6 },
+  'MAR-7': { dmg: 70, range: 40, spread: 0.06, mag: 8 },
 };
-export const WEAPON_ORDER = ['FISTS', 'SOL-9', 'SMG', '12G'];
+export const WEAPON_ORDER = ['FISTS', 'SOL-9', 'SMG', '12G', 'MAR-7'];
 const WANTED_TIERS = ['CLEAR', 'HEAT 1', 'HEAT 2', 'HEAT 3', 'HEAT 4', 'MAXIMUM FORCE'];
 const CAR_COLORS = ['#c0392b', '#2980b9', '#f1c40f', '#ecf0f1', '#2c3e50', '#e67e22', '#16a085', '#8e44ad'];
 const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
@@ -82,10 +83,12 @@ function resetWorld(world, seed) {
     player: { x: SPAWN.x, z: SPAWN.z, heading: SPAWN.heading, mode: 'car', health: 95, armour: 27, speed: 0, walkPhase: 0 },
     heroCar: { x: SPAWN.x, z: SPAWN.z + 4, heading: SPAWN.heading, speed: 0, damage: 0, color: '#e74c3c', model: 'SOLMAR GT', kind: 'sport' },
     ammo: 48, reserve: 90, weapon: 'SOL-9',
-    ammoStore: { 'SOL-9': { ammo: 48, reserve: 90 }, 'SMG': { ammo: 120, reserve: 180 }, '12G': { ammo: 12, reserve: 24 } },
+    ammoStore: { 'SOL-9': { ammo: 48, reserve: 90 }, 'SMG': { ammo: 120, reserve: 180 }, '12G': { ammo: 12, reserve: 24 }, 'MAR-7': { ammo: 24, reserve: 48 } },
     wanted: 0, wantedTimer: 0, heat: 0,
     traffic: [], peds: [], police: [], gunmen: [],
     van: null, tailTime: 0,
+    roadblock: null, roadblockCooldown: 0, // {x, z, dirX, dirZ, timer}
+    waypoint: null, // {x, z} set from the big map; cleared on arrival
     heli: { x: 0, z: -100, alt: 55, active: false, angle: 0, staged: false },
     missions: { active: 0, stage: 0, started: false, missionTime: 0, done: [false, false, false, false], dialog: null, dialogTimer: 0 },
     objective: { x: DOWNTOWN_PICKUP.x, z: DOWNTOWN_PICKUP.z, label: 'Pick up the package downtown' },
@@ -318,9 +321,30 @@ function stepWorld(world, dt, input) {
         if (s.wanted < 1 && Math.abs(car.speed) > 10) setWanted(s, 1, 'hit and run');
       }
     }
+    // hero rams a roadblock cruiser: damage + shove it aside, breach the block
+    for (const pc of s.police) {
+      if (!pc.blocking) continue;
+      if (dist2(car.x, car.z, pc.x, pc.z) < 20 && Math.abs(car.speed) > 8 && s.hitCooldown <= 0) {
+        car.damage = Math.min(100, car.damage + 5);
+        car.speed *= 0.55;
+        s.hitCooldown = 0.4;
+        const px = Math.cos(car.heading), pz = -Math.sin(car.heading);
+        const nx = pc.x + px * 4, nz = pc.z + pz * 4;
+        if (!hitsBuilding(world, nx, nz)) { pc.x = nx; pc.z = nz; }
+        pc.blocking = false;
+        logEvent(s, 'Roadblock breached');
+      }
+    }
   }
 
-  // ---- shooting (current weapon's damage / range / spread) ----
+  // ---- waypoint: cleared when the hero arrives ----
+  if (s.waypoint && dist2(heroX, heroZ, s.waypoint.x, s.waypoint.z) < 144) {
+    s.waypoint = null;
+    logEvent(s, 'Waypoint reached');
+  }
+
+  // ---- roadblock cooldown ----
+  if (s.roadblockCooldown > 0) s.roadblockCooldown -= dt;
   const w = WEAPONS[s.weapon] || WEAPONS['SOL-9'];
   if (input.shoot && w.dmg > 0 && s.ammo > 0 && p.mode === 'walk') {
     s.ammo--; s.shotsFired++;
@@ -378,6 +402,21 @@ function stepWorld(world, dt, input) {
         blocked = c.speed < 0.5;
       }
       pedPush(c);
+    }
+    // stop for a roadblock cruiser in the path ahead, same as for the hero
+    if (!blocked) {
+      for (const pc of s.police) {
+        if (!pc.blocking) continue;
+        const fx = Math.cos(c.heading), fz = -Math.sin(c.heading);
+        const dx = pc.x - c.x, dz = pc.z - c.z;
+        const fwd = dx * fx + dz * fz;
+        const lat = Math.abs(dx * Math.sin(c.heading) + dz * Math.cos(c.heading));
+        if (fwd > 0 && fwd < 12 && lat < 3.5) {
+          c.speed = Math.max(0, c.speed - 25 * dt);
+          blocked = c.speed < 0.5;
+          break;
+        }
+      }
     }
     if (!blocked) {
       // axis-separated move so a car can never end up inside a building
@@ -472,11 +511,83 @@ function stepWorld(world, dt, input) {
     s.police.push({
       x: clamp(heroX + Math.cos(a) * 70, GRID_MIN, 400), z: clamp(heroZ + Math.sin(a) * 70, GRID_MIN, 300),
       heading: 0, speed: 0, search: 0, siren: rng() * 10,
+      blocking: false, blockX: 0, blockZ: 0, blockHeading: 0, blockTimer: 0,
     });
   }
   while (s.police.length > wantCount) s.police.pop();
+  // ---- roadblock: at wanted >= 3 three cruisers set up across the road
+  // ahead of the hero — the hero must go around or ram through. Three
+  // angled cars span the 12 m road (two cars at +/-3.2 m leave a 4.5 m
+  // middle gap the hero threads untouched); only assigned while the hero
+  // is actually travelling on a road.
+  if (s.wanted >= 3 && !s.roadblock && s.roadblockCooldown <= 0 && s.police.length >= 3) {
+    const h = p.mode === 'car' ? car.heading : p.heading;
+    const fx = Math.cos(h), fz = -Math.sin(h);
+    let bx, bz, dirX, dirZ, perpX, perpZ, onRoadPath;
+    if (Math.abs(fx) > Math.abs(fz)) {
+      bx = heroX + fx * 60; bz = nearestRoad(heroZ);
+      dirX = Math.sign(fx); dirZ = 0; perpX = 0; perpZ = 1;
+      onRoadPath = Math.abs(heroZ - nearestRoad(heroZ)) < 8;
+    } else {
+      bx = nearestRoad(heroX); bz = heroZ + fz * 60;
+      dirX = 0; dirZ = Math.sign(fz); perpX = 1; perpZ = 0;
+      onRoadPath = Math.abs(heroX - nearestRoad(heroX)) < 8;
+    }
+    bx = clamp(bx, GRID_MIN, 400); bz = clamp(bz, GRID_MIN, 300);
+    // keep the gold van's route clear — a block on it would clip the van
+    const vanClear = Math.hypot(s.van.x - bx, s.van.z - bz) > 30;
+    if (onRoadPath && vanClear) {
+      // pick the cruisers nearest the BLOCK point (not the hero) — they
+      // have the shortest drive to their positions, so the block is set
+      // before the hero arrives
+      const sorted = [...s.police].sort((a, b) => Math.hypot(a.x - bx, a.z - bz) - Math.hypot(b.x - bx, b.z - bz));
+      const blockHeading = Math.atan2(dirZ, -dirX); // face the oncoming hero
+      [-3.6, 0, 3.6].forEach((off, i) => {
+        const pc = sorted[i];
+        // stage just past the block, on the road (6 m off-centre, clear of
+        // building faces) — the cruisers drive the last stretch into
+        // position, so the block forms before the hero arrives instead of
+        // racing him from 70 m away
+        pc.x = bx + dirX * 22 + perpX * (i - 1) * 6;
+        pc.z = bz + dirZ * 22 + perpZ * (i - 1) * 6;
+        pc.speed = 12;
+        pc.blocking = true;
+        pc.blockX = bx + perpX * off; pc.blockZ = bz + perpZ * off;
+        // outer cars angle in, so the three span the road with no gap
+        pc.blockHeading = blockHeading + (i === 0 ? 0.45 : i === 2 ? -0.45 : 0);
+        pc.blockTimer = 40;
+      });
+      s.roadblock = { x: bx, z: bz, dirX, dirZ, timer: 40 };
+      logEvent(s, 'KPD roadblock ahead — find another route');
+    }
+  }
   for (const pc of s.police) {
     const d = Math.hypot(heroX - pc.x, heroZ - pc.z);
+    if (pc.blocking) {
+      // drive to the block position, then hold still facing the hero
+      pc.blockTimer -= dt;
+      const bd = Math.hypot(pc.blockX - pc.x, pc.blockZ - pc.z);
+      const passed = s.roadblock && ((heroX - s.roadblock.x) * s.roadblock.dirX + (heroZ - s.roadblock.z) * s.roadblock.dirZ) > 25;
+      if (pc.blockTimer <= 0 || passed || s.wanted < 3 || !s.roadblock) {
+        pc.blocking = false;
+      } else if (bd > 3) {
+        const want = Math.atan2(-(pc.blockZ - pc.z), pc.blockX - pc.x);
+        pc.heading += clamp(wrapAngle(want - pc.heading), -2.2 * dt, 2.2 * dt);
+        // hurry to the block: faster than the chase cruise, so the block
+        // is set before the hero arrives
+        pc.speed = clamp(pc.speed + 6 * dt, 0, 30);
+        const nx = pc.x + Math.cos(pc.heading) * pc.speed * dt;
+        const nz = pc.z - Math.sin(pc.heading) * pc.speed * dt;
+        if (!hitsBuilding(world, nx, nz)) { pc.x = nx; pc.z = nz; }
+        else if (!hitsBuilding(world, nx, pc.z)) { pc.x = nx; }
+        else if (!hitsBuilding(world, pc.x, nz)) { pc.z = nz; }
+      } else {
+        pc.speed = Math.max(0, pc.speed - 30 * dt);
+        pc.heading += clamp(wrapAngle(pc.blockHeading - pc.heading), -2.2 * dt, 2.2 * dt);
+      }
+      pc.siren += dt;
+      continue; // blockers don't chase or ram
+    }
     const want = Math.atan2(-(heroZ - pc.z), heroX - pc.x);
     pc.heading += clamp(wrapAngle(want - pc.heading), -2.2 * dt, 2.2 * dt);
     pc.speed = clamp(pc.speed + (d > 12 ? 4 : -6) * dt, 0, s.wanted >= 4 ? 30 : 26);
@@ -501,6 +612,16 @@ function stepWorld(world, dt, input) {
       s.hitCooldown = 0.4;
     }
     if (d > 130) pc.search += dt; else pc.search = 0;
+  }
+  // roadblock lifecycle: clear when no cruiser is blocking any more
+  if (s.roadblock) {
+    s.roadblock.timer -= dt;
+    const anyBlocking = s.police.some((pc) => pc.blocking);
+    if (!anyBlocking || s.roadblock.timer <= 0) {
+      for (const pc of s.police) pc.blocking = false;
+      s.roadblock = null;
+      s.roadblockCooldown = 45;
+    }
   }
   // wanted decays when hidden: far from police, in safehouse, or standing still off-road
   if (s.wanted > 0) {

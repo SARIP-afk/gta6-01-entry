@@ -24,7 +24,7 @@ let pressed = {}; // edge-triggered latch: a quick tap must survive until the
 // flag before readInput ever runs (E taps were silently lost headless)
 let mouse = { x: 0, y: 0, down: false };
 let lastShot = 0;
-const FIRE_INTERVAL = { 'FISTS': 0, 'SOL-9': 180, 'SMG': 90, '12G': 450 };
+const FIRE_INTERVAL = { 'FISTS': 0, 'SOL-9': 180, 'SMG': 90, '12G': 450, 'MAR-7': 600 };
 
 function handleAction(action, arg) {
   const s = world.state;
@@ -53,6 +53,11 @@ function handleAction(action, arg) {
     s.player.x = arg.x; s.player.z = arg.z;
     s.heroCar.x = arg.x; s.heroCar.z = arg.z;
     s.screen = 'play';
+  } else if (action === 'waypoint') {
+    // big-map click: set a waypoint; tap the same spot again to clear it
+    const w = s.waypoint;
+    if (w && Math.hypot(w.x - arg.x, w.z - arg.z) < 15) s.waypoint = null;
+    else s.waypoint = { x: arg.x, z: arg.z };
   }
 }
 
@@ -67,9 +72,13 @@ window.addEventListener('keydown', (e) => {
   else if ((e.code === 'KeyP' || e.code === 'Escape') && s.screen === 'pause') { s.screen = 'play'; }
   else if (e.code === 'KeyT' && s.screen === 'play') {
     document.getElementById('station-name').textContent = sound.setStation(sound.station + 1);
-  } else if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code) && s.screen === 'play') {
+  } else if (['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].includes(e.code) && s.screen === 'play') {
     setWeapon(world, Number(e.code.slice(-1)) - 1);
     sound.blip(520);
+  } else if (e.code === 'KeyH' && s.screen === 'play') {
+    sound.horn();
+  } else if (e.code === 'KeyV' && s.screen === 'play') {
+    document.getElementById('station-name').textContent = `${sound.stationName()} · ${sound.cycleVolume()}`;
   } else if (e.code === 'KeyZ' && s.screen === 'play' && s.crew.mira <= 0) {
     s.crew.mira = 30; s.wanted = Math.max(0, s.wanted - 1);
     s.missions.dialog = { speaker: 'MIRA', line: 'Plates swapped. They\'re looking for a different car now.' };
@@ -161,6 +170,11 @@ function frame(t) {
     world.step(STEP, readInput());
     sound.tick();
     sound.engine(s.heroCar.speed, s.player.mode === 'car');
+    // police siren follows the nearest cruiser; footsteps while walking
+    const nearestCop = s.police.reduce((m, pc) => Math.min(m, Math.hypot(s.player.x - pc.x, s.player.z - pc.z)), 999);
+    sound.siren(s.wanted > 0, nearestCop);
+    const walking = s.player.mode === 'walk' && (keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD || keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight);
+    sound.footsteps(walking, STEP);
   }
   renderer.update(STEP);
   hud.update(STEP);

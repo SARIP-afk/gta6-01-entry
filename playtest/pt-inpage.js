@@ -759,10 +759,60 @@ window.__pt = (() => {
     };
   }
 
+  function probeRoadblock() {
+    // SETUP: wanted 3, hero driving east on the z=0 road. The block must
+    // form ahead, the three cruisers must reach their positions and HOLD
+    // (speed ~0), and the hero ramming the centre must breach it (+5 dmg,
+    // 'Roadblock breached' event) and pass through.
+    W.reset(1); S().screen = 'play';
+    teleport(-72, 0, 'car');
+    S().heroCar.heading = 0; S().heroCar.speed = 10;
+    S().wanted = 3;
+    let formedAt = null, inPosAt = null, breachAt = null;
+    const maxSteps = Math.round(25 / STEP);
+    for (let i = 0; i < maxSteps; i++) {
+      const s = S();
+      if (s.gameOver) break;
+      W.step(STEP, driveInput(240, 0));
+      if (s.roadblock && !formedAt) formedAt = { t: +(i * STEP).toFixed(1), x: Math.round(s.roadblock.x), z: Math.round(s.roadblock.z), blockers: s.police.filter((p) => p.blocking).length };
+      const blk = s.police.filter((p) => p.blocking);
+      if (blk.length === 3 && blk.every((p) => Math.hypot(p.blockX - p.x, p.blockZ - p.z) < 3 && p.speed < 1) && !inPosAt) {
+        inPosAt = { t: +(i * STEP).toFixed(1), heroX: +s.heroCar.x.toFixed(1), positions: blk.map((p) => ({ x: +p.x.toFixed(1), z: +p.z.toFixed(1), speed: +p.speed.toFixed(1) })) };
+      }
+      if (s.events[0] === 'Roadblock breached' && !breachAt) breachAt = { t: +(i * STEP).toFixed(1), heroX: +s.heroCar.x.toFixed(1), dmg: Math.round(s.heroCar.damage) };
+      if (breachAt && s.heroCar.x > 60) break;
+    }
+    const s = S();
+    return { formedAt, inPosAt, breachAt, roadblockNow: s.roadblock, heroX: +s.heroCar.x.toFixed(1), dmg: Math.round(s.heroCar.damage), events: s.events.slice(0, 3), ...snap() };
+  }
+
+  async function probeWeapon5() {
+    // 5th weapon (MAR-7 rifle, key 5): select it, verify ammo, then kill
+    // a gunman at 30 m — dmg 70, range 40, so two hits kill.
+    const m = await import('/src/sim.js');
+    W.reset(1); S().screen = 'play';
+    const name = m.setWeapon(W, 4);
+    const s = S();
+    const selected = { weapon: name, ammo: s.ammo, reserve: s.reserve, mag: m.WEAPONS[name].mag, range: m.WEAPONS[name].range, dmg: m.WEAPONS[name].dmg };
+    s.missions.active = 3; s.missions.stage = 0; s.missions.started = true;
+    teleport(-72, 48, 'walk');
+    s.player.health = 100; s.player.armour = 27;
+    W.step(STEP, noInput()); // spawn gunmen
+    const g = s.gunmen[0];
+    g.x = s.player.x + 30; g.z = s.player.z; // 30 m, inside the 40 m range
+    const before = { hp: g.hp, ammo: s.ammo, shots: s.shotsFired };
+    const r = shootAt(g, { timeout: 30 });
+    const out = { selected, before, shoot: { killed: r.killed, time: r.time, shotsFired: r.after ? r.after.shots - r.before.shots : null }, gunmanHp: g.hp, ...snap() };
+    // leave a clean world: the next combat test targets gunmen[0]
+    W.reset(1); S().screen = 'play';
+    return out;
+  }
+
   return {
     snap, reset, startPlay, ff, teleport, setWanted, setHealth, damageCar, pinClock, unpinClock,
     driveTo, walkTo, exitCar, ensureInCar, shootAt,
     probeTrafficPed, probeTrafficPedStop, probeTrafficTraffic, probeCarBuildingLive, probeWalkBuilding, probePoliceBuilding, probeTopSpeed, debugReenter, traceDrive,
+    probeRoadblock, probeWeapon5,
     mission1, mission2, mission3, mission4,
     driveInput, walkInput, noInput, step,
     saveLoad: async (slot) => {

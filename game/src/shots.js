@@ -122,6 +122,8 @@ export function stageShot(name, world) {
       [307, 235, Math.PI / 2], [313, 205, -Math.PI / 2],
       [307, 175, Math.PI / 2], [313, 140, -Math.PI / 2],
       [307, 105, Math.PI / 2], [313, 70, -Math.PI / 2],
+      [307, 40, Math.PI / 2], [313, 10, -Math.PI / 2],
+      [307, -20, Math.PI / 2], [313, -50, -Math.PI / 2],
     ];
     for (let i = 0; i < coverCars.length; i += 1) {
       const c = s.traffic.cars[i];
@@ -131,7 +133,8 @@ export function stageShot(name, world) {
       c.tx = 312;
       c.tz = coverCars[i][2] > 0 ? -100 : 300;
     }
-    // Two cruisers in the frame: one ahead in the chase, one just behind the hero.
+    // Three cruisers in the frame: one ahead in the chase, one just behind the
+    // hero, one closing from the beach side.
     if (s.police.units[0]) {
       s.police.units[0].x = s.heroCar.x;
       s.police.units[0].z = s.heroCar.z - 34;
@@ -142,9 +145,14 @@ export function stageShot(name, world) {
       s.police.units[1].z = s.heroCar.z + 26;
       s.police.units[1].heading = Math.PI / 2;
     }
+    if (s.police.units[2]) {
+      s.police.units[2].x = s.heroCar.x + 8;
+      s.police.units[2].z = s.heroCar.z - 14;
+      s.police.units[2].heading = Math.PI / 2;
+    }
     // Walkers on the sidewalks along the coastal road, in the frame — the nearest
     // four on the beach by the camera, so the street reads as lived-in.
-    const coverPeds = [[300, 298], [320, 288], [305, 278], [318, 268], [304.5, 200], [319.5, 150], [304.5, 100], [319.5, 60]];
+    const coverPeds = [[300, 298], [320, 288], [305, 278], [318, 268], [304.5, 200], [319.5, 150], [304.5, 100], [319.5, 60], [296, 292], [326, 296], [332, 282], [292, 282]];
     for (let i = 0; i < coverPeds.length; i += 1) {
       const p = s.traffic.peds[i];
       p.x = coverPeds[i][0];
@@ -182,6 +190,35 @@ export function stageShot(name, world) {
     if (s.player.health <= 0) break;
   }
   // Stage, not sim: play shows a working chase at most wanted 2, end shows wanted 3.
+  if (name === 'play') {
+    // Densify the frame: traffic ahead on the hero's road and walkers on the
+    // sidewalks beside it, so the play shot is a chase, not an empty street.
+    const focus = s.player.mode === 'car' ? s.heroCar : s.player;
+    const fx = Math.cos(focus.heading);
+    const fz = -Math.sin(focus.heading);
+    const rx = Math.sin(focus.heading);
+    const rz = Math.cos(focus.heading);
+    for (let i = 0; i < 5; i += 1) {
+      const c = s.traffic.cars[i];
+      const d = 16 + i * 13;
+      const lat = i % 2 === 0 ? 3.2 : -3.2;
+      c.x = focus.x + fx * d + rx * lat;
+      c.z = focus.z + fz * d + rz * lat;
+      c.heading = i % 2 === 0 ? focus.heading : focus.heading + Math.PI;
+      c.tx = focus.x + fx * 200;
+      c.tz = focus.z + fz * 200;
+    }
+    for (let i = 0; i < 6; i += 1) {
+      const p = s.traffic.peds[i];
+      const d = 8 + i * 9;
+      const lat = i % 2 === 0 ? 6 : -6;
+      p.x = focus.x + fx * d + rx * lat;
+      p.z = focus.z + fz * d + rz * lat;
+      p.heading = i % 2 === 0 ? focus.heading + Math.PI / 2 : focus.heading - Math.PI / 2;
+      p.phase = i * 1.3;
+      p.down = false;
+    }
+  }
   if (name === 'end') {
     s.police.setWanted(3, []);
     s.heroCar.damage = 0;

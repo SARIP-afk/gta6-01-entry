@@ -81,6 +81,21 @@ function roadTexture(city) {
   // Beach sand on the south strip, sea blue past the pier.
   g.fillStyle = '#d9b380';
   g.fillRect(0, toZ(208), S, S - toZ(208));
+  // Sand grain: dense two-tone speckle so the beach is texture, not a tan sheet.
+  for (let i = 0; i < 5200; i += 1) {
+    const sx = speckRnd() * S;
+    const sz = toZ(208) + speckRnd() * (S - toZ(208));
+    g.fillStyle = speckRnd() < 0.45 ? 'rgba(120,85,45,0.28)' : speckRnd() < 0.75 ? 'rgba(255,235,200,0.30)' : 'rgba(90,60,30,0.20)';
+    g.fillRect(sx, sz, 2.2, 2.2);
+  }
+  // Footprints: short paired dashes wandering the sand, deterministic.
+  g.fillStyle = 'rgba(110,80,45,0.35)';
+  for (let i = 0; i < 260; i += 1) {
+    const fx = speckRnd() * S;
+    const fz = toZ(215) + speckRnd() * (S - toZ(215) - 8);
+    g.fillRect(fx, fz, 2.5, 1.6);
+    g.fillRect(fx + 3, fz + 2, 2.5, 1.6);
+  }
   // Dune bands across the sand so the beach is not one flat sheet.
   g.strokeStyle = 'rgba(120,90,50,0.25)';
   g.lineWidth = 3;
@@ -96,15 +111,35 @@ function roadTexture(city) {
   }
   g.fillStyle = '#1f5f7e';
   g.fillRect(toX(CITY.pier.x + 10), 0, S - toX(CITY.pier.x + 10), S);
+  // Sea colour bands: deep channels alternating with sunlit shallows.
+  g.fillStyle = 'rgba(8,48,80,0.55)';
+  g.fillRect(toX(CITY.pier.x + 60), 0, 60 / 840 * S, S);
+  g.fillStyle = 'rgba(64,160,190,0.35)';
+  g.fillRect(toX(CITY.pier.x + 10), 0, 26 / 840 * S, S);
+  g.fillStyle = 'rgba(255,220,150,0.18)';
+  g.fillRect(toX(CITY.pier.x + 120), 0, 40 / 840 * S, S);
   // Wet sand and wave lines where the ground meets the sea, east of the pier.
   g.fillStyle = '#cfa96e';
   g.fillRect(toX(CITY.pier.x - 15), 0, 25 / 840 * S, S);
   g.strokeStyle = 'rgba(255,255,255,0.55)';
   g.lineWidth = 2;
-  for (let k = 0; k < 3; k += 1) {
+  for (let k = 0; k < 5; k += 1) {
     g.beginPath();
     for (let z = -364; z <= 364; z += 16) {
-      const px = toX(CITY.pier.x + 12 + k * 8 + Math.sin(z / 40) * 4);
+      const px = toX(CITY.pier.x + 12 + k * 7 + Math.sin(z / 40) * 4);
+      const py = toZ(z);
+      if (z === -364) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+    g.stroke();
+  }
+  // Surf foam: a second, brighter broken line set further out.
+  g.strokeStyle = 'rgba(255,255,255,0.35)';
+  g.lineWidth = 3;
+  for (let k = 0; k < 3; k += 1) {
+    g.beginPath();
+    for (let z = -364; z <= 364; z += 24) {
+      const px = toX(CITY.pier.x + 55 + k * 18 + Math.sin(z / 30 + k) * 6);
       const py = toZ(z);
       if (z === -364) g.moveTo(px, py);
       else g.lineTo(px, py);
@@ -147,8 +182,16 @@ function roadTexture(city) {
   // Causeway to the pier.
   g.fillStyle = '#3a3f46';
   g.fillRect(toX(CITY.gridMax), toZ(-6) - 6 / 728 * S, toX(CITY.pier.x + 20) - toX(CITY.gridMax), 12 / 728 * S);
-  g.fillStyle = '#7a6a4c';
-  g.fillRect(toX(CITY.pier.x - 14), toZ(-22), 28 / 840 * S, 44 / 728 * S);
+  // Pier deck: warm planks with dark joints across the whole deck.
+  g.fillStyle = '#8a6a42';
+  g.fillRect(toX(CITY.pier.x - 18), toZ(-41), 36 / 840 * S, 82 / 728 * S);
+  g.fillStyle = 'rgba(40,25,10,0.5)';
+  for (let z = -41; z < 41; z += 4) {
+    g.fillRect(toX(CITY.pier.x - 18), toZ(z), 36 / 840 * S, 1.2);
+  }
+  g.fillStyle = 'rgba(255,220,150,0.25)';
+  g.fillRect(toX(CITY.pier.x - 18), toZ(-41), 2, 82 / 728 * S);
+  g.fillRect(toX(CITY.pier.x + 16), toZ(-41), 2, 82 / 728 * S);
   const tex = new THREE.CanvasTexture(cv);
   tex.anisotropy = 4;
   return tex;
@@ -179,7 +222,7 @@ export function createRenderer(canvas, city) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(PALETTE.fog, 260, 1100);
+  scene.fog = new THREE.Fog(PALETTE.fog, 380, 1400);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
 
   // Sunset sky dome: a gradient sphere (deep purple up top, orange mid-band, gold
@@ -190,9 +233,9 @@ export function createRenderer(canvas, city) {
     depthWrite: false,
     fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x5a2a52) },
-      mid: { value: new THREE.Color(0xff7e3d) },
-      bot: { value: new THREE.Color(0xffd9a0) },
+      top: { value: new THREE.Color(0x3d1e5e) },
+      mid: { value: new THREE.Color(0xff5e2a) },
+      bot: { value: new THREE.Color(0xffc46b) },
       sunDir: { value: new THREE.Vector3(480, 55, -60).normalize() },
       sunCol: { value: new THREE.Color(0xfff2c0) },
     },
@@ -202,18 +245,18 @@ export function createRenderer(canvas, city) {
       'uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform vec3 sunDir; uniform vec3 sunCol;',
       'void main() {',
       '  float h = clamp(vDir.y, -0.08, 1.0);',
-      '  vec3 col = h < 0.18 ? mix(bot, mid, h / 0.18) : mix(mid, top, (h - 0.18) / 0.82);',
-      '  float g = pow(max(dot(normalize(vDir), normalize(sunDir)), 0.0), 48.0);',
-      '  col += sunCol * g * 0.25;',
+      '  vec3 col = h < 0.16 ? mix(bot, mid, h / 0.16) : mix(mid, top, pow((h - 0.16) / 0.84, 0.8));',
+      '  float d = max(dot(normalize(vDir), normalize(sunDir)), 0.0);',
+      '  col += sunCol * (pow(d, 90.0) * 0.9 + pow(d, 10.0) * 0.22 + pow(d, 3.0) * 0.07);',
       '  gl_FragColor = vec4(col, 1.0);',
       '}',
     ].join('\n'),
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(1400, 24, 12), skyMat));
 
-  const hemi = new THREE.HemisphereLight(0xffe0b3, 0x8a6a4a, 1.15);
+  const hemi = new THREE.HemisphereLight(0xffe0b3, 0x7a5a3a, 0.95);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffd9a0, 1.6);
+  const sun = new THREE.DirectionalLight(0xffd9a0, 2.3);
   sun.position.set(-120, 180, 60);
   scene.add(sun);
 
@@ -240,44 +283,84 @@ export function createRenderer(canvas, city) {
     solids.push({ x: b.x, y: b.h / 2, z: b.z, w: b.w, h: b.h, d: b.d, color: b.color });
     // Ground-floor storefront band, proud of the facade.
     solids.push({ x: b.x, y: 1.5, z: b.z, w: b.w + 0.3, h: 3, d: b.d + 0.3, color: BAND_COLORS[bi % BAND_COLORS.length] });
+    // Bright parapet rim so the roofline reads as a hard edge against the sky.
+    solids.push({ x: b.x, y: b.h + 0.25, z: b.z, w: b.w + 0.5, h: 0.5, d: b.d + 0.5, color: 0xf5e6c4 });
     solids.push({ x: b.x, y: b.h + 0.4, z: b.z, w: b.w * 0.7, h: 0.8, d: b.d * 0.7, color: ROOF_COLORS[bi % ROOF_COLORS.length] });
+    // Stepped crown on tall towers: the skyline stops being a row of flat slabs.
+    if (b.h > 30) {
+      solids.push({ x: b.x, y: b.h + 4, z: b.z, w: b.w * 0.42, h: 7, d: b.d * 0.42, color: PALETTE.building[(bi + 3) % PALETTE.building.length] });
+      solids.push({ x: b.x, y: b.h + 7.75, z: b.z, w: b.w * 0.46, h: 0.5, d: b.d * 0.46, color: 0xf5e6c4 });
+    }
     if (b.h > 20) {
       solids.push({ x: b.x + b.w * 0.2, y: b.h + 1.2, z: b.z - b.d * 0.15, w: 2.4, h: 1.2, d: 2, color: 0x9aa5b1 });
+      solids.push({ x: b.x - b.w * 0.22, y: b.h + 1.2, z: b.z + b.d * 0.18, w: 2, h: 1.2, d: 1.8, color: 0x7a8894 });
+    }
+    // Dark corner strips: four hard vertical edges per tower so no facade
+    // melts into its neighbour at distance.
+    for (const [cx, cz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+      frames.push({ x: b.x + cx * (b.w / 2), y: b.h / 2, z: b.z + cz * (b.d / 2), w: 0.45, h: b.h, d: 0.45, color: 0x1d2733 });
+    }
+    // Shop awnings on the south face: bright striped slabs over the storefront.
+    const AWN = [0xe07a5f, 0x4fc3f7, 0xf2c94c, 0x90be6d];
+    const awnCount = Math.max(1, Math.min(3, Math.floor(b.w / 9)));
+    for (let a = 0; a < awnCount; a += 1) {
+      const ax = b.x - b.w / 2 + (a + 0.5) * (b.w / awnCount);
+      solids.push({ x: ax, y: 3.4, z: b.z + b.d / 2 + 0.9, w: b.w / awnCount - 0.6, h: 0.35, d: 2.2, color: AWN[(bi + a) % AWN.length] });
     }
     // Window grid: columns across each face, rows up the tower. Which panes glow
     // is a hash of building, row, face and column — deterministic, no randomness.
+    // Panes are BIG (3.2 m tall) with thick dark frames: at 60 m they still read
+    // as a grid instead of a smudge.
     const cols = Math.max(1, Math.min(4, Math.floor(Math.min(b.w, b.d) / 6)));
     const rows = Math.max(1, Math.min(10, Math.floor(b.h / 6)));
     for (let f = 0; f < rows; f += 1) {
-      const y = 4.5 + (f + 0.5) * ((b.h - 6) / rows);
+      const y = 5 + (f + 0.5) * ((b.h - 6.5) / rows);
       for (let c = 0; c < cols; c += 1) {
         const zOff = (c + 1) * (b.d / (cols + 1)) - b.d / 2;
         const xOff = (c + 1) * (b.w / (cols + 1)) - b.w / 2;
-        const winD = Math.min(2.6, (b.d / (cols + 1)) * 0.62);
-        const winW = Math.min(2.6, (b.w / (cols + 1)) * 0.62);
+        const winD = Math.min(3.4, (b.d / (cols + 1)) * 0.72);
+        const winW = Math.min(3.4, (b.w / (cols + 1)) * 0.72);
         for (let face = 0; face < 4; face += 1) {
           const hash = (bi * 31 + f * 7 + face * 3 + c * 5) % 10;
           const lit = hash < (b.lit ? 4 : 1);
           const glass = lit ? PALETTE.windowLit : GLASS_DARK[(f + c) % 2];
           if (face === 0) {
-            frames.push({ x: b.x - b.w / 2 - 0.04, y, z: b.z + zOff, w: 0.12, h: 2.7, d: winD + 0.5, color: PALETTE.glass });
-            windows.push({ x: b.x - b.w / 2 - 0.1, y, z: b.z + zOff, w: 0.1, h: 2.2, d: winD, color: glass });
+            frames.push({ x: b.x - b.w / 2 - 0.04, y, z: b.z + zOff, w: 0.12, h: 3.7, d: winD + 0.6, color: PALETTE.glass });
+            windows.push({ x: b.x - b.w / 2 - 0.1, y, z: b.z + zOff, w: 0.1, h: 3.2, d: winD, color: glass });
           } else if (face === 1) {
-            frames.push({ x: b.x + b.w / 2 + 0.04, y, z: b.z + zOff, w: 0.12, h: 2.7, d: winD + 0.5, color: PALETTE.glass });
-            windows.push({ x: b.x + b.w / 2 + 0.1, y, z: b.z + zOff, w: 0.1, h: 2.2, d: winD, color: glass });
+            frames.push({ x: b.x + b.w / 2 + 0.04, y, z: b.z + zOff, w: 0.12, h: 3.7, d: winD + 0.6, color: PALETTE.glass });
+            windows.push({ x: b.x + b.w / 2 + 0.1, y, z: b.z + zOff, w: 0.1, h: 3.2, d: winD, color: glass });
           } else if (face === 2) {
-            frames.push({ x: b.x + xOff, y, z: b.z - b.d / 2 - 0.04, w: winW + 0.5, h: 2.7, d: 0.12, color: PALETTE.glass });
-            windows.push({ x: b.x + xOff, y, z: b.z - b.d / 2 - 0.1, w: winW, h: 2.2, d: 0.1, color: glass });
+            frames.push({ x: b.x + xOff, y, z: b.z - b.d / 2 - 0.04, w: winW + 0.6, h: 3.7, d: 0.12, color: PALETTE.glass });
+            windows.push({ x: b.x + xOff, y, z: b.z - b.d / 2 - 0.1, w: winW, h: 3.2, d: 0.1, color: glass });
           } else {
-            frames.push({ x: b.x + xOff, y, z: b.z + b.d / 2 + 0.04, w: winW + 0.5, h: 2.7, d: 0.12, color: PALETTE.glass });
-            windows.push({ x: b.x + xOff, y, z: b.z + b.d / 2 + 0.1, w: winW, h: 2.2, d: 0.1, color: glass });
+            frames.push({ x: b.x + xOff, y, z: b.z + b.d / 2 + 0.04, w: winW + 0.6, h: 3.7, d: 0.12, color: PALETTE.glass });
+            windows.push({ x: b.x + xOff, y, z: b.z + b.d / 2 + 0.1, w: winW, h: 3.2, d: 0.1, color: glass });
           }
         }
       }
     }
   });
-  // The pier deck and posts, merged with the buildings.
-  solids.push({ x: CITY.pier.x, y: 0.6, z: -6, w: 30, h: 1.2, d: 46, color: 0x7a6a4c });
+  // The pier deck and posts, merged with the buildings — wider and longer than
+  // before, with railings, lamps and a broad end platform.
+  solids.push({ x: CITY.pier.x, y: 0.6, z: -6, w: 36, h: 1.2, d: 82, color: 0x8a6a42 });
+  solids.push({ x: CITY.pier.x, y: 0.9, z: -44, w: 44, h: 1.8, d: 8, color: 0x7a5a34 });
+  for (let z = -44; z <= 34; z += 13) {
+    solids.push({ x: CITY.pier.x - 17.5, y: 2.2, z, w: 0.4, h: 2.2, d: 0.4, color: 0x2c313a });
+    solids.push({ x: CITY.pier.x + 17.5, y: 2.2, z, w: 0.4, h: 2.2, d: 0.4, color: 0x2c313a });
+  }
+  solids.push({ x: CITY.pier.x - 17.5, y: 3.1, z: -6, w: 0.3, h: 0.3, d: 82, color: 0xf2c94c });
+  solids.push({ x: CITY.pier.x + 17.5, y: 3.1, z: -6, w: 0.3, h: 0.3, d: 82, color: 0xf2c94c });
+  for (const lz of [-30, 0, 30]) {
+    solids.push({ x: CITY.pier.x - 12, y: 3.5, z: lz, w: 0.3, h: 6, d: 0.3, color: 0x2c313a });
+    solids.push({ x: CITY.pier.x - 12, y: 6.6, z: lz, w: 1.1, h: 0.4, d: 1.1, color: PALETTE.windowLit });
+  }
+  // Boats moored off the pier: hull, cabin, mast.
+  for (const boat of city.boats) {
+    solids.push({ x: boat.x, y: 0.4, z: boat.z, w: 9, h: 1.4, d: 3.4, color: boat.color, ry: boat.ry });
+    solids.push({ x: boat.x, y: 1.6, z: boat.z, w: 3.4, h: 1.4, d: 2.4, color: 0x22303c, ry: boat.ry });
+    solids.push({ x: boat.x, y: 4.5, z: boat.z, w: 0.25, h: 6, d: 0.25, color: 0x2c313a, ry: boat.ry });
+  }
   const buildingMesh = new THREE.Mesh(mergeBoxes(solids), new THREE.MeshLambertMaterial({ vertexColors: true }));
   scene.add(buildingMesh);
   const frameMesh = new THREE.Mesh(mergeBoxes(frames), new THREE.MeshBasicMaterial({ vertexColors: true }));
@@ -285,21 +368,47 @@ export function createRenderer(canvas, city) {
   const windowMesh = new THREE.Mesh(mergeBoxes(windows), new THREE.MeshBasicMaterial({ vertexColors: true }));
   scene.add(windowMesh);
 
-  // Palms: trunks and fronds, merged.
+  // Palms: trunks and fronds, merged — seven broad fronds so the crown reads
+  // as a palm at distance instead of a green smudge.
   const trunks = [];
   const fronds = [];
   for (const p of city.palms) {
     trunks.push({ x: p.x, y: p.h / 2, z: p.z, w: 0.5, h: p.h, d: 0.5, color: PALETTE.palmTrunk, rz: p.lean });
-    for (let f = 0; f < 5; f += 1) {
-      const a = (f / 5) * Math.PI * 2;
+    for (let f = 0; f < 7; f += 1) {
+      const a = (f / 7) * Math.PI * 2;
       fronds.push({
-        x: p.x + Math.cos(a) * 1.4, y: p.h + 0.3, z: p.z + Math.sin(a) * 1.4,
-        w: 2.6, h: 0.12, d: 0.9, color: PALETTE.palmLeaf, ry: -a,
+        x: p.x + Math.cos(a) * 1.7, y: p.h + 0.3, z: p.z + Math.sin(a) * 1.7,
+        w: 3.4, h: 0.14, d: 1.1, color: f % 2 ? PALETTE.palmLeaf : 0x5fa04a, ry: -a,
       });
     }
   }
   scene.add(new THREE.Mesh(mergeBoxes(trunks), new THREE.MeshLambertMaterial({ vertexColors: true })));
   scene.add(new THREE.Mesh(mergeBoxes(fronds), new THREE.MeshLambertMaterial({ vertexColors: true })));
+
+  // Night-market stalls: counter + bright awning + posts, merged into one mesh.
+  const stallParts = [];
+  for (const st of city.stalls) {
+    const c = Math.cos(st.ry);
+    const s = Math.sin(st.ry);
+    const px = (dx = 0, dz = 0) => st.x + dx * c + dz * s;
+    const pz = (dx = 0, dz = 0) => st.z - dx * s + dz * c;
+    stallParts.push({ x: st.x, y: 1.1, z: st.z, w: 5, h: 2.2, d: 2.6, color: 0x7a5a34, ry: st.ry });
+    stallParts.push({ x: px(0, 0), y: 2.9, z: pz(0, 0), w: 5.6, h: 0.3, d: 3.4, color: st.color, ry: st.ry });
+    stallParts.push({ x: px(-2.4, 1.4), y: 1.8, z: pz(-2.4, 1.4), w: 0.25, h: 2.4, d: 0.25, color: 0x2c313a });
+    stallParts.push({ x: px(2.4, 1.4), y: 1.8, z: pz(2.4, 1.4), w: 0.25, h: 2.4, d: 0.25, color: 0x2c313a });
+    stallParts.push({ x: px(0, 0), y: 2.5, z: pz(0, 0), w: 4.6, h: 0.5, d: 2.2, color: 0xf5e6c4, ry: st.ry });
+  }
+  scene.add(new THREE.Mesh(mergeBoxes(stallParts), new THREE.MeshLambertMaterial({ vertexColors: true })));
+
+  // Beach umbrellas: pole, bright canopy, lounger — the sand is inhabited.
+  const beachParts = [];
+  for (const u of city.umbrellas) {
+    beachParts.push({ x: u.x, y: 1.3, z: u.z, w: 0.18, h: 2.6, d: 0.18, color: 0xf5f0e6 });
+    beachParts.push({ x: u.x, y: 2.7, z: u.z, w: 4.4, h: 0.22, d: 4.4, color: u.color });
+    beachParts.push({ x: u.x + 2.2, y: 0.35, z: u.z + 1.2, w: 2.2, h: 0.5, d: 0.9, color: 0x2c8a8a });
+    beachParts.push({ x: u.x - 2.4, y: 0.3, z: u.z - 1.4, w: 1.8, h: 0.4, d: 1.4, color: 0xf2c94c });
+  }
+  scene.add(new THREE.Mesh(mergeBoxes(beachParts), new THREE.MeshLambertMaterial({ vertexColors: true })));
 
   // Lamps: one merged mesh of poles with warm heads.
   const lampParts = [];
@@ -324,15 +433,28 @@ export function createRenderer(canvas, city) {
     scene.add(post);
   }
 
-  // Sun setting over the sea to the east — a sphere, so it reads round from
-  // every camera angle — and clouds across the eastern sky.
-  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(42, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfff2c0, fog: false }));
+  // Sun setting over the sea to the east — a bright core, two layered halos,
+  // and clouds that cross the disc so it is never a flat pale circle.
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(30, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfff8dc, fog: false }));
   sunDisc.position.set(480, 55, -60);
   scene.add(sunDisc);
+  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(46, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffb36b, transparent: true, opacity: 0.22, fog: false }));
+  halo1.position.set(480, 55, -60);
+  scene.add(halo1);
+  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(72, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff7e3d, transparent: true, opacity: 0.09, fog: false }));
+  halo2.position.set(480, 55, -60);
+  scene.add(halo2);
   const cloudParts = [];
-  for (let i = 0; i < 12; i += 1) {
-    cloudParts.push({ x: -260 + i * 80, y: 68 + (i % 3) * 8, z: -260 + (i % 4) * 110, w: 46, h: 4, d: 16, color: 0xffdfc0 });
+  const CLOUD_COLS = [0xffdfc0, 0xffb38a, 0xffe9d0, 0xff9a6a];
+  for (let i = 0; i < 18; i += 1) {
+    cloudParts.push({ x: -260 + i * 62, y: 62 + (i % 4) * 9, z: -280 + (i % 5) * 120, w: 60 + (i % 3) * 22, h: 3, d: 24, color: CLOUD_COLS[i % CLOUD_COLS.length] });
   }
+  // Three cloud bars cross the sun itself, breaking the disc. They are wide
+  // PLATES (long in both x and z) so they read as bars from the north (cover)
+  // and from the east (play, driving into the sun) alike.
+  cloudParts.push({ x: 440, y: 52, z: -60, w: 90, h: 5, d: 60, color: 0xffb38a });
+  cloudParts.push({ x: 445, y: 72, z: -30, w: 70, h: 4, d: 50, color: 0xffe9d0 });
+  cloudParts.push({ x: 430, y: 38, z: -95, w: 80, h: 4, d: 55, color: 0xff9a6a });
   scene.add(new THREE.Mesh(mergeBoxes(cloudParts), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
 
   // Hero car: one group of boxes, recoloured when Rio steals another model.
@@ -344,6 +466,34 @@ export function createRenderer(canvas, city) {
   const heroCabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 1.7), new THREE.MeshLambertMaterial({ color: 0x22303c }));
   heroCabin.position.set(-0.2, 1.5, 0);
   hero.add(heroCabin);
+  // Windshield + side glass, gold racing stripe, bumpers, grille, mirrors,
+  // taillights — the hero car must read as a car at 30 m, not a red box.
+  const heroGlass = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.55, 1.6), new THREE.MeshLambertMaterial({ color: 0x9fd4e8 }));
+  heroGlass.position.set(0.95, 1.5, 0);
+  hero.add(heroGlass);
+  const heroStripe = new THREE.Mesh(new THREE.BoxGeometry(4.45, 0.06, 0.7), new THREE.MeshBasicMaterial({ color: 0xf2c94c }));
+  heroStripe.position.set(0, 1.2, 0);
+  hero.add(heroStripe);
+  const heroBumperF = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.3, 1.95), new THREE.MeshLambertMaterial({ color: 0xd8dde2 }));
+  heroBumperF.position.set(2.28, 0.55, 0);
+  hero.add(heroBumperF);
+  const heroBumperR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.3, 1.95), new THREE.MeshLambertMaterial({ color: 0xd8dde2 }));
+  heroBumperR.position.set(-2.28, 0.55, 0);
+  hero.add(heroBumperR);
+  const heroGrille = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 1.2), new THREE.MeshLambertMaterial({ color: 0x14181d }));
+  heroGrille.position.set(2.24, 0.85, 0);
+  hero.add(heroGrille);
+  for (const mz of [1.0, -1.0]) {
+    const mir = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.18, 0.18), new THREE.MeshLambertMaterial({ color: 0x14181d }));
+    mir.position.set(0.9, 1.35, mz);
+    hero.add(mir);
+  }
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
+  for (const tz of [0.6, -0.6]) {
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.25, 0.4), tailMat);
+    t.position.set(-2.22, 0.85, tz);
+    hero.add(t);
+  }
   const heroSpoiler = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 1.9), new THREE.MeshLambertMaterial({ color: 0x222222 }));
   heroSpoiler.position.set(-2.1, 1.35, 0);
   hero.add(heroSpoiler);
@@ -520,10 +670,12 @@ export function createRenderer(canvas, city) {
   const camPos = new THREE.Vector3(-70, 8, 10);
   const camLook = new THREE.Vector3();
   // Follow distance/height override (the cover shot pulls back for a wider frame).
-  const follow = { dist: 0, height: 0 };
-  function setFollow(dist, height) {
+  const follow = { dist: 0, height: 0, side: 0, dirty: false };
+  function setFollow(dist, height, side = 0) {
     follow.dist = dist;
     follow.height = height;
+    follow.side = side;
+    follow.dirty = true;
   }
 
   function resize() {
@@ -578,17 +730,21 @@ export function createRenderer(canvas, city) {
     }
     const blockedHeight = insideBuilding(focus.x - Math.cos(camYaw.value) * camDist, focus.z + Math.sin(camYaw.value) * camDist);
     if (blockedHeight > 0) camHeight = blockedHeight + 3;
-    const wantX = focus.x - Math.cos(camYaw.value) * camDist;
-    const wantZ = focus.z + Math.sin(camYaw.value) * camDist;
+    const wantX = focus.x - Math.cos(camYaw.value) * camDist + Math.sin(camYaw.value) * (follow.side || 0);
+    const wantZ = focus.z + Math.sin(camYaw.value) * camDist + Math.cos(camYaw.value) * (follow.side || 0);
     if (screen === SCREEN_TITLE) {
       const a = time * 0.05;
-      camPos.set(Math.cos(a) * 260, 120, Math.sin(a) * 260);
-      camLook.set(0, 0, 0);
+      camPos.set(Math.cos(a) * 175, 62, Math.sin(a) * 175);
+      camLook.set(0, 8, 0);
     } else {
       // A big jump (fresh load, a save, a staged shot) snaps; small moves ease.
-      if (Math.hypot(wantX - camPos.x, wantZ - camPos.z) > 50) {
+      // A setFollow() call also snaps on the next frame, so a staged shot's
+      // camera is exact from frame one instead of easing into place over a
+      // frame count that depends on renderer speed (non-deterministic shots).
+      if (follow.dirty || Math.hypot(wantX - camPos.x, wantZ - camPos.z) > 50) {
         camPos.set(wantX, camHeight, wantZ);
         camYaw.value = heading;
+        follow.dirty = false;
       } else {
         camPos.x += (wantX - camPos.x) * 0.12;
         camPos.y += (camHeight - camPos.y) * 0.12;

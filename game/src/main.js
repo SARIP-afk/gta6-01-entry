@@ -3,7 +3,7 @@
 // Screens: title, play, paused. ?seed=N fixes the city; ?shot=cover|start|play|end
 // (with &seed=N) stages that scene instead of running the loop, paints it twice
 // and sets window.__shotReady for a screenshot.
-import { BEST_KEY, MISSIONS, STEP } from './config.js';
+import { BEST_KEY, DISTRICTS, MISSIONS, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld } from './world.js';
 import { districtAt } from './city.js';
@@ -68,9 +68,11 @@ function enrichState() {
 function runShot(name) {
   const scene = stageShot(name, world);
   enrichState();
-  // The cover pulls the camera high and back for a wide avenue shot: towers,
-  // traffic and walkers in the foreground, the pier, the sea and the sunset beyond.
-  if (name === 'cover') renderer.setFollow(62, 18);
+  // The cover pulls the camera in close behind the hero on the coastal road:
+  // towers flank the avenue, the pier, the sea and the sunset beyond. The
+  // camera stays on the road centreline (side 0): any lateral offset puts it
+  // inside the roadside towers.
+  if (name === 'cover') renderer.setFollow(44, 14);
   // The HUD is DOM, so a shot without it would show a bare city: build it too.
   const shotHud = createHud({ onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {} });
   if (name === 'start') {
@@ -78,6 +80,9 @@ function runShot(name) {
     shotHud.showScreen('title');
   } else {
     shotHud.showScreen('play');
+    // Radio is on in the play shots: the bottom bar names the station, it never
+    // sits on RADIO OFF while the city is alive.
+    document.getElementById('radio').textContent = '♪ SOL 98.1 — COAST FM';
   }
   let painted = 0;
   let ledger = null;
@@ -87,8 +92,9 @@ function runShot(name) {
     shotHud.update(world.state, scene.screen, ledger, renderer.project, world.state.time);
     painted += 1;
     // Keep painting: the follow camera needs frames to settle behind the car.
-    // Ready after ~120 frames, or 3.5 s of wall time on a slow software renderer.
-    if (painted < 120 && performance.now() - t0 < 3500) requestAnimationFrame(paint);
+    // Ready after exactly 120 frames — no wall-clock cutoff, so a slow software
+    // renderer settles to the same frame as a fast one (deterministic shots).
+    if (painted < 120 && performance.now() - t0 < 30000) requestAnimationFrame(paint);
     else {
       window.__shotReady = true;
       window.__ledger = ledger;
@@ -133,6 +139,9 @@ function runGame() {
       shots: s.stats.shots,
       cash: s.cash,
       missionsList: missionsList(),
+      ratings: s.missions.state.ratings,
+      standing: s.standing,
+      districtNames: DISTRICTS.map((d) => d.name),
     };
   }
 

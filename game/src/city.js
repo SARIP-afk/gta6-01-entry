@@ -103,6 +103,12 @@ export function buildCity(random) {
   for (const [bx, bz, lean] of [[-180, 280, 0.1], [-120, 230, -0.1], [-60, 300, 0.1], [0, 280, -0.1], [60, 230, 0.1], [120, 300, -0.1], [200, 280, 0.1], [280, 230, -0.1], [340, 300, 0.1]]) {
     palms.push({ x: bx, z: bz, lean, h: 6 });
   }
+  // Palm row down the promenade east of the coastal road (x 332): the strip
+  // between the road and the sea is a palm-lined walk, not an empty tan lot.
+  for (let pz = -80; pz <= 180; pz += 26) {
+    if (Math.abs(pz + 6) < 12) continue; // keep the pier causeway clear
+    palms.push({ x: 332, z: pz, lean: 0.08, h: 6 });
+  }
 
   // Landmark signs: big readable names at the places missions go, plus the skyline.
   const signDefs = [
@@ -128,9 +134,39 @@ export function buildCity(random) {
     }
   }
 
+  // Fixed street props — literal coordinates, NO random draws, so the seeded
+  // stream (and therefore traffic, missions and the trace hash) is untouched.
+  // Night-market stalls: a dense row by the downtown pickup, awnings up.
+  const stalls = [
+    { x: -104, z: -150, ry: 0, color: 0xe07a5f }, { x: -88, z: -150, ry: 0, color: 0xf2c94c },
+    { x: -72, z: -150, ry: 0, color: 0x4fc3f7 }, { x: -56, z: -150, ry: 0, color: 0x90be6d },
+    { x: -40, z: -150, ry: 0, color: 0xd67fa0 }, { x: -24, z: -150, ry: 0, color: 0xe07a5f },
+    { x: -104, z: 140, ry: Math.PI / 2, color: 0xf2c94c }, { x: -104, z: 156, ry: Math.PI / 2, color: 0x4fc3f7 },
+    { x: 240, z: 84, ry: 0, color: 0xe07a5f }, { x: 256, z: 84, ry: 0, color: 0x90be6d },
+  ];
+  // Beach umbrellas + loungers: the sand strip reads as a beach, not a desert.
+  // Colours cycle deterministically by index.
+  const umbrellaColors = [0xe07a5f, 0xf2c94c, 0x4fc3f7, 0x90be6d, 0xd67fa0];
+  const umbrellas = [];
+  const umbrellaSpots = [
+    [-220, 258], [-160, 292], [-100, 252], [-40, 296], [20, 258], [80, 292],
+    [140, 252], [200, 296], [260, 258], [330, 288], [300, 240], [-260, 292],
+    // Boardwalk parasols on the promenade east of the coastal road, in the
+    // cover frame's mid-right instead of an empty tan lot.
+    [340, 120], [336, 40], [344, -40],
+  ];
+  for (let i = 0; i < umbrellaSpots.length; i += 1) {
+    umbrellas.push({ x: umbrellaSpots[i][0], z: umbrellaSpots[i][1], color: umbrellaColors[i % umbrellaColors.length] });
+  }
+  // Boats moored off the pier, in the sea east of the deck.
+  const boats = [
+    { x: 436, z: 48, ry: 0.4, color: 0xf5f0e6 }, { x: 448, z: -52, ry: -0.3, color: 0x4fc3f7 },
+    { x: 434, z: -108, ry: 0.2, color: 0xe07a5f }, { x: 452, z: 108, ry: 0.9, color: 0xf2c94c },
+  ];
+
   return {
     roads: ROADS.slice(),
-    buildings, palms, lamps, signs, shells,
+    buildings, palms, lamps, signs, shells, stalls, umbrellas, boats,
     spawn: { ...CITY.spawn },
     pier: { ...CITY.pier },
     safehouse: { ...CITY.safehouse },

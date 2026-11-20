@@ -23,19 +23,24 @@
   #minimap { border: 2px solid rgba(242, 201, 76, 0.6); border-radius: 50%; background: rgba(20,28,36,0.85); }
   #weapon { position: absolute; right: 16px; bottom: 76px; text-align: right; min-width: 200px; }
   #weapon-name { font-size: 19px; font-weight: 800; letter-spacing: 2px; color: #f2c94c; }
-  #weapon-ammo { font-size: 30px; font-weight: 900; line-height: 1.1; }
+  #weapon-ammo { font-size: 34px; font-weight: 900; line-height: 1.1; }
   #weapon-ammo .dim { color: #cfd6de; font-size: 20px; }
+  #weapon-sub { font-size: 11px; letter-spacing: 1px; color: #ffd27a; font-weight: 700; }
   #weapon-hint { font-size: 11px; letter-spacing: 1px; color: #cfd6de; margin-top: 2px; }
-  #district { font-size: 12px; max-width: 220px; }
+  #district { font-size: 12px; max-width: 280px; }
   #shells { font-size: 12px; }
-  #dispatch { font-size: 12px; max-width: 240px; }
+  #dispatch { font-size: 13px; max-width: 260px; }
   #dispatch b { color: #ff8a8a; }
   #crimefeed { position: absolute; left: 16px; bottom: 150px; font-size: 13px; color: #ffd27a; text-shadow: 0 1px 2px #000; }
   #crimefeed div { margin-top: 2px; }
   #bottombar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; }
   #health { width: 180px; }
   #health-fill { display: block; height: 10px; background: #7ddf8a; border-radius: 5px; }
-  #health-num, #ammo, #speed, #carname, #radio { font-size: 13px; font-weight: 700; }
+  #health-num { font-size: 22px; font-weight: 900; color: #7ddf8a; }
+  #ammo { font-size: 13px; font-weight: 700; }
+  #speed { font-size: 28px; font-weight: 900; color: #ffffff; line-height: 1; }
+  #carname { font-size: 15px; font-weight: 800; color: #ffd27a; }
+  #radio { font-size: 13px; font-weight: 700; color: #4fc3f7; white-space: nowrap; }
   #dialog { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); display: none; gap: 10px; align-items: center; min-width: 480px; }
   #portrait { border-radius: 6px; }
   #dialog-name { color: #f2c94c; font-weight: 800; letter-spacing: 1px; font-size: 13px; }
@@ -44,8 +49,8 @@
   #results-title { font-size: 34px; font-weight: 900; letter-spacing: 3px; color: #f2c94c; text-shadow: 0 2px 8px #000; }
   #results-sub { font-size: 16px; text-shadow: 0 1px 4px #000; }
   #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-  .overlay { position: fixed; inset: 0; display: none; background: linear-gradient(180deg, rgba(29,39,51,0.88), rgba(120,60,20,0.82)); align-items: center; justify-content: center; flex-direction: column; gap: 14px; text-align: center; z-index: 10; }
-  .overlay h1 { font-size: 64px; margin: 0; letter-spacing: 8px; color: #f2c94c; text-shadow: 0 4px 18px #000; }
+  .overlay { position: fixed; inset: 0; display: none; background: linear-gradient(180deg, rgba(29,39,51,0.55), rgba(120,60,20,0.45)); align-items: center; justify-content: center; flex-direction: column; gap: 14px; text-align: center; z-index: 10; }
+  .overlay h1 { font-size: 76px; margin: 0; letter-spacing: 8px; color: #f2c94c; text-shadow: 0 4px 18px #000, 0 0 42px rgba(255,126,61,0.65); }
   .overlay h2 { font-size: 16px; margin: 0; letter-spacing: 3px; color: #f5f0e6; font-weight: 400; }
   .overlay button { pointer-events: auto; background: #f2c94c; color: #1d2733; border: none; border-radius: 8px; padding: 12px 28px; font-size: 16px; font-weight: 800; cursor: pointer; }
   .overlay button:hover { background: #ffd76a; }
@@ -74,12 +79,13 @@
   <div id="leftcol">
     <div id="district" class="panel">DOWNTOWN</div>
     <div id="shells" class="panel">SHELLS 0/20 · EXPORTS 0/5</div>
-    <div id="dispatch" class="panel" style="display:none"><b>DISPATCH</b><div id="dispatch-list"></div></div>
+    <div id="dispatch" class="panel" style="display:none"><div id="dispatch-list"></div></div>
   </div>
   <div id="mapwrap"><canvas id="minimap" width="90" height="90"></canvas></div>
   <div id="weapon" class="panel">
     <div id="weapon-name">SOL-9 PISTOL</div>
     <div id="weapon-ammo"><span id="weapon-mag">12</span><span class="dim"> / <span id="weapon-reserve">48</span></span></div>
+    <div id="weapon-sub">34 DMG · 70 M RANGE</div>
     <div id="weapon-hint">R — RELOAD · CLICK — FIRE</div>
   </div>
   <div id="banner" class="panel">

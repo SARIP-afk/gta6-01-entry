@@ -125,7 +125,26 @@ export function createHud(callbacks) {
     ctx.closePath();
     ctx.fill();
     ctx.restore();
-    // North tick.
+    // District names on the big pause map, so it reads as a city, not a grid.
+    if (big) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = 'bold 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      for (const d of DISTRICTS) {
+        const cx = (d.x0 + d.x1) / 2;
+        const cz = (d.z0 + d.z1) / 2;
+        ctx.fillText(d.name, toX(cx), toZ(cz));
+      }
+      ctx.fillStyle = 'rgba(242,201,76,0.9)';
+      ctx.font = '10px system-ui, sans-serif';
+      for (let i = 0; i < DISTRICTS.length; i += 1) {
+        const d = DISTRICTS[i];
+        const cx = (d.x0 + d.x1) / 2;
+        const cz = (d.z0 + d.z1) / 2;
+        const st = state.standing[i];
+        ctx.fillText(st >= 60 ? `FRIENDLY ${st}` : st >= 40 ? `NEUTRAL ${st}` : `WARY ${st}`, toX(cx), toZ(cz) + 13);
+      }
+    }
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.font = `bold ${big ? 14 : 10}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
@@ -183,6 +202,7 @@ export function createHud(callbacks) {
     el('ammo').textContent = s.combat.state.reloading ? 'RELOADING' : `${WEAPON.name} ${s.combat.state.ammo}/${s.combat.state.reserve}`;
     // Weapon panel: big name, big ammo, reload hint — the one panel a shooter reads.
     el('weapon-name').textContent = WEAPON.name;
+    el('weapon-sub').textContent = `${WEAPON.damage} DMG · ${WEAPON.range} M RANGE`;
     if (s.combat.state.reloading) {
       el('weapon-mag').textContent = '––';
       el('weapon-reserve').textContent = `${s.combat.state.reserve}`;
@@ -194,17 +214,20 @@ export function createHud(callbacks) {
     }
     const speed = p.mode === 'car' ? Math.abs(s.heroCar.speed) * 3.6 : Math.abs(p.speed) * 3.6;
     el('speed').textContent = `${Math.round(speed)} KM/H`;
+    const dmg = Math.round(s.heroCar.damage);
+    const cond = dmg < 20 ? 'PRISTINE' : dmg < 50 ? 'DENTED' : dmg < 80 ? 'SMOKING' : 'WRECKED';
     el('carname').textContent = p.mode === 'car'
-      ? `${CAR_MODELS[s.heroCar.model].name} · ${Math.round(100 - s.heroCar.damage)}%`
+      ? `${CAR_MODELS[s.heroCar.model].name} · ${100 - dmg}% · ${cond}`
       : 'ON FOOT';
     const di = state.districtIndex;
-    el('district').textContent = `${DISTRICTS[di].name} — ${DISTRICTS[di].tag} · ${s.standing[di] >= 60 ? 'FRIENDLY' : s.standing[di] >= 40 ? 'NEUTRAL' : 'WARY'} ${s.standing[di]}`;
+    el('district').textContent = `${DISTRICTS[di].name} — ${DISTRICTS[di].tag} · ${s.standing[di] >= 60 ? 'FRIENDLY' : s.standing[di] >= 40 ? 'NEUTRAL' : 'WARY'} ${s.standing[di]} · ${s.completionPct || 0}% DONE`;
     el('shells').textContent = `SHELLS ${s.shellsTaken}/20 · EXPORTS ${s.exportsDone.length}/5`;
 
-    // Dispatch panel.
+    // Dispatch panel: header counts the units, each line names the unit, its job
+    // and its live distance.
     const disp = s.police.state.dispatch;
     el('dispatch').style.display = disp.length > 0 ? 'block' : 'none';
-    el('dispatch-list').innerHTML = disp.map((u) => `<div><b>${u.id}</b> · ${u.role} · ${u.dist} m</div>`).join('');
+    el('dispatch-list').innerHTML = `<div><b>KPD RESPONSE · ${disp.length} UNIT${disp.length === 1 ? '' : 'S'}</b></div>` + disp.map((u) => `<div><b>${u.id}</b> · ${u.role} · ${u.dist} m</div>`).join('');
 
     // Dialog.
     const dlg = s.missions.state.dialog;
@@ -289,12 +312,14 @@ export function createHud(callbacks) {
   function fillPause(state, slots) {
     el('pause-missions').innerHTML = state.missionsList.map((mm) => (
       `<div class="prow"><b>${mm.id} · ${mm.name}</b><span>${mm.status}</span></div>`
-    )).join('');
+    )).join('') + `<div class="prow"><b>RATINGS</b><span>${['M1', 'M2', 'M3', 'M4'].map((id) => `${id} ${state.ratings[id] || '—'}`).join(' · ')}</span></div>`
+      + `<div class="prow"><b>PAR TIMES</b><span>M1 150s · M2 180s · M3 240s · M4 300s</span></div>`;
     el('pause-stats').innerHTML = [
       `COMPLETION ${state.completion}%`,
       `Missions ${state.missionsDone}/4 · Shells ${state.shells}/20 · Exports ${state.exports}/5`,
       `Distance ${(state.distance / 1000).toFixed(1)} km · Cars stolen ${state.carsStolen} · Cops escaped ${state.copsEscaped}`,
       `Shots ${state.shots} · Cash $${state.cash.toLocaleString('en-US')}`,
+      `District standing: ${state.standing.map((v, i) => `${state.districtNames[i]} ${v}`).join(' · ')}`,
     ].map((l) => `<div>${l}</div>`).join('');
     const wrap = el('pause-slots');
     wrap.innerHTML = '';
@@ -302,7 +327,7 @@ export function createHud(callbacks) {
       const card = document.createElement('button');
       card.className = 'slot';
       card.innerHTML = slot
-        ? `<b>SAVE SLOT ${i + 1}</b><span>$${(slot.cash || 0).toLocaleString('en-US')} · ${slot.completion || 0}% · ${slot.savedAt ? slot.savedAt.slice(0, 10) : ''}</span>`
+        ? `<b>SAVE SLOT ${i + 1}</b><span>$${(slot.cash || 0).toLocaleString('en-US')} · ${slot.completion || 0}% · ${slot.district || ''} · ${slot.savedAt ? slot.savedAt.slice(0, 10) : ''}</span>`
         : `<b>SAVE SLOT ${i + 1} · EMPTY</b><span>Save here</span>`;
       card.addEventListener('click', () => callbacks.onSave(i));
       wrap.appendChild(card);

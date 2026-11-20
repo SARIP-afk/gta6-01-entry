@@ -21,7 +21,6 @@ const hud = new Hud(world, handleAction);
 let keys = {};
 let mouse = { x: 0, y: 0, down: false };
 let lastShot = 0;
-let fpsFrames = 0, fpsTime = 0;
 
 function handleAction(action, arg) {
   const s = world.state;
@@ -136,8 +135,10 @@ document.querySelectorAll('[data-quality]').forEach((b) => {
 });
 
 let staged = false;
+let fpsFrames = 0, fpsTime = 0, lastWall = 0;
 function frame(t) {
   requestAnimationFrame(frame);
+  const now = t || performance.now();
   const s = world.state;
   if (shotName && !staged) {
     staged = true;
@@ -155,13 +156,20 @@ function frame(t) {
   }
   renderer.update(STEP);
   hud.update(STEP);
-  fpsFrames++;
-  fpsTime += STEP;
-  if (fpsTime >= 1) {
-    window.__fps = Math.round(fpsFrames / fpsTime);
-    window.__stats = renderer.stats();
-    fpsFrames = 0; fpsTime = 0;
+  // __stats every frame: renderer.info counters are cheap reads, and the
+  // old 1 s sim-time gate never fired headless — SwiftShader runs 1–2 FPS,
+  // so 60 sim frames take 30–60 s of wall time and the driver read "{}".
+  window.__stats = renderer.stats();
+  // __fps from the wall clock, not sim time, for the same reason
+  if (lastWall) {
+    fpsFrames++;
+    fpsTime += (now - lastWall) / 1000;
+    if (fpsTime >= 1) {
+      window.__fps = Math.round(fpsFrames / fpsTime);
+      fpsFrames = 0; fpsTime = 0;
+    }
   }
+  lastWall = now;
 }
 
 // title screen shows the live city behind it

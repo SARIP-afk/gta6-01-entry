@@ -77,27 +77,28 @@ export function stageShot(name, world, renderer) {
     { x, y, z }, { x: lx, y: ly, z: lz },
   );
   if (name === 'cover') {
-    // Sunset, M4, wanted 3, heli up — staged on the beach road looking north
-    // up the boulevard: towers left, beach and sea right, sun setting over it.
-    world.pinClock(18.4);
+    // Sunset chase on the coast road (ref 3): hero westbound toward the
+    // sun over the sea, skyline right, palms lining the road, heli big
+    // ahead-left over the water — the cover is the ref-3 composition.
+    world.pinClock(18.0);
     s.missions.active = 3; s.missions.stage = 0; s.missions.started = true;
     s.missions.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
     s.missions.dialogTimer = 9;
     s.objective = { x: -72, z: 48, label: 'Lose the cordon — get CLEAR' };
     s.player.mode = 'car';
-    s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI / 2; s.heroCar.speed = 0;
-    s.player.x = 0; s.player.z = 240; s.player.heading = Math.PI / 2;
+    s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
+    s.player.x = 0; s.player.z = 240; s.player.heading = Math.PI;
     s.wanted = 3; s.heli.active = true; s.heli.x = 20; s.heli.z = 180; s.heli.alt = 52; s.heli.angle = 0.6;
     for (let i = 0; i < 3; i++) {
-      s.police.push({ x: 0, z: 268 + i * 10, heading: Math.PI / 2, speed: 12, search: 0, siren: i });
+      s.police.push({ x: 20 + i * 12, z: (i % 2 ? 236 : 244), heading: Math.PI, speed: 14, search: 0, siren: i });
     }
-    stepFor(world, 2, () => driveInput(world, 0, 96));
-    s.heroCar.x = 0; s.heroCar.z = 228; s.heroCar.heading = Math.PI / 2;
-    s.player.x = 0; s.player.z = 228;
+    stepFor(world, 2, () => driveInput(world, -120, 240));
+    s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
+    s.player.x = 0; s.player.z = 240;
     // the sim only flies the heli at wanted 4+; the cover stages it anyway —
-    // close and low so it reads as a machine, not a speck
-    s.heli.active = true; s.heli.x = 12; s.heli.z = 198; s.heli.alt = 22; s.heli.angle = 0.6;
-    cam(0, 7, 252, 0, 2, 150);
+    // close and low over the sea, ahead-left, so it reads as a machine
+    s.heli.active = true; s.heli.x = -30; s.heli.z = 268; s.heli.alt = 20; s.heli.angle = 0.6;
+    cam(10, 4.2, 243, -70, 2.5, 236);
     return 'play';
   }
   if (name === 'start') {
@@ -149,30 +150,57 @@ export function stageShot(name, world, renderer) {
     return 'play';
   }
   if (name === 'beach') {
-    // promenade, camera behind the hero facing the sand and the sea
-    world.pinClock(16.0);
+    // sunset on the sand (ref 4): hero on foot ON the sand among the
+    // northern umbrella row, camera just east of him looking
+    // west-southwest — sun + lighthouse + sea at the left, umbrellas +
+    // towels + beachgoers big in the foreground, sand underfoot. The
+    // z = 288 road runs parallel to any westward view, so the trick is
+    // distance: from the northern strip (camera z = 260) the road is
+    // 22 m+ away and reads as a midground band, while the southern
+    // strip (v2.2, camera z = 300) put the lens 12 m from it and the
+    // road filled half the frame; the first try (hero z = 284) stood
+    // ON the road itself.
+    world.pinClock(18.2);
     s.player.mode = 'walk';
-    s.player.x = 24; s.player.z = 240; s.player.heading = -Math.PI / 2;
+    s.player.x = -17; s.player.z = 266; s.player.heading = -2.7;
     s.heroCar.x = 24; s.heroCar.z = 234; s.heroCar.heading = -Math.PI / 2;
-    stepFor(world, 3, () => walkInput(world, 24, 262));
-    s.player.x = 24; s.player.z = 246; s.player.heading = -Math.PI / 2;
-    cam(24, 5, 230, 24, 1.5, 300);
+    // beachgoers on the sand: reposition 5 seeded peds to fixed spots
+    // WEST of the hero (deterministic literals, slow stroll west along
+    // the beach) so no bystander upstages him — the hero at 23 m is the
+    // biggest figure in frame
+    const goers = [
+      [-48, 270, Math.PI, 0.5],
+      [-58, 262, Math.PI, 0.6],
+      [-64, 272, Math.PI, 0.4],
+      [-40, 276, Math.PI, 0.5],
+      [-70, 266, Math.PI, 0.6],
+    ];
+    goers.forEach(([x, z, h, sp], i) => {
+      const pd = s.peds[i];
+      pd.x = x; pd.z = z; pd.heading = h; pd.speed = sp; pd.alive = true;
+    });
+    stepFor(world, 3, () => walkInput(world, -17, 266));
+    s.player.x = -17; s.player.z = 266; s.player.heading = -2.7;
+    cam(-4, 5.5, 264, -70, 1.5, 282);
     return 'play';
   }
   if (name === 'chase') {
-    world.pinClock(16.0);
+    // coastal sunset chase (ref 3): westbound on the beach road at 18:00,
+    // sun low ahead-left over the sea, skyline right, palms lining the
+    // road, heli ahead over the water, police closing from behind
+    world.pinClock(18.0);
     s.player.mode = 'car';
-    s.heroCar.x = -96; s.heroCar.z = 0; s.heroCar.heading = 0; s.heroCar.speed = 18;
-    s.player.x = -96; s.player.z = 0;
+    s.heroCar.x = -40; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 18;
+    s.player.x = -40; s.player.z = 240;
     s.wanted = 4; s.heli.active = true; s.heli.x = -70; s.heli.z = -24; s.heli.alt = 50;
     for (let i = 0; i < 4; i++) {
-      s.police.push({ x: -96 - 16 - i * 10, z: (i % 2 ? 4 : -4), heading: 0, speed: 16, search: 0, siren: i });
+      s.police.push({ x: -24 + i * 10, z: (i % 2 ? 236 : 244), heading: Math.PI, speed: 16, search: 0, siren: i });
     }
-    stepFor(world, 3, () => driveInput(world, 120, 0));
-    s.heroCar.x = -40; s.heroCar.z = 0; s.heroCar.heading = 0;
-    // heli over the road ahead of the hero, inside the frame
-    s.heli.active = true; s.heli.x = -14; s.heli.z = 0; s.heli.alt = 26;
-    cam(-78, 7, -4, -10, 2, 0);
+    stepFor(world, 3, () => driveInput(world, -200, 240));
+    s.heroCar.x = -40; s.heroCar.z = 240; s.heroCar.heading = Math.PI;
+    // heli over the sea ahead-left of the hero, inside the frame
+    s.heli.active = true; s.heli.x = -70; s.heli.z = 255; s.heli.alt = 22;
+    cam(-28, 4.6, 242, -95, 2, 238);
     return 'play';
   }
   // default: plain play

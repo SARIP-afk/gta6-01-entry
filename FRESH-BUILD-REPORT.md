@@ -61,11 +61,83 @@ was written fresh in this session (new layout, sim, renderer, HUD, shots).
 - Play follow camera never settled headless → `snapFollow()` after staging.
 - Palette mix returned raw numbers for colour keys → three's fog uniforms threw every frame. Now always returns `THREE.Color`.
 
+## Sunset-chase pass (refs 3 & 4, 20 Nov ~21:00–22:00 WIB)
+
+Two more Karimbu frames arrived as the bar after the first build
+(`~/workspace/user/files/1000118044_0_kkwj.jpg` coastal sunset chase,
+`~/workspace/user/files/1000118038_1_k4d3.jpg` beach sunset, draw calls
+185): the sunset itself is a subject, and the chase runs along the coast
+road toward the sun. Changes (render-only + staging, no sim changes):
+- Gradient sky dome (BackSide sphere, 4×256 canvas, repainted per 0.25 h
+  bucket from the time-of-day palette).
+- Sun glitter path on the sea (warm gradient plane, long axis aimed at the
+  sun azimuth, opacity follows the sunset factor).
+- Lighthouse on the western headland (−280, 348): rock + banded tower +
+  glowing lamp.
+- Marina water: two planes east of the grid (clear of the causeway) so
+  the moored boats float.
+- Clouds: sunset-warm / night-dark tint, opacity 0.55, flattened to
+  3.5 m, spread extended over the sea.
+- Denser palms along the beach road (step 12 m) + second umbrella row
+  (z ≈ 282).
+- HUD: stronger text shadows on cash/clock/stars/wanted/speed.
+- Re-staged `cover` + `chase` as the ref-3 composition (westbound on the
+  z = 240 coast road at 18:00, low camera behind the hero, heli big
+  ahead-left over the sea) and `beach` as a sunset view from the sand.
+- Staging fixes found by viewing: the first chase/cover cameras sat
+  inside palm crowns (giant frond across the frame) and the hero was
+  clipped/half-hidden behind a police car — cameras moved onto the road
+  centreline, police pushed back, heli moved onto the view axis.
+- Measured: all 8 shots ready, 0 console errors; draw calls 48–99,
+  triangles 372,762–383,322 (< 500k); determinism re-verified (seed-1
+  `3163c720` twice, seed-2 `f0239866`); dossier re-checked via `main.ts`
+  (exit 0, 4 images, text 135,737 bytes < 163,840) with regenerated
+  cover/start/play/end JPEGs. Remaining nits: sea reads as a thin dark
+  band from the coast road (glitter subtle at a glancing angle); a cloud
+  box can still peek over a roofline; east facades go dark brown at
+  sunset. NOT submitted — last slot untouched, awaiting syarif's word.
+
+## Visual round v2.3 — independent-verification fixes (20 Nov, ~22:00 WIB)
+
+Two failures found by independent verification of the v2 render; both
+fixed here, nothing submitted.
+
+1. **`?shot=beach` staged on asphalt.** The hero stood at z = 284 — ON
+   the z = 288 beach road (asphalt 282–294) — and the camera looked down
+   the road, so the frame read as a street. Restaged in `src/shots.js`
+   only: hero on foot at (-17, 266), on sand among the northern umbrella
+   row (umbrella (-20.4, 263.1) + towel + ball 3 m away), camera at
+   (-4, 5.5, 264) looking WSW — sun + lighthouse + sea at the left,
+   5 beachgoers (seeded peds repositioned to fixed spots west of the
+   hero, slow westward stroll) mid-frame, sand foreground. Two earlier
+   tries were viewed and rejected: northern strip at camera z = 278 (road
+   still filled the left half, lamp 10 m in front of the lens) and the
+   southern strip at camera z = 300 (road filled the right half, umbrellas
+   out of frame). Final PNG viewed: beach reads as a beach.
+2. **`window.__stats` was `{}`.** `main.js` only wrote it when 1 s of
+   *sim* time elapsed; headless SwiftShader runs 1–2 FPS, so 60 sim
+   frames take 30–60 s wall time and the driver read before the branch
+   ever fired. Now `window.__stats = renderer.stats()` every frame
+   (cheap counter read) and `__fps` accumulates wall-clock time from the
+   rAF timestamp instead of sim time.
+- Re-verified, all 8 shots, 0 console errors: calls / triangles —
+  cover 99 / 380,098; start 85 / 383,322; play 72 / 373,628;
+  end 63 / 372,762; market 48 / 377,314; nightmarket 48 / 377,314;
+  beach 56 / 377,534; chase 95 / 380,478 (budget ≤ 250 calls,
+  ≤ 500k triangles). Other 7 shots byte-identical to the v2 render
+  except end/chase, which differ by 0.11% / 0.24% of pixels — diff-map
+  shows only the heli rotor angle + hero-car bob edge AA (both animate
+  on renderer time, so a ±1 rAF frame before capture shifts their phase;
+  two consecutive re-runs of end/chase are pixel-identical). No
+  composition changed. `screenshots/3-end.jpg` regenerated from the fresh
+  end PNG (PIL q85 — verified byte-identical reproduction of the v2
+  cover JPG with the same settings). NOT submitted.
+
 ## What is NOT done / needs a human
 
 - **Not submitted.** No submit, no fee, no slot used — the last slot (3/3) is untouched; submission needs syarif's explicit word (deadline 24 Nov 22:00 WIB).
 - **Not play-tested by a human.** Only headless renders + Node sim checks. Real-keyboard play (driving feel, shooting, M2–M4 completion) is unverified.
-- Known cosmetic notes: sunset HUD text (cash, HEAT label) can sit on bright clouds; night-market ground is dark away from the lights (by design — lights are the readability); marina boats sit on dark ground (no marina water plane east of the grid); clouds are flat white slabs.
+- Known cosmetic notes: night-market ground is dark away from the lights (by design — lights are the readability); the sea reads as a thin dark band from the coast road and the sun glitter is subtle at a glancing angle; a cloud box can still peek over a roofline as a pale slab; east-facing facades go dark brown at sunset. (Fixed in the sunset-chase pass: sunset HUD text legibility, marina boats now float on water, clouds are warm-tinted and flattened.)
 - Headless FPS (1–2) is a SwiftShader artefact, not a game measurement.
 - `verify-shots/` PNGs are kept in the worktree (uncommitted) as the visual record.
 

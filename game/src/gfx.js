@@ -265,6 +265,14 @@ export class Renderer {
     sea.rotation.x = -Math.PI / 2;
     sea.position.set(60, 0.4, SEA_Z + 130);
     scene.add(sea);
+    // marina water east of the grid (two planes, clear of the causeway
+    // strip) so the moored boats float instead of sitting on concrete
+    for (const [mz, mh] of [[-39.5, 113], [87.5, 113]]) {
+      const mw = new THREE.Mesh(new THREE.PlaneGeometry(144, mh), this.seaMat);
+      mw.rotation.x = -Math.PI / 2;
+      mw.position.set(360, 0.2, mz);
+      scene.add(mw);
+    }
 
     const solid = new BoxSoup();   // lambert, vertex colours
     const glow = new BoxSoup();    // basic, vertex colours — reads at night
@@ -312,6 +320,15 @@ export class Renderer {
         }
       }
     }
+    // lighthouse on the western headland, in the sea (ref-3 landmark):
+    // rock base + banded tower + lamp that glows at dusk
+    solid.add(-280, 1.2, 348, 16, 2.4, 14, '#6b5a4a');
+    solid.add(-280, 3.2, 348, 11, 2, 10, '#7a6a58');
+    solid.add(-280, 6, 348, 5, 5, 5, '#e8e0d0');
+    solid.add(-280, 9.5, 348, 5, 3, 5, '#c0392b');
+    solid.add(-280, 12.5, 348, 5, 3, 5, '#e8e0d0');
+    solid.add(-280, 15, 348, 5.4, 1, 5.4, '#2f3540');
+    glow.add(-280, 16.2, 348, 1.6, 1.6, 1.6, '#ffe9a8');
     scene.add(solid.build(lambertVertex()));
     scene.add(glow.build(basicVertex()));
 
@@ -549,17 +566,63 @@ export class Renderer {
     this.sunDisc = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffd98a, fog: false }));
     this.sunHalo = new THREE.Mesh(new THREE.CircleGeometry(30, 24), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.35, fog: false }));
     this.scene.add(this.sunDisc, this.sunHalo);
+    // gradient sky dome (zenith -> horizon -> below): a flat background
+    // colour can never do a sunset. Regenerated only when the hour bucket
+    // changes, so it costs one 4x256 canvas paint per ~15 min of game time.
+    this.skyCanvas = document.createElement('canvas');
+    this.skyCanvas.width = 4; this.skyCanvas.height = 256;
+    this.skyTex = new THREE.CanvasTexture(this.skyCanvas);
+    this.skyTex.colorSpace = THREE.SRGBColorSpace;
+    this.skyDome = new THREE.Mesh(
+      new THREE.SphereGeometry(950, 24, 16),
+      new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false, depthWrite: false }),
+    );
+    this.skyDome.renderOrder = -10;
+    this.scene.add(this.skyDome);
+    this.skyBucket = null;
+    // sun glitter path on the sea: warm translucent gradient, long axis
+    // aimed at the sun azimuth, opacity driven by the sunset factor
+    const gc = document.createElement('canvas');
+    gc.width = 256; gc.height = 64;
+    const gctx = gc.getContext('2d');
+    const gx = gctx.createLinearGradient(0, 0, 256, 0);
+    gx.addColorStop(0, 'rgba(255,170,80,0)');
+    gx.addColorStop(0.35, 'rgba(255,190,100,0.75)');
+    gx.addColorStop(0.6, 'rgba(255,220,150,1)');
+    gx.addColorStop(0.85, 'rgba(255,170,80,0.6)');
+    gx.addColorStop(1, 'rgba(255,170,80,0)');
+    gctx.fillStyle = gx;
+    gctx.fillRect(0, 0, 256, 64);
+    gctx.globalCompositeOperation = 'destination-in';
+    const gy = gctx.createLinearGradient(0, 0, 0, 64);
+    gy.addColorStop(0, 'rgba(0,0,0,0)');
+    gy.addColorStop(0.5, 'rgba(0,0,0,1)');
+    gy.addColorStop(1, 'rgba(0,0,0,0)');
+    gctx.fillStyle = gy;
+    gctx.fillRect(0, 0, 256, 64);
+    this.glitterTex = new THREE.CanvasTexture(gc);
+    this.glitterTex.colorSpace = THREE.SRGBColorSpace;
+    this.glitter = new THREE.Mesh(
+      new THREE.PlaneGeometry(360, 80),
+      new THREE.MeshBasicMaterial({ map: this.glitterTex, transparent: true, opacity: 0, depthWrite: false, fog: false }),
+    );
+    this.glitter.rotation.order = 'YXZ';
+    this.glitter.rotation.x = -Math.PI / 2;
+    this.glitter.position.set(-150, 0.55, 400);
+    this.glitter.renderOrder = -5;
+    this.scene.add(this.glitter);
     this.clouds = [];
-    const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false });
+    this.cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false });
+    const cloudMat = this.cloudMat;
     for (let i = 0; i < 9; i++) {
       const g = new THREE.Group();
       const n = 3 + (i % 3);
       for (let j = 0; j < n; j++) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(26 + hash2(i, j, 71) * 30, 5, 12), cloudMat);
+        const m = new THREE.Mesh(new THREE.BoxGeometry(26 + hash2(i, j, 71) * 30, 3.5, 12), cloudMat);
         m.position.set(j * 18 - n * 9, hash2(i, j, 72) * 4, hash2(i, j, 73) * 8 - 4);
         g.add(m);
       }
-      g.position.set(-320 + hash2(i, 0, 74) * 640, 95 + hash2(i, 1, 74) * 55, -260 + hash2(i, 2, 74) * 420);
+      g.position.set(-320 + hash2(i, 0, 74) * 640, 95 + hash2(i, 1, 74) * 55, -260 + hash2(i, 2, 74) * 680);
       this.clouds.push(g);
       this.scene.add(g);
     }
@@ -879,6 +942,33 @@ export class Renderer {
     this.sunDisc.lookAt(this.camera.position);
     this.sunHalo.position.copy(this.sunDisc.position);
     this.sunHalo.lookAt(this.camera.position);
+    // sunset factor: 1 at 18.3, fading to 0 by ~15.8 / ~20.8
+    const sunsetF = clamp(1 - Math.abs(hour - 18.3) / 2.5, 0, 1);
+    const nightAmt = hour < 5.5 || hour > 19.5 ? 1 : hour > 18.5 ? (hour - 18.5) : hour < 6.5 ? (6.5 - hour) : 0;
+    // sky dome gradient, repainted only when the hour bucket changes
+    const bucket = Math.round(hour * 4);
+    if (bucket !== this.skyBucket) {
+      this.skyBucket = bucket;
+      const ctx = this.skyCanvas.getContext('2d');
+      const g = ctx.createLinearGradient(0, 0, 0, 256);
+      const zen = pal.bg.clone().multiplyScalar(0.72);
+      g.addColorStop(0, `#${zen.getHexString()}`);
+      g.addColorStop(0.55, `#${pal.bg.getHexString()}`);
+      g.addColorStop(0.78, `#${pal.fog.getHexString()}`);
+      g.addColorStop(1, `#${pal.hemiGround.getHexString()}`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 4, 256);
+      this.skyTex.needsUpdate = true;
+    }
+    this.skyDome.position.set(hx, 0, hz);
+    // clouds: warm at sunset, dark at night — never flat white slabs
+    tmpColor.set(0xffffff).lerp(pal.fog, sunsetF * 0.85);
+    tmpColor.multiplyScalar(1 - nightAmt * 0.7);
+    this.cloudMat.color.copy(tmpColor);
+    this.cloudMat.opacity = 0.55 - nightAmt * 0.2;
+    // sun glitter: long axis aimed at the sun azimuth, visible at sunset
+    this.glitter.material.opacity = sunsetF * 0.55;
+    this.glitter.rotation.y = Math.atan2(-sunDir.z, sunDir.x);
     const nightF = clamp(1 - pal.sunI / 1.25, 0, 1);
     this.stars.material.opacity = hour < 5.5 || hour > 19 ? 0.9 : hour > 18 ? 0.5 : 0;
     this.seaMat.map.offset.x = (this.time * 0.004) % 1;

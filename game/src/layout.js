@@ -109,20 +109,29 @@ export function buildLayout(seed = 1) {
     }
   }
 
-  // --- palms: beach rows + boulevard lines ---
-  for (let x = -280; x <= 280; x += 16) {
-    if (hash2(x, 1, 31) < 0.75) palms.push({ x: x + range(rng, -3, 3), z: 252 + range(rng, -2, 6), s: range(rng, 0.85, 1.25) });
-    if (hash2(x, 2, 32) < 0.5) palms.push({ x: x + range(rng, -3, 3), z: 228 + range(rng, -2, 3), s: range(rng, 0.8, 1.15) });
+  // --- palms: beach rows + boulevard lines (dense — the ref-3 coast road
+  // is lined with them, not dotted) ---
+  for (let x = -280; x <= 280; x += 12) {
+    if (hash2(x, 1, 31) < 0.85) palms.push({ x: x + range(rng, -3, 3), z: 252 + range(rng, -2, 6), s: range(rng, 0.85, 1.25) });
+    if (hash2(x, 2, 32) < 0.65) palms.push({ x: x + range(rng, -3, 3), z: 228 + range(rng, -2, 3), s: range(rng, 0.8, 1.15) });
   }
   for (let z = -240; z <= 180; z += 24) {
     if (hash2(3, z, 33) < 0.4) palms.push({ x: 296, z: z + range(rng, -3, 3), s: range(rng, 0.85, 1.2) });
   }
 
-  // --- beach umbrellas + towels, fixed spots along the sand ---
+  // --- beach umbrellas + towels, fixed spots along the sand (two rows —
+  // the ref-4 beach is inhabited, not one dotted line) ---
   for (let x = -264; x <= 264; x += 24) {
     if (hash2(x, 4, 41) < 0.7) {
       umbrellas.push({
         x: x + range(rng, -4, 4), z: 262 + range(rng, -4, 10),
+        color: pick(rng, ['#e07a5f', '#4fc3f7', '#f2c94c', '#f28482', '#90be6d']),
+        ry: range(rng, 0, Math.PI * 2),
+      });
+    }
+    if (hash2(x, 5, 42) < 0.55) {
+      umbrellas.push({
+        x: x + 12 + range(rng, -4, 4), z: 282 + range(rng, -4, 8),
         color: pick(rng, ['#e07a5f', '#4fc3f7', '#f2c94c', '#f28482', '#90be6d']),
         ry: range(rng, 0, Math.PI * 2),
       });

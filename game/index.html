@@ -13,7 +13,7 @@
   .panel { background: rgba(12, 16, 24, 0.82); border: 1px solid rgba(242, 201, 76, 0.35);
     border-radius: 8px; padding: 8px 10px; backdrop-filter: blur(2px); }
   #hud { position: fixed; inset: 0; pointer-events: none; display: none; font-size: 13px; }
-  #hud .panel { pointer-events: auto; }
+  #hud .panel, #hud #minimap { pointer-events: auto; }
   /* top-left: mission */
   #mission { position: absolute; top: 12px; left: 12px; width: 300px; border-top: 3px solid #f2c94c; }
   #mission-name { color: #f2c94c; font-weight: 800; letter-spacing: 0.06em; font-size: 13px; }
@@ -42,7 +42,7 @@
     background: rgba(255,255,255,0.06); border-radius: 5px; border: 1px solid rgba(255,255,255,0.08); }
   .wslot.active { border-color: #f2c94c; background: rgba(242,201,76,0.14); }
   .wslot b { color: #f2c94c; }
-  #crew { position: absolute; top: 306px; right: 12px; width: 210px; }
+  #crew { position: absolute; top: 340px; right: 12px; width: 210px; }
   .crew-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
   .crew-row:last-child { border-bottom: 0; }
   .crew-row .key { display: inline-block; background: #f2c94c; color: #111; font-weight: 800;

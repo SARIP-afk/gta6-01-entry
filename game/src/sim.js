@@ -45,6 +45,13 @@ export const MISSIONS = [
   },
 ];
 
+export const WEAPONS = {
+  'FISTS': { dmg: 0, range: 0, spread: 0, mag: 0 },
+  'SOL-9': { dmg: 34, range: 26, spread: 0.12, mag: 12 },
+  'SMG': { dmg: 16, range: 22, spread: 0.16, mag: 30 },
+  '12G': { dmg: 55, range: 14, spread: 0.28, mag: 6 },
+};
+export const WEAPON_ORDER = ['FISTS', 'SOL-9', 'SMG', '12G'];
 const WANTED_TIERS = ['CLEAR', 'HEAT 1', 'HEAT 2', 'HEAT 3', 'HEAT 4', 'MAXIMUM FORCE'];
 const CAR_COLORS = ['#c0392b', '#2980b9', '#f1c40f', '#ecf0f1', '#2c3e50', '#e67e22', '#16a085', '#8e44ad'];
 const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
@@ -75,6 +82,7 @@ function resetWorld(world, seed) {
     player: { x: SPAWN.x, z: SPAWN.z, heading: SPAWN.heading, mode: 'car', health: 95, armour: 27, speed: 0, walkPhase: 0 },
     heroCar: { x: SPAWN.x, z: SPAWN.z + 4, heading: SPAWN.heading, speed: 0, damage: 0, color: '#e74c3c', model: 'SOLMAR GT', kind: 'sport' },
     ammo: 48, reserve: 90, weapon: 'SOL-9',
+    ammoStore: { 'SOL-9': { ammo: 48, reserve: 90 }, 'SMG': { ammo: 120, reserve: 180 }, '12G': { ammo: 12, reserve: 24 } },
     wanted: 0, wantedTimer: 0, heat: 0,
     traffic: [], peds: [], police: [], gunmen: [],
     van: null, tailTime: 0,
@@ -147,6 +155,19 @@ function startMission(s, i) {
   logEvent(s, `MISSION ${i + 1} · ${m.name}`);
 }
 
+/** Switch weapon by index (1-4). Saves the current weapon's mag/reserve,
+ * loads the new one; FISTS carries no ammo. Returns the weapon name. */
+export function setWeapon(world, index) {
+  const s = world.state;
+  const name = WEAPON_ORDER[clamp(index, 0, WEAPON_ORDER.length - 1)];
+  if (name === s.weapon) return name;
+  if (s.weapon !== 'FISTS') s.ammoStore[s.weapon] = { ammo: s.ammo, reserve: s.reserve };
+  s.weapon = name;
+  if (name === 'FISTS') { s.ammo = Infinity; s.reserve = Infinity; }
+  else { const st = s.ammoStore[name]; s.ammo = st.ammo; s.reserve = st.reserve; }
+  return name;
+}
+
 export function wantedTier(w) { return WANTED_TIERS[clamp(w, 0, 5)]; }
 
 function setWanted(s, w, reason) {
@@ -198,6 +219,10 @@ function stepWorld(world, dt, input) {
     }
     p.x = clamp(p.x, -330, 426); p.z = clamp(p.z, -330, 330);
     if (input.enter) {
+      // consume the press here: the driving branch below runs in the same
+      // step and would otherwise read the same input.enter and exit the
+      // car again immediately (enter+exit in one step = never getting in).
+      input.enter = false;
       const c = nearestTrafficCar(s, p.x, p.z, 4);
       if (c) {
         s.traffic.splice(s.traffic.indexOf(c), 1);
@@ -240,7 +265,16 @@ function stepWorld(world, dt, input) {
     p.x = car.x; p.z = car.z; p.heading = car.heading;
     if (input.enter && Math.abs(car.speed) < 1) { p.mode = 'walk'; p.x = car.x + 2.5; p.z = car.z + 2.5; }
     if (car.damage >= 100) {
-      car.damage = 0; car.speed = 0; p.mode = 'walk'; p.x = car.x + 3; p.z = car.z + 3;
+      car.damage = 0; car.speed = 0; p.mode = 'walk';
+      // step out on a side that is NOT inside a building: the old fixed
+      // (+3,+3) could land inside a footprint and trap the hero against
+      // the wall forever (playtest: hero stuck 4.24 m from the car)
+      const exits = [[3, 3], [-3, 3], [3, -3], [-3, -3], [0, 5], [0, -5], [5, 0], [-5, 0]];
+      let placed = false;
+      for (const [ox, oz] of exits) {
+        if (!hitsBuilding(world, car.x + ox, car.z + oz)) { p.x = car.x + ox; p.z = car.z + oz; placed = true; break; }
+      }
+      if (!placed) { p.x = car.x + 3; p.z = car.z + 3; }
       logEvent(s, 'Your car is wrecked');
     }
     // car-vs-traffic bumps (rate-limited: one bump per 0.4 s)
@@ -253,27 +287,40 @@ function stepWorld(world, dt, input) {
     }
   }
 
-  // ---- shooting ----
-  if (input.shoot && s.ammo > 0 && p.mode === 'walk') {
+  // ---- shooting (current weapon's damage / range / spread) ----
+  const w = WEAPONS[s.weapon] || WEAPONS['SOL-9'];
+  if (input.shoot && w.dmg > 0 && s.ammo > 0 && p.mode === 'walk') {
     s.ammo--; s.shotsFired++;
     const ang = input.shootAngle ?? p.heading;
     for (const g of s.gunmen) {
       if (!g.alive) continue;
       const d = Math.hypot(g.x - p.x, g.z - p.z);
       const want = Math.atan2(-(g.z - p.z), g.x - p.x);
-      if (d < 26 && Math.abs(wrapAngle(want - ang)) < 0.12) {
-        g.hp -= 34; g.hitFlash = 0.15;
+      if (d < w.range && Math.abs(wrapAngle(want - ang)) < w.spread) {
+        g.hp -= w.dmg; g.hitFlash = 0.15;
         if (g.hp <= 0) { g.alive = false; s.kills++; s.cash += 50; setWanted(s, Math.max(s.wanted, 2), 'shooting'); }
       }
     }
     if (s.ammo === 0) logEvent(s, 'Out of ammo — press R');
   }
-  if (input.reload && s.reserve > 0 && s.ammo < 12) {
-    const need = 12 - s.ammo, take = Math.min(need, s.reserve);
+  if (input.reload && w.dmg > 0 && s.reserve > 0 && s.ammo < w.mag) {
+    const need = w.mag - s.ammo, take = Math.min(need, s.reserve);
     s.ammo += take; s.reserve -= take;
   }
 
   // ---- traffic AI: follow roads, turn at intersections ----
+  // Traffic never drives through the hero on foot: a car stops when the
+  // hero is in its path ahead, and shoves the hero aside if it is already
+  // overlapping (both with building checks, so nobody is pushed into a wall).
+  const heroOnFoot = p.mode === 'walk';
+  const pedPush = (car) => {
+    if (!heroOnFoot) return;
+    const d = Math.hypot(p.x - car.x, p.z - car.z);
+    if (d >= 2.5 || d < 0.01) return;
+    const px = (p.x - car.x) / d, pz = (p.z - car.z) / d;
+    const nx = p.x + px * (2.5 - d + 0.3), nz = p.z + pz * (2.5 - d + 0.3);
+    if (!hitsBuilding(world, nx, nz)) { p.x = nx; p.z = nz; }
+  };
   for (const c of s.traffic) {
     const aheadX = c.x + Math.cos(c.heading) * 6, aheadZ = c.z - Math.sin(c.heading) * 6;
     const nearJunction = Math.abs(aheadX - nearestRoad(aheadX)) < 7 && Math.abs(aheadZ - nearestRoad(aheadZ)) < 7;
@@ -286,21 +333,43 @@ function stepWorld(world, dt, input) {
     if (!onX && !onZ) {
       c.heading = Math.atan2(-(rz - c.z), rx - c.x);
     }
-    c.x += Math.cos(c.heading) * c.speed * dt;
-    c.z -= Math.sin(c.heading) * c.speed * dt;
+    // stop for the hero on foot in the path ahead (12 m, 3.5 m half-width)
+    let blocked = false;
+    if (heroOnFoot) {
+      const fx = Math.cos(c.heading), fz = -Math.sin(c.heading);
+      const dx = p.x - c.x, dz = p.z - c.z;
+      const fwd = dx * fx + dz * fz;
+      const lat = Math.abs(dx * Math.sin(c.heading) + dz * Math.cos(c.heading));
+      if (fwd > 0 && fwd < 12 && lat < 3.5) {
+        c.speed = Math.max(0, c.speed - 25 * dt);
+        blocked = c.speed < 0.5;
+      }
+      pedPush(c);
+    }
+    if (!blocked) {
+      // axis-separated move so a car can never end up inside a building
+      const nx = c.x + Math.cos(c.heading) * c.speed * dt;
+      const nz = c.z - Math.sin(c.heading) * c.speed * dt;
+      if (!hitsBuilding(world, nx, nz)) { c.x = nx; c.z = nz; }
+      else if (!hitsBuilding(world, nx, c.z)) { c.x = nx; }
+      else if (!hitsBuilding(world, c.x, nz)) { c.z = nz; }
+    }
     if (c.x < GRID_MIN - 20 || c.x > 420 || c.z < GRID_MIN - 20 || c.z > 320) {
       c.x = clamp(heroX + (rng() < 0.5 ? -1 : 1) * (90 + rng() * 60), GRID_MIN, 400);
       c.z = clamp(heroZ + (rng() < 0.5 ? -1 : 1) * (90 + rng() * 60), GRID_MIN, 300);
       c.x = nearestRoad(c.x); c.z = nearestRoad(c.z);
     }
-    // simple car-car separation
+    // simple car-car separation (guarded so the push never shoves a car
+    // into a building — that was clipping taxis 0.7 m into walls)
     for (const o of s.traffic) {
       if (o === c) continue;
-      const d2 = dist2(c.x, c.z, o.x, o.z);
-      if (d2 < 16 && d2 > 0.01) {
-        const d = Math.sqrt(d2);
-        c.x += ((c.x - o.x) / d) * (4 - d) * 0.5 * dt * 10;
-        c.z += ((c.z - o.z) / d) * (4 - d) * 0.5 * dt * 10;
+      const d2v = dist2(c.x, c.z, o.x, o.z);
+      if (d2v < 16 && d2v > 0.01) {
+        const d = Math.sqrt(d2v);
+        const push = (4 - d) * 0.5 * dt * 10;
+        const nx = c.x + ((c.x - o.x) / d) * push, nz = c.z + ((c.z - o.z) / d) * push;
+        if (!hitsBuilding(world, nx, c.z)) c.x = nx;
+        if (!hitsBuilding(world, c.x, nz)) c.z = nz;
         c.speed = Math.min(c.speed, o.speed);
       }
     }
@@ -361,12 +430,25 @@ function stepWorld(world, dt, input) {
     const want = Math.atan2(-(heroZ - pc.z), heroX - pc.x);
     pc.heading += clamp(wrapAngle(want - pc.heading), -2.2 * dt, 2.2 * dt);
     pc.speed = clamp(pc.speed + (d > 12 ? 4 : -6) * dt, 0, s.wanted >= 4 ? 30 : 26);
-    pc.x += Math.cos(pc.heading) * pc.speed * dt;
-    pc.z -= Math.sin(pc.heading) * pc.speed * dt;
+    // never run the hero over on foot: hold 6 m out instead of overlapping
+    const holdForPed = p.mode === 'walk' && d < 7;
+    if (holdForPed) pc.speed = Math.max(0, pc.speed - 30 * dt);
+    if (!holdForPed || pc.speed > 0.5) {
+      // axis-separated move so police can no longer cut through buildings
+      const nx = pc.x + Math.cos(pc.heading) * pc.speed * dt;
+      const nz = pc.z - Math.sin(pc.heading) * pc.speed * dt;
+      if (!hitsBuilding(world, nx, nz)) { pc.x = nx; pc.z = nz; }
+      else if (!hitsBuilding(world, nx, pc.z)) { pc.x = nx; }
+      else if (!hitsBuilding(world, pc.x, nz)) { pc.z = nz; }
+    }
     pc.siren += dt;
-    if (d < 5 && pc.speed > 8 && Math.abs(car.speed) > 2) { // ram
+    // ram: rate-limited by the shared hit cooldown (was +0.2/step with no
+    // cooldown — 12 damage/s per cop while touching, which wrecked the
+    // hero car in seconds during any chase)
+    if (d < 5 && pc.speed > 8 && Math.abs(car.speed) > 2 && s.hitCooldown <= 0) {
       car.damage = Math.min(100, car.damage + 0.2);
       car.speed *= 0.995;
+      s.hitCooldown = 0.4;
     }
     if (d > 130) pc.search += dt; else pc.search = 0;
   }
@@ -428,12 +510,20 @@ function stepWorld(world, dt, input) {
       const dv = Math.hypot(van.x - heroX, van.z - heroZ);
       if (dv < 40) s.tailTime += dt;
       if (s.tailTime > 20) {
-        s.missions.stage = 2; // done
+        // tail done — finish the mission here. Setting stage = 2 (out of
+        // range) left currentStage() undefined and crashed stepWorld on
+        // every subsequent step (st.x on undefined, sim.js:506).
+        finishMission(s, m);
       }
-    } else if (dObj < (st.footOnly ? 4 : 7)) {
-      if (m.id === 3 && s.missions.stage === 0) {
-        if (s.wanted === 0 && s.gunmen.every((g) => !g.alive)) { s.missions.stage = 1; setObjective(s); logEvent(s, 'CLEAR — now run the pier'); }
-      } else if (s.missions.stage < m.stages.length - 1) {
+    } else if (m.id === 3 && s.missions.stage === 0) {
+      // M4 trap: advance when the heat is lost and the gunmen are dead,
+      // wherever the hero is. The old code nested this inside the
+      // dObj < 7 branch, but the gunmen spawn 14–26 m from the safehouse,
+      // so a hero who killed them from range and waited (wanted 0, all
+      // gunmen dead) never advanced the stage — a silent soft-lock.
+      if (s.wanted === 0 && s.gunmen.every((g) => !g.alive)) { s.missions.stage = 1; setObjective(s); logEvent(s, 'CLEAR — now run the pier'); }
+    } else if (st && dObj < (st.footOnly ? 4 : 7) && (!st.footOnly || p.mode === 'walk')) {
+      if (s.missions.stage < m.stages.length - 1) {
         s.missions.stage++;
         setObjective(s);
         logEvent(s, `STAGE ${s.missions.stage + 1}/${m.stages.length} · ${currentStage(s).label}`);
@@ -463,6 +553,11 @@ function stepWorld(world, dt, input) {
 }
 
 function finishMission(s, m) {
+  // idempotent: the mission block keeps running while the hero stands
+  // inside the objective radius, and the pier-run car crosses the 7 m
+  // mission radius into the 5 m autopilot radius over ~6 steps — without
+  // this guard M4 paid out +$2000/+400 RP six times (cash +$12,150).
+  if (s.missions.done[m.id]) return;
   s.missions.done[m.id] = true;
   const t = s.missions.missionTime;
   const rating = t <= m.par ? 'GOLD' : t <= m.par * 1.5 ? 'SILVER' : 'BRONZE';
@@ -492,13 +587,23 @@ function traceHash(world) {
   return fnv(world.state.trace.join('|'));
 }
 
-/** Save / load: three slots in localStorage, plain JSON. */
+/** Save / load: three slots in localStorage, plain JSON. Saves the full
+ * playable state (position, car, health, ammo, weapon, wanted, mission
+ * stage) so loading resumes exactly where the player left off. */
 export function saveGame(world, slot) {
   const s = world.state;
   const data = {
     cash: s.cash, rp: s.rp, rank: s.rank, shellsFound: s.shellsFound,
+    shellsTaken: s.shells.map((sh, i) => (sh.taken ? i : -1)).filter((i) => i >= 0),
     missionsDone: s.missions.done, active: s.missions.active,
-    x: s.player.x, z: s.player.z, hour: s.hour, exportsDone: s.exportsDone,
+    stage: s.missions.stage, missionTime: s.missions.missionTime, started: s.missions.started,
+    mode: s.player.mode, x: s.player.x, z: s.player.z, heading: s.player.heading,
+    carX: s.heroCar.x, carZ: s.heroCar.z, carHeading: s.heroCar.heading,
+    carDamage: s.heroCar.damage, carModel: s.heroCar.model, carColor: s.heroCar.color, carKind: s.heroCar.kind,
+    health: s.player.health, armour: s.player.armour,
+    weapon: s.weapon, ammoStore: s.ammoStore,
+    wanted: s.wanted, gunmenAlive: s.gunmen.map((g) => g.alive),
+    hour: s.hour, exportsDone: s.exportsDone,
     standing: s.standing, time: s.time,
   };
   try { localStorage.setItem(`solmarina-save-${slot}`, JSON.stringify(data)); return true; } catch { return false; }
@@ -510,9 +615,34 @@ export function loadGame(world, slot) {
     const d = JSON.parse(raw);
     const s = world.state;
     s.cash = d.cash; s.rp = d.rp; s.rank = d.rank; s.shellsFound = d.shellsFound;
-    s.missions.done = d.missionsDone; s.player.x = d.x; s.player.z = d.z; s.hour = d.hour;
-    s.exportsDone = d.exportsDone; s.standing = d.standing; s.time = d.time || 0;
-    s.missions.started = false;
+    for (const i of (d.shellsTaken || [])) if (s.shells[i]) s.shells[i].taken = true;
+    s.missions.done = d.missionsDone;
+    s.missions.active = d.active ?? 0;
+    s.missions.stage = d.stage ?? 0;
+    s.missions.missionTime = d.missionTime ?? 0;
+    s.missions.started = d.started ?? true;
+    s.missions.dialog = null; s.missions.dialogTimer = 0;
+    s.player.mode = d.mode || 'car';
+    s.player.x = d.x; s.player.z = d.z; s.player.heading = d.heading ?? 0;
+    s.heroCar.x = d.carX ?? d.x; s.heroCar.z = d.carZ ?? d.z;
+    s.heroCar.heading = d.carHeading ?? 0; s.heroCar.speed = 0;
+    s.heroCar.damage = d.carDamage ?? 0;
+    if (d.carModel) s.heroCar.model = d.carModel;
+    if (d.carColor) s.heroCar.color = d.carColor;
+    if (d.carKind) s.heroCar.kind = d.carKind;
+    if (s.player.mode === 'car') { s.player.x = s.heroCar.x; s.player.z = s.heroCar.z; s.player.heading = s.heroCar.heading; }
+    s.player.health = d.health ?? 100; s.player.armour = d.armour ?? 0;
+    s.weapon = d.weapon || 'SOL-9';
+    s.ammoStore = d.ammoStore || s.ammoStore;
+    if (s.weapon === 'FISTS') { s.ammo = Infinity; s.reserve = Infinity; }
+    else { const st = s.ammoStore[s.weapon] || { ammo: 48, reserve: 90 }; s.ammo = st.ammo; s.reserve = st.reserve; }
+    s.wanted = d.wanted ?? 0; s.wantedTimer = 0;
+    if (Array.isArray(d.gunmenAlive)) d.gunmenAlive.forEach((alive, i) => { if (s.gunmen[i]) s.gunmen[i].alive = alive; });
+    s.hour = d.hour; s.exportsDone = d.exportsDone;
+    s.standing = d.standing; s.time = d.time || 0;
+    // resume the saved mission at its saved stage (do NOT restart M1:
+    // the old code reset started=false, so the sim re-ran startMission(0))
+    if (s.missions.started) setObjective(s);
     return d;
   } catch { return null; }
 }

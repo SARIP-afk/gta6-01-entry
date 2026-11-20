@@ -195,10 +195,132 @@ glancing angle; the beach foreground sand is a large empty expanse; the
 play shot's event-feed line overlaps the mission panel edge (pre-existing
 HUD nit).
 
+## Playtest round — full game played to completion (20 Nov, ~23:30–17:00 WIB next day)
+
+NOT a visual round: no graphics/sky/staging changes except functional
+bug fixes. Harness: `playtest/pt.mjs` (own headless Chromium 1187 +
+SwiftShader, CDP on 9224, game on 8091) + `playtest/pt-inpage.js`
+(Manhattan autopilot copied from `shots.js`, scripted mission runners,
+collision probes, real-key/mouse tests). The game was driven to
+completion end-to-end (M1→M4, `won=true`) by autopilot + fast-forward
+`world.step` calls; real keyboard/mouse used for E-enter/exit, weapon
+keys 1–4, radio, crew, pause, and the minimap click. **0 console
+errors across all 29 scenarios.** Draw calls 54–90, triangles
+372k–386k (budget ≤ 250 / ≤ 500k). Determinism re-verified (Node):
+seed-1 trace hash `4d9f8d47` twice, seed-2 `12327809`. Dossier
+re-checked via `main.ts` (exit 0, 4 images, text 151,568 bytes
+< 163,840).
+
+### Results per item (all PASS unless noted)
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Vehicles (E enter/exit, gas/brake/reverse/steer) | PASS. Real keys: exit→`walk`, enter→`car`. Top speed 122.4 km/h, boost 151.2, reverse −32.4. Brake 122.4→full reverse in 2 s (very strong — feel note, not a bug). |
+| 2 | Collisions | PASS. Traffic vs hero on foot: min 19.4 m, 0 overlap (90 s natural); deterministic in-lane probe: car stops 9.6 m from the hero, 0 pass-through. Traffic vs traffic: min pair 1.6 m, 8 hard-overlap frames (max 6 consecutive = 0.1 s graze). Car vs building: penetration 0 (180 s loop, damage 0). Walk vs building: min gap 0.85 m, never inside. Police vs building: penetration 0. |
+| 3 | Missions M1–M4 | ALL COMPLETE, all GOLD. M1 +$500/+400 RP (53.3 s); M2 +$800/+400 (footOnly negative test: car to 4 m of the stadium, stage stays 1; on-foot advance confirmed); M3 +$1,200/+400 (tail 20 s within 40 m); M4 +$2,000/+400 + 3×$50 gunman kills, total 57.4 s (par 240), `won=true`, screen `over`. |
+| 4 | Combat | PASS. Keys 1–4 select FISTS/SOL-9/SMG/12G (HUD active slot follows; ammo 48/120/12). No firing from a car. Reload R refills (12G 3→6, reserve 90→87). Gunmen: 3 shoot the hero (armour 27→0 under 10 s fire, health regen holds 100); shooting kills in 3 SOL-9 hits, `hitFlash` seen, +$50/kill, wanted → 2. |
+| 5 | Wanted / police | PASS. Steal (real E): wanted 1, 2 police. Ped run-over: wanted 1→3, peds 48→47, 4 police. Wanted 4: heli active all 5 samples, alt 52→45 (orbits ~48), 5 police. Cooldown at safehouse: 3→CLEAR in 12.1 s (4 s/star, as designed). No roadblock mechanic exists — police chase + ram only. |
+| 6 | Systems | PASS. Save/load slots 1–3 independent, full state restored (cash/pos/mission stage/car/health/ammo/wanted). Pause tabs MAP/STORY/STATS/SAVE all render + resume. Minimap click-travel: (−76,−139) → (313,−230), expected (317,−228). Radio cycles 3 stations. Crew Z (−1 wanted, 30 s cooldown blocks re-use), X (damage → 0), C (dialog). Day/night: +1 h per 240 sim-s, HUD clock 13:00. |
+| 7 | HUD 1280×720 | PASS (viewed PNG). Mission, KPD dispatch, event feed, district, minimap, vitals, dialog, 4 weapon slots, crew, clock/cash/stars/heat/rank, speed, radio — all readable, no overlaps, centre clear. |
+| 7 | HUD 640×360 | KNOWN LIMIT (viewed PNG): panels overlap each other (dialog covers health, speed number overlaps the weapon panel). Primary target is 1280×720; a responsive-HUD pass is a visual-round job, not done here. |
+| 8 | Console errors / determinism / draw calls | PASS. 0 console errors in every scenario; determinism verified (above); draw calls ≤ 90 everywhere. |
+
+### Bugs found and fixed in this round (game code)
+
+- **CRITICAL — E enter car never worked.** The walk branch consumed
+  `input.enter` → `mode='car'`, then the driving branch in the *same*
+  step read `input.enter` again and exited immediately. The hero could
+  never enter any car — M2 was uncompletable in real play (the builder
+  never tested E-enter; all shots start in car mode). Fix (`sim.js`):
+  the walk branch clears `input.enter` after handling it.
+- **CRITICAL — M3 tail crashed the sim.** On `tailTime > 20` the code
+  set `stage = 2` (out of range for a 2-stage mission) without calling
+  `finishMission`; the next step threw on `currentStage().x` and every
+  step after threw the same way (323 console errors, sim frozen).
+  Fix: call `finishMission(s, m)` directly + null-stage guard.
+- **M4 stage 0 soft-lock.** The trap-clear check was nested inside the
+  `dObj < 7` branch, but the gunmen spawn 14–26 m from the safehouse —
+  a hero who killed them from range and waited (wanted 0, all gunmen
+  dead) never advanced the stage. Fix: M4 stage 0 advances when the
+  heat is lost and the gunmen are dead, wherever the hero is.
+- **`finishMission` paid out repeatedly.** The mission block keeps
+  running while the hero stands in the objective radius, and the pier
+  car crosses the 7 m mission radius into the 5 m autopilot radius
+  over ~6 steps — M4 paid +$2,000/+400 RP six times (cash +$12,150).
+  Fix: `finishMission` returns early if `done[m.id]` is already set.
+- **Police ram had no cooldown** (+0.2/step = 12 dmg/s per cop while
+  touching). Fix: ram only when `hitCooldown <= 0`, then 0.4 s.
+- **Traffic drove through the hero on foot** (in-lane probe: min
+  0.37 m, 47 overlap frames). Fix: traffic stops for a hero on foot
+  in its forward cone + `pedPush` shoves the hero aside, building-checked.
+- **Police drove through buildings** (worst −9.39 m). Fix:
+  axis-separated police movement with `hitsBuilding` + 6–7 m hold
+  from an on-foot hero.
+- **Traffic clipped buildings** (−0.72 m). Fix: axis-separated traffic
+  movement + guarded separation push.
+- **M2 `footOnly` not enforced** (driving into the 4 m radius
+  completed the stage). Fix: completion requires `mode === 'walk'`.
+- **Wreck exit trapped the hero in a building** (fixed `car+(3,3)`).
+  Fix: try 8 offsets, first one outside any building.
+- **Save/load incomplete** (old code did not restore mission stage /
+  car / health / ammo / wanted and restarted M1 on load). Fix: full
+  state saved/restored (mode, player + car pos/heading/damage/model,
+  health, armour, weapon + `ammoStore`, wanted, mission stage +
+  missionTime, gunmen alive flags, shells).
+- **Weapon keys 1–4 did nothing** (HUD advertised 4 weapons, sim had
+  one). Fix (`sim.js` + `main.js` + `hud.js`): `WEAPONS` table
+  (SOL-9 34/26/0.12, SMG 16/22/0.16, 12G 55/14/0.28, FISTS ∞),
+  `setWeapon`, per-weapon fire intervals (180/90/450 ms), HUD active
+  slot + `∞` ammo for FISTS.
+- **E/R taps lost at low FPS** (`main.js` edge-trigger read once per
+  rAF). Fix: `pressed` latch on keydown (play screen only), consumed
+  by `readInput`.
+- **Minimap click-travel dead.** `#hud` sets `pointer-events: none`
+  and only `.panel` re-enables it — the minimap canvas inherited
+  `none`, so real clicks fell through to the game canvas.
+  Fix (`index.html`): `#hud .panel, #hud #minimap { pointer-events: auto; }`.
+- **12G weapon slot hidden.** The weapons panel (top 196 px, 4 slots
+  ≈ 140 px tall) ran under the crew panel (top 306 px). Fix
+  (`index.html`): `#crew` top 306 → 340 px. Verified in the 720 PNG.
+- **Event-feed overlap nit (v2.4).** Fix (`hud.js`): feed top is now
+  mission-panel bottom + 8 px when wanted = 0 (218 px when wanted > 0,
+  below the dispatch panel). Verified in the 720 PNG.
+
+### Harness bugs fixed along the way (playtest code only)
+
+- Manhattan router: degenerate waypoint when the target shared the
+  hero's x/z (walker froze); `onZ` branch routed to a road
+  intersection up to 18 m away when the target was 1.7 m away in x
+  (M4 re-enter ping-pong); causeway east of x=288 is invisible to the
+  router (car orbited the entrance); the π-ambiguity fix (aim at the
+  final target) sent the car diagonally across the market into the
+  stall row when the target was 270 m away (M3 tail wreck). Fixed with
+  a two-phase U-turn (stop straight, then creep-turn), a direct-drive
+  rule east of x=288, advance braking before sharp waypoint turns, and
+  a stall-detour in `walkTo`. M3's tail is still traffic-sensitive
+  (passed 4/6 full runs; one failure was the market-stall wreck above,
+  now fixed at the router level).
+- M3's tail now follows the van with Manhattan routing only
+  (`manhattan: true`) and hangs back at 25 m instead of closing in.
+
+### What is still untested / known limits
+
+- Real-human feel at 60 FPS (headless is 1–2 FPS; steering/brake feel
+  and mouse-aim shooting were verified only via scripted input).
+- The 640×360 HUD overlap (see table above).
+- Long-session stability (longest single run: the full M1→M4 chain,
+  ~340 sim-s + probes; no soak test).
+- The M3 tail's traffic sensitivity (see above) — worth one more
+  full-chain re-run before submit, since the van route crosses the
+  market area.
+- `verify-shots/` PNGs are kept in the worktree (uncommitted) as the
+  visual record; `playtest/` (harness + `results.json` + key
+  screenshots) is committed with this round.
+
 ## What is NOT done / needs a human
 
 - **Not submitted.** No submit, no fee, no slot used — the last slot (3/3) is untouched; submission needs syarif's explicit word (deadline 24 Nov 22:00 WIB).
-- **Not play-tested by a human.** Only headless renders + Node sim checks. Real-keyboard play (driving feel, shooting, M2–M4 completion) is unverified.
+- **Not play-tested by a human.** Autopilot + scripted play verified the full game to completion (M1–M4, `won=true`), but real-keyboard feel at 60 FPS is still unverified.
 - Known cosmetic notes: night-market ground is dark away from the lights (by design — lights are the readability); the sea reads as a thin dark band from the coast road and the sun glitter is subtle at a glancing angle; a cloud box can still peek over a roofline as a pale slab; east-facing facades go dark brown at sunset. (Fixed in the sunset-chase pass: sunset HUD text legibility, marina boats now float on water, clouds are warm-tinted and flattened.)
 - Headless FPS (1–2) is a SwiftShader artefact, not a game measurement.
 - `verify-shots/` PNGs are kept in the worktree (uncommitted) as the visual record.

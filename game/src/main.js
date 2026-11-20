@@ -1,7 +1,7 @@
 // Solmarina (fresh build) — boot, fixed-step loop, keyboard/mouse input,
 // title / pause / save wiring. The game runs offline from static files.
 import * as THREE from '../vendor/three.module.min.js';
-import { createWorld, saveGame, loadGame, STEP } from './sim.js';
+import { createWorld, saveGame, loadGame, setWeapon, STEP } from './sim.js';
 import { Renderer } from './gfx.js';
 import { Hud } from './hud.js';
 import { Sound } from './sound.js';
@@ -19,8 +19,12 @@ const sound = new Sound();
 const hud = new Hud(world, handleAction);
 
 let keys = {};
+let pressed = {}; // edge-triggered latch: a quick tap must survive until the
+// next sim step reads it — at 1-2 FPS a keyup could otherwise clear the
+// flag before readInput ever runs (E taps were silently lost headless)
 let mouse = { x: 0, y: 0, down: false };
 let lastShot = 0;
+const FIRE_INTERVAL = { 'FISTS': 0, 'SOL-9': 180, 'SMG': 90, '12G': 450 };
 
 function handleAction(action, arg) {
   const s = world.state;
@@ -54,6 +58,7 @@ function handleAction(action, arg) {
 
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
+  if (world.state.screen === 'play') pressed[e.code] = true; // latched only in play
   sound.ensure();
   const s = world.state;
   if (e.code === 'KeyM' && s.screen === 'play') { s.screen = 'pause'; hud.showTab('map'); }
@@ -62,6 +67,9 @@ window.addEventListener('keydown', (e) => {
   else if ((e.code === 'KeyP' || e.code === 'Escape') && s.screen === 'pause') { s.screen = 'play'; }
   else if (e.code === 'KeyT' && s.screen === 'play') {
     document.getElementById('station-name').textContent = sound.setStation(sound.station + 1);
+  } else if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code) && s.screen === 'play') {
+    setWeapon(world, Number(e.code.slice(-1)) - 1);
+    sound.blip(520);
   } else if (e.code === 'KeyZ' && s.screen === 'play' && s.crew.mira <= 0) {
     s.crew.mira = 30; s.wanted = Math.max(0, s.wanted - 1);
     s.missions.dialog = { speaker: 'MIRA', line: 'Plates swapped. They\'re looking for a different car now.' };
@@ -100,14 +108,14 @@ function readInput() {
     throttle: (keys.KeyW || keys.ArrowUp) ? 1 : 0,
     brake: !!(keys.Space || keys.KeyS || keys.ArrowDown),
     boost: !!keys.ShiftLeft,
-    enter: !!keys.KeyE,
-    reload: !!keys.KeyR,
+    enter: !!pressed.KeyE,
+    reload: !!pressed.KeyR,
     shootAngle: null, shoot: false,
   };
-  if (keys.KeyE) keys.KeyE = false; // edge-triggered
-  if (keys.KeyR) keys.KeyR = false;
+  if (pressed.KeyE) pressed.KeyE = false; // edge-triggered, latched from keydown
+  if (pressed.KeyR) pressed.KeyR = false;
   // mouse aim: angle from the player to the cursor, in world space
-  if (p.mode === 'walk' && mouse.down && performance.now() - lastShot > 180) {
+  if (p.mode === 'walk' && mouse.down && performance.now() - lastShot > (FIRE_INTERVAL[s.weapon] ?? 180)) {
     lastShot = performance.now();
     const rect = canvas.getBoundingClientRect();
     const nx = ((mouse.x - rect.left) / rect.width) * 2 - 1;

@@ -77,7 +77,11 @@ export class Hud {
     $('armour-fill').style.width = `${p.armour}%`;
     this.setText('health-num', String(Math.round(p.health)));
     this.setText('armour-num', String(Math.round(p.armour)));
-    this.setText('ammo', p.mode === 'car' ? '—' : `${s.ammo} / ${s.reserve}`);
+    this.setText('ammo', p.mode === 'car' ? '—' : s.weapon === 'FISTS' ? '∞' : `${s.ammo} / ${s.reserve}`);
+    // weapon slots: highlight the active weapon (FISTS/SOL-9/SMG/12G = 1-4)
+    const wslots = document.querySelectorAll('#weapons .wslot');
+    const widx = ['FISTS', 'SOL-9', 'SMG', '12G'].indexOf(s.weapon);
+    wslots.forEach((el, i) => el.classList.toggle('active', i === widx));
     this.setText('speed', p.mode === 'car' ? String(Math.round(Math.abs(s.heroCar.speed) * 3.6)) : String(Math.round(0)));
     this.setText('speed-unit', p.mode === 'car' ? 'KM/H' : '');
     this.setText('car-name', p.mode === 'car' ? s.heroCar.model : 'ON FOOT');
@@ -101,12 +105,16 @@ export class Hud {
       const html = s.wanted > 0 ? `<div class="dhead">KPD RESPONSE · ${s.police.length} UNITS</div>${rows}` : '';
       if (this.cache.dispatch !== html) { this.cache.dispatch = html; disp.innerHTML = html; disp.style.display = html ? 'block' : 'none'; }
     }
-    // crime feed
+    // crime feed: sits below the mission panel when CLEAR (its height
+    // varies with wrapping, so measure it — a fixed top overlapped the
+    // mission panel edge), below the dispatch panel when wanted
     const feed = $('feed');
     if (feed) {
       const html = s.events.slice(0, 3).map((e) => `<div>${e}</div>`).join('');
       if (this.cache.feed !== html) { this.cache.feed = html; feed.innerHTML = html; }
-      feed.style.top = `${s.wanted > 0 ? 218 : 118}px`;
+      const missionEl = $('mission');
+      const belowMission = missionEl ? missionEl.offsetTop + missionEl.offsetHeight + 8 : 118;
+      feed.style.top = `${s.wanted > 0 ? 218 : belowMission}px`;
     }
     // dialog
     const dlg = $('dialog');

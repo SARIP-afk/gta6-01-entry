@@ -225,24 +225,22 @@ export function stageShot(name, world) {
       }
       return true;
     };
-    // Where the helicopter will land on screen with the chase camera
-    // (setFollow(36, 3.5, 0, 12.5) in main.js): the camera sits 36 m behind
-    // the hero at 3.5 m and looks 8 m ahead of him at 12.5 m, 60° vertical
-    // FOV, 1280x800. The distance does the work, not the pitch: pulling back
-    // lowers the heli's elevation angle from the camera, so it lands in
-    // clear sky below the mission banner instead of above the frame — while
-    // the hero stays well above the dialog panel at the bottom. A projected
-    // heli under the mission banner (top centre) or behind the right-hand
-    // panels is a wasted frame, so the break only fires when the heli
-    // projects into clear sky: below the banner, left of the weapon panel,
-    // right of the dispatch panel.
-    const projectHeli = (hx, hz, hy, f) => {
-      const cx = s.heroCar.x - f[0] * 36;
-      const cz = s.heroCar.z - f[1] * 36;
-      const cy = 3.5;
-      const lx = s.heroCar.x + f[0] * 8;
-      const lz = s.heroCar.z + f[1] * 8;
-      const ly = 12.5;
+    // Chase camera (setFollow(13, 3.0, 2.0, 8.0) in main.js): the camera sits
+    // 13 m behind the hero, 2 m to his right, 3 m up, and looks 8 m ahead
+    // of him at 8 m — a close rear-three-quarter view, so the hero fills
+    // the lower frame and the sky above him stays in it. Project a world
+    // point through exactly that camera (60° vertical FOV, 16:9) and return
+    // NDC, so the frame check holds at 720p and 1080p alike.
+    const CHASE_CAM = { dist: 13, height: 3.0, side: 2.0, lookY: 8.0, lookAhead: 8 };
+    const projectChasePoint = (hx, hz, hy, hero) => {
+      const f = fwd(hero.heading);
+      const r = [Math.sin(hero.heading), Math.cos(hero.heading)];
+      const cx = hero.x - f[0] * CHASE_CAM.dist + r[0] * CHASE_CAM.side;
+      const cz = hero.z - f[1] * CHASE_CAM.dist + r[1] * CHASE_CAM.side;
+      const cy = CHASE_CAM.height;
+      const lx = hero.x + f[0] * CHASE_CAM.lookAhead;
+      const lz = hero.z + f[1] * CHASE_CAM.lookAhead;
+      const ly = CHASE_CAM.lookY;
       let fx = lx - cx;
       let fy = ly - cy;
       let fz = lz - cz;
@@ -264,12 +262,56 @@ export function stageShot(name, world) {
       const xc = vx * rx + vz * rz;
       const yc = vx * ux + vy * uy + vz * uz;
       const t = Math.tan(Math.PI / 6);
-      const xNdc = xc / (zc * t * 1.6);
-      const yNdc = yc / (zc * t);
-      return { x: (xNdc + 1) / 2 * 1280, y: (1 - yNdc) / 2 * 800 };
+      return { xNdc: xc / (zc * t * (16 / 9)), yNdc: yc / (zc * t) };
+    };
+    // The staged helicopter slot: 28 m ahead of the hero and 8 m to his
+    // right (clear of the top-centre mission banner and the right-hand weapon
+    // panel), at an altitude that clears the roofs right beside the road —
+    // never below 26 m, never above 30 m. Twenty-eight metres ahead is what
+    // keeps it in frame: at 24 m the close camera looks up at it too steeply
+    // and it projects above the top edge, and the v4.8-a probe proved it — the
+    // loop ran its full 150 s without ever finding a frame, then staged
+    // blind and the heli hid behind a tower. The sim's 42 m orbit is too
+    // high for a close camera: at 42 m the heli can only be in frame if the
+    // camera is 36 m back, and then everything in the frame is a speck.
+    const stageHeliPos = (hero) => {
+      const f = fwd(hero.heading);
+      const r = [Math.sin(hero.heading), Math.cos(hero.heading)];
+      const hx = hero.x + f[0] * 28 + r[0] * 8;
+      const hz = hero.z + f[1] * 28 + r[1] * 8;
+      let roof = 0;
+      for (const b of s.city.buildings) {
+        if (Math.hypot(b.x - hx, b.z - hz) < 18) roof = Math.max(roof, b.h);
+      }
+      return { x: hx, z: hz, y: Math.min(30, Math.max(26, roof + 3)) };
+    };
+    // The staged slot must be in open air, not inside a tower (the hero may
+    // be mid-turn when the frame is picked, which would put the slot over a
+    // block instead of over the road).
+    const heliSlotClear = (hx, hz, hy) => {
+      for (const b of s.city.buildings) {
+        if (Math.abs(hx - b.x) < b.w / 2 + 1 && Math.abs(hz - b.z) < b.d / 2 + 1 && b.h > hy - 2) return false;
+      }
+      return true;
+    };
+    // No tower between the camera and the staged heli either: the sightline
+    // runs up the road, and a corner building would swallow the helicopter.
+    const sightClear = (ax, ay, az, bx, by, bz) => {
+      for (let t = 0.1; t < 1; t += 0.1) {
+        const x = ax + (bx - ax) * t;
+        const y = ay + (by - ay) * t;
+        const z = az + (bz - az) * t;
+        for (const b of s.city.buildings) {
+          if (Math.abs(x - b.x) < b.w / 2 && Math.abs(z - b.z) < b.d / 2 && y < b.h) return false;
+        }
+      }
+      return true;
     };
     let entered = false;
+    let chaseBroke = false;
+    let chaseSteps = 0;
     for (let i = 0; i < 150 / STEP; i += 1) {
+      chaseSteps = i;
       // Heat decays over a long chase: re-apply wanted 4 every 10 s so the
       // helicopter stays up until the frame is found.
       if (i > 0 && i % 600 === 0 && s.police.state.wanted < 4) s.police.setWanted(4, s.events);
@@ -283,34 +325,60 @@ export function stageShot(name, world) {
       if (i < 600) continue;
       if (s.events.some((e) => e.type === 'bust')) break;
       const h = s.heroCar;
-      if (Math.abs(h.speed) < 5 || h.damage >= 40) continue;
-      const f = fwd(h.heading);
-      // A cruiser in the front half of the hero's view (within 40 m), not
-      // strictly dead ahead: cruisers chase from behind and only rarely get
-      // dead-ahead of the hero, so the strict cone never fires in a staged
-      // run — the front-half test is what actually puts a cruiser in frame.
-      const ahead = s.police.units.filter((u) => {
-        const vx = u.x - h.x;
-        const vz = u.z - h.z;
-        const d = Math.hypot(vx, vz);
-        return d < 40 && (vx * f[0] + vz * f[1]) / d > 0;
-      });
-      if (ahead.length < 1) continue;
+      if (Math.abs(h.speed) < 6 || h.damage >= 40) continue;
       const he = s.heli.state;
       if (!he.active) continue;
-      const hx = he.x - h.x;
-      const hz = he.z - h.z;
-      const hd = Math.hypot(hx, hz);
-      if (hd < 1 || (hx * f[0] + hz * f[1]) / hd < 0.45) continue;
-      const camX = h.x - f[0] * 36;
-      const camZ = h.z - f[1] * 36;
+      const f = fwd(h.heading);
+      const r = [Math.sin(h.heading), Math.cos(h.heading)];
+      const camX = h.x - f[0] * CHASE_CAM.dist + r[0] * CHASE_CAM.side;
+      const camZ = h.z - f[1] * CHASE_CAM.dist + r[1] * CHASE_CAM.side;
       if (!spotClear(camX, camZ)) continue;
-      // The heli must project into clear sky on the staged frame — below the
-      // mission banner (top centre), left of the weapon panel, right of the
-      // dispatch panel.
-      const proj = projectHeli(he.x, he.z, he.y, f);
-      if (!proj || proj.y < 85 || proj.y > 320 || proj.x < 250 || proj.x > 1010) continue;
+      // The staged heli must project into clear sky on the staged frame —
+      // below the mission banner (top centre), left of the weapon panel,
+      // right of the dispatch panel — in NDC, so the check holds at 720p
+      // and 1080p alike: yNdc 0.16–0.70 is the top ~15–42% of the frame.
+      const sp = stageHeliPos(h);
+      if (!heliSlotClear(sp.x, sp.z, sp.y)) continue;
+      const proj = projectChasePoint(sp.x, sp.z, sp.y, h);
+      if (!proj || proj.yNdc < 0.16 || proj.yNdc > 0.70 || proj.xNdc < -0.5 || proj.xNdc > 0.7) continue;
+      if (!sightClear(camX, CHASE_CAM.height, camZ, sp.x, sp.y, sp.z)) continue;
+      chaseBroke = true;
       break;
+    }
+    // For the verifier: whether the loop found a frame or ran its full 150 s.
+    world.__chase = { broke: chaseBroke, steps: chaseSteps };
+    // Re-stage the frame (staging, not sim — the same pattern as the cover,
+    // which re-places cruisers, traffic and walkers after its settle run):
+    // the helicopter drops onto its staged slot ahead of the hero, side-on
+    // to the camera so the white body, red stripe and rotor span read at
+    // full width, its searchlight cone glued to the hero; two cruisers
+    // flank the hero up the road and the other two hold behind the camera,
+    // so the frame reads as a chase, not a street scene.
+    const h = s.heroCar;
+    const sp = stageHeliPos(h);
+    const he = s.heli.state;
+    he.active = true;
+    he.leaving = false;
+    he.x = sp.x;
+    he.z = sp.z;
+    he.y = sp.y;
+    he.heading = h.heading + Math.PI / 2;
+    he.lightX = h.x;
+    he.lightZ = h.z;
+    {
+      const f = fwd(h.heading);
+      const r = [Math.sin(h.heading), Math.cos(h.heading)];
+      const placeCruiser = (idx, along, lat) => {
+        const u = s.police.units[idx];
+        if (!u) return;
+        u.x = h.x + f[0] * along + r[0] * lat;
+        u.z = h.z + f[1] * along + r[1] * lat;
+        u.heading = h.heading;
+      };
+      placeCruiser(0, 14, -5.5);
+      placeCruiser(1, 12, 6.5);
+      placeCruiser(2, -20, -6);
+      placeCruiser(3, -26, 6);
     }
     s.police.setWanted(4, []);
     s.heroCar.damage = Math.min(s.heroCar.damage, 15);

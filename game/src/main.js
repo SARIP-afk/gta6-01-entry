@@ -119,10 +119,10 @@ function runShot(name) {
   // weapon panel at the bottom right, so no pixel of the hero is ever hidden
   // behind the HUD.
   if (name === 'cover') renderer.setFollow(10.5, 2.8);
-  // The chase shot pulls the camera back and pitches it up at the sky, so the
-  // helicopter body — 42 m up on its orbit — lands inside the frame with the
-  // hero and the cruisers, instead of above it.
-  if (name === 'chase') renderer.setFollow(36, 3.5, 0, 12.5);
+  // The chase shot pulls the camera in close behind the hero and pitches it
+  // up at the sky, so the hero fills the frame and the helicopter body lands
+  // big in it too — the v4.7 pull-back (36 m) shrank both to specks.
+  if (name === 'chase') renderer.setFollow(13, 3.0, 2.0, 8.0);
   // The HUD is DOM, so a shot without it would show a bare city: build it too.
   const shotHud = createHud({
     onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {},

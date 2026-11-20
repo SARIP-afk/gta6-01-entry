@@ -68,12 +68,12 @@ function enrichState() {
 function runShot(name) {
   const scene = stageShot(name, world);
   enrichState();
-  // The cover pulls the camera in close behind the hero on the coastal road:
-  // towers flank the avenue, the pier, the sea and the sun beyond. The hero
-  // car reads big in the middle of the road, the way the first build framed
-  // it — the camera stays on the road centreline (side 0): any lateral offset
-  // puts it inside the roadside towers.
-  if (name === 'cover') renderer.setFollow(12, 4.5);
+  // The cover pulls the camera in close and low behind the hero on the avenue:
+  // towers flank the road, the pier and the sea sit at the end of it, and the
+  // hero car reads big in the middle of the road, the way the first build
+  // framed it — the camera stays on the road centreline (side 0): any lateral
+  // offset puts it inside the roadside towers.
+  if (name === 'cover') renderer.setFollow(8.5, 4.0);
   // The HUD is DOM, so a shot without it would show a bare city: build it too.
   const shotHud = createHud({ onStart() {}, onSlot() {}, onSave() {}, onResume() {}, onRestart() {} });
   if (name === 'start') {

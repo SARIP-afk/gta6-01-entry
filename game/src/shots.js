@@ -91,10 +91,13 @@ export function stageShot(name, world) {
   world.reset(1);
   const s = world.state;
   if (name === 'cover') {
-    // M4, wanted 3, DANTE on the line — staged on the coastal road at the south
-    // edge of town, looking north up the boulevard: dense towers on the left,
-    // the beach in the foreground, and on the right the marina, the pier, the sea
-    // and the sun setting over it. Sol + marina in one frame.
+    // M4, wanted 3, DANTE on the line — staged on the avenue (road z=0) heading
+    // east toward the pier, chase-cam close behind the hero like the first
+    // build framed it: the road runs straight ahead to the pier and the sea,
+    // tall colourful towers flank it on both sides, and two cruisers box the
+    // hero in at the bottom corners. The hero sits 120 m from the pier, so
+    // the pier deck, its sign, the boats and the sunset over the sea all read
+    // at the end of the road. Sunset over the marina, sharp like the reference.
     s.missions.state.active = 3;
     s.missions.state.stage = 0;
     s.missions.state.started = true;
@@ -104,26 +107,27 @@ export function stageShot(name, world) {
     s.player.mode = 'car';
     s.police.setWanted(3, s.events);
     // Let the street settle into natural positions for 3 s, then stage the frame
-    // exactly — the camera looks north from behind the hero, so everything placed
+    // exactly — the camera looks east from behind the hero, so everything placed
     // here is what the cover shows.
     for (let i = 0; i < COVER_SECONDS / STEP; i += 1) {
       world.step(STEP, driveInput(world, CITY.pier.x, CITY.pier.z));
     }
-    s.heroCar.x = 310;
-    s.heroCar.z = 250;
-    s.heroCar.heading = Math.PI / 2;
+    s.heroCar.x = 260;
+    s.heroCar.z = 0;
+    s.heroCar.heading = 0;
     s.heroCar.speed = 12;
     // Stage, not sim: the cover shows wanted 3 and a clean car.
     s.police.setWanted(3, []);
     s.heroCar.damage = 0;
-    // Traffic on the coastal road, both directions, up the boulevard — the
-    // nearest car just ahead of the hero so the chase reads at a glance.
+    // Traffic on the avenue and the causeway, both directions: eastbound in
+    // the south lane ahead of the hero, westbound in the north lane coming at
+    // him, plus two cars crossing on the x=312 road so the junction ahead
+    // reads as a junction.
     const coverCars = [
-      [307, 235, Math.PI / 2], [313, 205, -Math.PI / 2],
-      [307, 175, Math.PI / 2], [313, 140, -Math.PI / 2],
-      [307, 105, Math.PI / 2], [313, 70, -Math.PI / 2],
-      [307, 40, Math.PI / 2], [313, 10, -Math.PI / 2],
-      [307, -20, Math.PI / 2], [313, -50, -Math.PI / 2],
+      [285, 3, 0], [318, 3, 0], [350, 3, 0], [385, 3, 0],
+      [300, -3, Math.PI], [335, -3, Math.PI], [365, -3, Math.PI],
+      [312, 20, Math.PI / 2], [312, -20, -Math.PI / 2],
+      [395, -3, 0],
     ];
     for (let i = 0; i < coverCars.length; i += 1) {
       const c = s.traffic.cars[i];
@@ -131,35 +135,35 @@ export function stageShot(name, world) {
       c.z = coverCars[i][1];
       c.heading = coverCars[i][2];
       c.tx = 312;
-      c.tz = coverCars[i][2] > 0 ? -100 : 300;
+      c.tz = coverCars[i][2] === 0 ? 3 : -3;
     }
-    // Three cruisers in the frame: a flanking pair just ahead of the hero, one
-    // on each side of the road like the first build framed it, and a leader
-    // further up the boulevard.
+    // Two cruisers flanking the hero, noses just ahead of his cabin, one on
+    // each side of the road like the first build framed it, and a leader
+    // further up the avenue.
     if (s.police.units[0]) {
-      s.police.units[0].x = s.heroCar.x - 5.5;
-      s.police.units[0].z = s.heroCar.z - 9;
-      s.police.units[0].heading = Math.PI / 2;
+      s.police.units[0].x = s.heroCar.x + 3;
+      s.police.units[0].z = s.heroCar.z + 4.0;
+      s.police.units[0].heading = 0;
     }
     if (s.police.units[1]) {
-      s.police.units[1].x = s.heroCar.x + 5.5;
-      s.police.units[1].z = s.heroCar.z - 9;
-      s.police.units[1].heading = Math.PI / 2;
+      s.police.units[1].x = s.heroCar.x + 3;
+      s.police.units[1].z = s.heroCar.z - 4.0;
+      s.police.units[1].heading = 0;
     }
     if (s.police.units[2]) {
-      s.police.units[2].x = s.heroCar.x;
-      s.police.units[2].z = s.heroCar.z - 32;
-      s.police.units[2].heading = Math.PI / 2;
+      s.police.units[2].x = s.heroCar.x + 30;
+      s.police.units[2].z = s.heroCar.z + 3;
+      s.police.units[2].heading = 0;
     }
-    // Walkers on the sidewalks along the coastal road, in the frame — the nearest
-    // four on the beach by the camera, so the street reads as lived-in, plus a
-    // group on the sand to the east so the beach is inhabited, not empty.
-    const coverPeds = [[300, 298], [320, 288], [305, 278], [318, 268], [304.5, 200], [319.5, 150], [304.5, 100], [319.5, 60], [296, 292], [326, 296], [332, 282], [292, 282], [336, 262], [348, 246], [330, 236], [352, 272], [342, 216], [328, 190], [356, 196]];
+    // Walkers on the sidewalks along the avenue and the causeway, all well
+    // ahead of the cruisers so nobody reads as standing on a police car, plus
+    // two on the pier deck so the pier is inhabited.
+    const coverPeds = [[280, 8.5], [284, -8.5], [292, -8.5], [300, 8.5], [308, -8.5], [318, 8.5], [330, -8.5], [345, 8.5], [395, 15], [400, -20]];
     for (let i = 0; i < coverPeds.length; i += 1) {
       const p = s.traffic.peds[i];
       p.x = coverPeds[i][0];
       p.z = coverPeds[i][1];
-      p.heading = i % 2 === 0 ? Math.PI / 2 : -Math.PI / 2;
+      p.heading = i % 2 === 0 ? 0 : Math.PI;
       p.phase = i * 1.1;
       p.down = false;
     }

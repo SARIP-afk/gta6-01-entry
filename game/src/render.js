@@ -45,7 +45,10 @@ function mergeBoxes(parts) {
 }
 
 function roadTexture(city) {
-  const S = 1024;
+  // 2048 px over 840 m: ~0.4 m per texel, so the asphalt grain, the centre
+  // dashes and the sidewalk joints still read as texture at chase-cam range
+  // instead of blurring into one flat sheet (the 1024 canvas was ~0.8 m/px).
+  const S = 2048;
   const cv = document.createElement('canvas');
   cv.width = S;
   cv.height = S;
@@ -75,9 +78,9 @@ function roadTexture(city) {
     speckSeed = (speckSeed * 1103515245 + 12345) & 0x7fffffff;
     return speckSeed / 0x7fffffff;
   };
-  for (let i = 0; i < 12000; i += 1) {
-    g.fillStyle = speckRnd() < 0.5 ? 'rgba(0,0,0,0.13)' : 'rgba(255,255,255,0.07)';
-    g.fillRect(speckRnd() * S, speckRnd() * S, 1.6, 1.6);
+  for (let i = 0; i < 60000; i += 1) {
+    g.fillStyle = speckRnd() < 0.5 ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.10)';
+    g.fillRect(speckRnd() * S, speckRnd() * S, 2, 2);
   }
   // Beach sand on the south strip, sea blue past the pier.
   g.fillStyle = '#d9b380';
@@ -94,15 +97,15 @@ function roadTexture(city) {
     g.fill();
   }
   // Sand grain: dense two-tone speckle so the beach is texture, not a tan sheet.
-  for (let i = 0; i < 12000; i += 1) {
+  for (let i = 0; i < 30000; i += 1) {
     const sx = speckRnd() * S;
     const sz = toZ(208) + speckRnd() * (S - toZ(208));
     g.fillStyle = speckRnd() < 0.45 ? 'rgba(120,85,45,0.28)' : speckRnd() < 0.75 ? 'rgba(255,235,200,0.30)' : 'rgba(90,60,30,0.20)';
-    g.fillRect(sx, sz, 2.2, 2.2);
+    g.fillRect(sx, sz, 1.6, 1.6);
   }
   // Footprints: short paired dashes wandering the sand, deterministic.
   g.fillStyle = 'rgba(110,80,45,0.35)';
-  for (let i = 0; i < 600; i += 1) {
+  for (let i = 0; i < 2000; i += 1) {
     const fx = speckRnd() * S;
     const fz = toZ(215) + speckRnd() * (S - toZ(215) - 8);
     g.fillRect(fx, fz, 2.5, 1.6);
@@ -160,27 +163,47 @@ function roadTexture(city) {
   }
   // Asphalt roads with centre dashes.
   for (const r of city.roads) {
-    g.fillStyle = '#33373d';
+    g.fillStyle = '#202329';
     g.fillRect(0, toZ(r) - 6 / 728 * S, S, 12 / 728 * S);
     g.fillRect(toX(r) - 6 / 840 * S, 0, 12 / 840 * S, S);
     // Sidewalks: lighter strips just off the asphalt on both sides.
-    g.fillStyle = '#9a8a6e';
+    g.fillStyle = '#a89a7c';
     g.fillRect(0, toZ(r) - 8.5 / 728 * S, S, 2.5 / 728 * S);
     g.fillRect(0, toZ(r) + 6 / 728 * S, S, 2.5 / 728 * S);
     g.fillRect(toX(r) - 8.5 / 840 * S, 0, 2.5 / 840 * S, S);
     g.fillRect(toX(r) + 6 / 840 * S, 0, 2.5 / 840 * S, S);
-    // Sidewalk tile joints: thin lines across the strips every 2 m.
-    g.fillStyle = 'rgba(0,0,0,0.18)';
+    // Sidewalk tile joints: thin lines across the strips every 2 m, plus a
+    // centre joint down each strip so the sidewalk reads as two rows of tiles.
+    g.fillStyle = 'rgba(0,0,0,0.30)';
     for (let v = CITY.gridMin; v < CITY.gridMax; v += 2) {
       g.fillRect(toX(v), toZ(r) - 8.5 / 728 * S, 1, 2.5 / 728 * S);
       g.fillRect(toX(v), toZ(r) + 6 / 728 * S, 1, 2.5 / 728 * S);
       g.fillRect(toX(r) - 8.5 / 840 * S, toZ(v), 2.5 / 840 * S, 1);
       g.fillRect(toX(r) + 6 / 840 * S, toZ(v), 2.5 / 840 * S, 1);
     }
+    g.fillStyle = 'rgba(0,0,0,0.14)';
+    g.fillRect(0, toZ(r) - 7.25 / 728 * S, S, 1);
+    g.fillRect(0, toZ(r) + 7.25 / 728 * S, S, 1);
+    g.fillRect(toX(r) - 7.25 / 840 * S, 0, 1, S);
+    g.fillRect(toX(r) + 7.25 / 840 * S, 0, 1, S);
+    // White edge lines at the asphalt rim, and a dark curb line where the
+    // asphalt meets the sidewalk: the road's edges stay crisp at distance.
+    g.fillStyle = 'rgba(232,228,218,0.85)';
+    g.fillRect(0, toZ(r) - 5.5 / 728 * S, S, 0.25 / 728 * S);
+    g.fillRect(0, toZ(r) + 5.5 / 728 * S, S, 0.25 / 728 * S);
+    g.fillRect(toX(r) - 5.5 / 840 * S, 0, 0.25 / 840 * S, S);
+    g.fillRect(toX(r) + 5.5 / 840 * S, 0, 0.25 / 840 * S, S);
+    g.fillStyle = 'rgba(0,0,0,0.30)';
+    g.fillRect(0, toZ(r) - 6.2 / 728 * S, S, 0.4 / 728 * S);
+    g.fillRect(0, toZ(r) + 6.2 / 728 * S, S, 0.4 / 728 * S);
+    g.fillRect(toX(r) - 6.2 / 840 * S, 0, 0.4 / 840 * S, S);
+    g.fillRect(toX(r) + 6.2 / 840 * S, 0, 0.4 / 840 * S, S);
+    // Centre dashes: 6 m long, every 12 m, 0.7 m wide — the size the reference
+    // frame's dashes read at, not the old 10 m slabs.
     g.fillStyle = '#f2c94c';
-    for (let v = CITY.gridMin; v < CITY.gridMax; v += 16) {
-      g.fillRect(toX(v), toZ(r) - 1.2, 10 / 840 * S, 2.5);
-      g.fillRect(toX(r) - 1.2, toZ(v), 2.5, 10 / 728 * S);
+    for (let v = CITY.gridMin; v < CITY.gridMax; v += 12) {
+      g.fillRect(toX(v), toZ(r) - 0.35 / 728 * S, 6 / 840 * S, 0.7 / 728 * S);
+      g.fillRect(toX(r) - 0.35 / 840 * S, toZ(v), 0.7 / 840 * S, 6 / 728 * S);
     }
     // Oil stains and tyre wear on the asphalt: dark soft patches along each
     // road so the blacktop is never one flat sheet.
@@ -206,9 +229,22 @@ function roadTexture(city) {
       }
     }
   }
-  // Causeway to the pier.
-  g.fillStyle = '#33373d';
-  g.fillRect(toX(CITY.gridMax), toZ(-6) - 6 / 728 * S, toX(CITY.pier.x + 20) - toX(CITY.gridMax), 12 / 728 * S);
+  // Causeway to the pier: a wide asphalt approach (z -12..+6) so the avenue
+  // reads as one road running straight onto the pier deck, not stopping at the
+  // grid edge — with the same centre dashes, edge lines and sidewalks as the
+  // grid roads.
+  g.fillStyle = '#202329';
+  g.fillRect(toX(CITY.gridMax), toZ(-12), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 18 / 728 * S);
+  g.fillStyle = '#a89a7c';
+  g.fillRect(toX(CITY.gridMax), toZ(-14.5), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 2.5 / 728 * S);
+  g.fillRect(toX(CITY.gridMax), toZ(6), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 2.5 / 728 * S);
+  g.fillStyle = 'rgba(232,228,218,0.85)';
+  g.fillRect(toX(CITY.gridMax), toZ(-11.5), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 0.25 / 728 * S);
+  g.fillRect(toX(CITY.gridMax), toZ(5.5), toX(CITY.pier.x + 20) - toX(CITY.gridMax), 0.25 / 728 * S);
+  g.fillStyle = '#f2c94c';
+  for (let v = CITY.gridMax; v < CITY.pier.x + 20; v += 12) {
+    g.fillRect(toX(v), toZ(0) - 0.35 / 728 * S, 6 / 840 * S, 0.7 / 728 * S);
+  }
   // Pier deck: warm planks with dark joints across the whole deck.
   g.fillStyle = '#8a6a42';
   g.fillRect(toX(CITY.pier.x - 18), toZ(-41), 36 / 840 * S, 82 / 728 * S);
@@ -220,7 +256,7 @@ function roadTexture(city) {
   g.fillRect(toX(CITY.pier.x - 18), toZ(-41), 2, 82 / 728 * S);
   g.fillRect(toX(CITY.pier.x + 16), toZ(-41), 2, 82 / 728 * S);
   const tex = new THREE.CanvasTexture(cv);
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -264,7 +300,7 @@ export function createRenderer(canvas, city) {
       top: { value: new THREE.Color(0x2b7cd3) },
       mid: { value: new THREE.Color(0x8ec9ee) },
       bot: { value: new THREE.Color(0xffc46b) },
-      sunDir: { value: new THREE.Vector3(520, 62, -80).normalize() },
+      sunDir: { value: new THREE.Vector3(582, 135, 51).normalize() },
       sunCol: { value: new THREE.Color(0xfff2c0) },
     },
     vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -275,7 +311,7 @@ export function createRenderer(canvas, city) {
       '  float h = clamp(vDir.y, -0.08, 1.0);',
       '  vec3 col = h < 0.16 ? mix(bot, mid, h / 0.16) : mix(mid, top, pow((h - 0.16) / 0.84, 0.8));',
       '  float d = max(dot(normalize(vDir), normalize(sunDir)), 0.0);',
-      '  col += sunCol * (pow(d, 200.0) * 0.7 + pow(d, 90.0) * 0.5 + pow(d, 10.0) * 0.18 + pow(d, 3.0) * 0.06);',
+      '  col += sunCol * (pow(d, 200.0) * 0.7 + pow(d, 90.0) * 0.5 + pow(d, 10.0) * 0.10 + pow(d, 3.0) * 0.03);',
       '  gl_FragColor = vec4(col, 1.0);',
       '}',
     ].join('\n'),
@@ -467,30 +503,30 @@ export function createRenderer(canvas, city) {
     scene.add(post);
   }
 
-  // Sun low over the sea to the east — a smaller, hotter core with three
+  // Sun low over the sea to the east — a smaller, hotter core with five
   // layered halos that fade outward in steps, so it reads as a blazing sun
-  // with real glow instead of a flat pale disc. Moved east and up so its halo
-  // no longer crowds the mission banner. Clouds are puffy clusters (a base
-  // slab plus a smaller cap and a side puff, in white, cream, pink and pale
-  // blue) scattered at varied heights — never one flat plate, and never a bar
-  // drawn across the sun.
-  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(19, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfffbe8, fog: false }));
-  sunDisc.position.set(520, 62, -80);
+  // with real glow instead of a flat pale disc. It sits high over the pier at
+  // the end of the avenue, in the one clear corridor between the towers
+  // (azimuth +5 deg from the cover camera), where the name says it belongs
+  // (Sol + marina). The sky shader's sun direction is the camera-to-sun
+  // direction, so its glow centres on the disc in the cover frame.
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(15, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd75e, fog: false }));
+  sunDisc.position.set(833, 139, 51);
   scene.add(sunDisc);
-  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(28, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.4, fog: false }));
-  halo1.position.set(520, 62, -80);
+  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(19, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.4, fog: false }));
+  halo1.position.set(833, 139, 51);
   scene.add(halo1);
-  const halo1b = new THREE.Mesh(new THREE.SphereGeometry(36, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.28, fog: false }));
-  halo1b.position.set(520, 62, -80);
+  const halo1b = new THREE.Mesh(new THREE.SphereGeometry(24, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.28, fog: false }));
+  halo1b.position.set(833, 139, 51);
   scene.add(halo1b);
-  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(44, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.16, fog: false }));
-  halo2.position.set(520, 62, -80);
+  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(29, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.16, fog: false }));
+  halo2.position.set(833, 139, 51);
   scene.add(halo2);
-  const halo2b = new THREE.Mesh(new THREE.SphereGeometry(56, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.09, fog: false }));
-  halo2b.position.set(520, 62, -80);
+  const halo2b = new THREE.Mesh(new THREE.SphereGeometry(36, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.09, fog: false }));
+  halo2b.position.set(833, 139, 51);
   scene.add(halo2b);
-  const halo3 = new THREE.Mesh(new THREE.SphereGeometry(68, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.07, fog: false }));
-  halo3.position.set(520, 62, -80);
+  const halo3 = new THREE.Mesh(new THREE.SphereGeometry(44, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.07, fog: false }));
+  halo3.position.set(833, 139, 51);
   scene.add(halo3);
   const cloudParts = [];
   const CLOUD_COLS = [0xffffff, 0xffe9d0, 0xffd9c0, 0xd6ecff, 0xfff6e0];
@@ -507,10 +543,10 @@ export function createRenderer(canvas, city) {
     cloudParts.push({ x: cx + w * 0.28, y: cy + 1.5, z: cz + 2, w: w * 0.32, h: 3, d: 14, color: CLOUD_COLS[(i + 1) % CLOUD_COLS.length] });
   }
   // Two small wisps near the sun, offset so they frame it without crossing it.
-  cloudParts.push({ x: 420, y: 78, z: -110, w: 60, h: 3.5, d: 20, color: 0xffe9d0 });
-  cloudParts.push({ x: 420, y: 74, z: -102, w: 30, h: 3, d: 14, color: 0xffffff });
-  cloudParts.push({ x: 352, y: 88, z: -70, w: 55, h: 3.5, d: 18, color: 0xffd9c0 });
-  cloudParts.push({ x: 356, y: 85, z: -64, w: 26, h: 3, d: 12, color: 0xffffff });
+  cloudParts.push({ x: 750, y: 175, z: 20, w: 60, h: 3.5, d: 20, color: 0xffe9d0 });
+  cloudParts.push({ x: 750, y: 171, z: 28, w: 30, h: 3, d: 14, color: 0xffffff });
+  cloudParts.push({ x: 800, y: 105, z: 120, w: 55, h: 3.5, d: 18, color: 0xffd9c0 });
+  cloudParts.push({ x: 804, y: 102, z: 126, w: 26, h: 3, d: 12, color: 0xffffff });
   scene.add(new THREE.Mesh(mergeBoxes(cloudParts), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
 
   // Taper a car box toward the top: the top-front corner pulls back (sloped
@@ -658,12 +694,21 @@ export function createRenderer(canvas, city) {
   scene.add(trafficWheels);
 
   // Police: white bodies, red and blue light bars that flash on alternate beats.
+  // The bar is two halves — red on one side, blue on the other — so a still
+  // frame shows both colours at once the way a real light bar does; the flash
+  // shortens the dim half instead of hiding it, so the bar never vanishes.
   const MAX_UNITS = 6;
-  const policeBodies = new THREE.InstancedMesh(bodyGeo, new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }), MAX_UNITS);
+  const policeBodies = new THREE.InstancedMesh(bodyGeo, new THREE.MeshLambertMaterial({ color: 0xe6ebee }), MAX_UNITS);
   const policeCabins = new THREE.InstancedMesh(cabinGeo, new THREE.MeshLambertMaterial({ color: 0x22303c }), MAX_UNITS);
-  const lightGeo = new THREE.BoxGeometry(1.0, 0.22, 1.2);
+  const lightGeo = new THREE.BoxGeometry(1.0, 0.22, 0.55);
   const policeRed = new THREE.InstancedMesh(lightGeo, new THREE.MeshBasicMaterial({ color: 0xff2a2a }), MAX_UNITS);
   const policeBlue = new THREE.InstancedMesh(lightGeo, new THREE.MeshBasicMaterial({ color: 0x2a6bff }), MAX_UNITS);
+  // Cruiser rear detail: red taillights and a dark rear bumper, so the big
+  // white rear the chase camera stares at reads as a car's tail, not a slab.
+  const policeTails = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.2, 0.42), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), MAX_UNITS * 2);
+  const policeBumpers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.28, 1.9), new THREE.MeshLambertMaterial({ color: 0x2c313a }), MAX_UNITS);
+  policeTails.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  policeBumpers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   policeBodies.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   policeCabins.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   policeRed.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -672,6 +717,8 @@ export function createRenderer(canvas, city) {
   scene.add(policeCabins);
   scene.add(policeRed);
   scene.add(policeBlue);
+  scene.add(policeTails);
+  scene.add(policeBumpers);
 
   // Pedestrians: six InstancedMesh pools, one per body part.
   const MAX_PEDS = 54;
@@ -949,14 +996,26 @@ export function createRenderer(canvas, city) {
     trafficWheels.instanceMatrix.needsUpdate = true;
     if (trafficBodies.instanceColor) trafficBodies.instanceColor.needsUpdate = true;
 
-    // Police cruisers, lights flashing on alternate half-seconds.
+    // Police cruisers, lights flashing on alternate half-seconds. Each half
+    // of the bar sits 0.3 m off the centreline (local +z is world
+    // (sin h, cos h) for heading h), and the dim half shortens instead of
+    // vanishing, so both colours read in a still frame.
     const flash = Math.floor(time * 2) % 2 === 0;
     for (let i = 0; i < police.units.length; i += 1) {
       const u = police.units[i];
+      const sH = Math.sin(u.heading);
+      const cH = Math.cos(u.heading);
       setInstance(policeBodies, i, u.x, 0.75, u.z, u.heading, 1, 1, 1);
       setInstance(policeCabins, i, u.x - Math.cos(u.heading) * 0.2, 1.5, u.z + Math.sin(u.heading) * 0.2, u.heading, 1, 1, 1);
-      setInstance(policeRed, i, u.x, 1.95, u.z, u.heading, flash ? 1 : 0.001, 1, 1);
-      setInstance(policeBlue, i, u.x, 1.95, u.z, u.heading, flash ? 0.001 : 1, 1, 1);
+      setInstance(policeRed, i, u.x + 0.3 * sH, 1.95, u.z + 0.3 * cH, u.heading, flash ? 1 : 0.55, 1, 1);
+      setInstance(policeBlue, i, u.x - 0.3 * sH, 1.95, u.z - 0.3 * cH, u.heading, flash ? 0.55 : 1, 1, 1);
+      // Rear detail: taillights on the sloped tail (local x -2.0, y 0.9) and
+      // a bumper on the vertical lower tail (local x -2.2, y 0.5). Local
+      // (lx, lz) maps to world (lx*cos h + lz*sin h, -lx*sin h + lz*cos h).
+      for (const tz of [0.6, -0.6]) {
+        setInstance(policeTails, i * 2 + (tz > 0 ? 0 : 1), u.x - 2.0 * cH + tz * sH, 0.9, u.z + 2.0 * sH + tz * cH, u.heading, 1, 1, 1);
+      }
+      setInstance(policeBumpers, i, u.x - 2.2 * cH, 0.5, u.z + 2.2 * sH, u.heading, 1, 1, 1);
       setInstance(blobs, blob, u.x, 0.05, u.z, 0, 2.6, 1.6, 1);
       blob += 1;
     }
@@ -964,10 +1023,14 @@ export function createRenderer(canvas, city) {
     policeCabins.count = police.units.length;
     policeRed.count = police.units.length;
     policeBlue.count = police.units.length;
+    policeTails.count = police.units.length * 2;
+    policeBumpers.count = police.units.length;
     policeBodies.instanceMatrix.needsUpdate = true;
     policeCabins.instanceMatrix.needsUpdate = true;
     policeRed.instanceMatrix.needsUpdate = true;
     policeBlue.instanceMatrix.needsUpdate = true;
+    policeTails.instanceMatrix.needsUpdate = true;
+    policeBumpers.instanceMatrix.needsUpdate = true;
 
     // Pedestrians, limbs swinging with their walk phase.
     const peds = traffic.peds;

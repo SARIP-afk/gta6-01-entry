@@ -264,7 +264,7 @@ export function createRenderer(canvas, city) {
       top: { value: new THREE.Color(0x2b7cd3) },
       mid: { value: new THREE.Color(0x8ec9ee) },
       bot: { value: new THREE.Color(0xffc46b) },
-      sunDir: { value: new THREE.Vector3(480, 55, -60).normalize() },
+      sunDir: { value: new THREE.Vector3(520, 62, -80).normalize() },
       sunCol: { value: new THREE.Color(0xfff2c0) },
     },
     vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -468,19 +468,30 @@ export function createRenderer(canvas, city) {
   }
 
   // Sun low over the sea to the east — a smaller, hotter core with three
-  // layered halos, so it reads as a blazing sun with real glow instead of a
-  // flat pale disc. Clouds are puffy clusters (a base slab plus a smaller cap
-  // and a side puff, in white, cream, pink and pale blue) scattered at varied
-  // heights — never one flat plate, and never a bar drawn across the sun.
-  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(22, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfffbe8, fog: false }));
-  sunDisc.position.set(480, 55, -60);
+  // layered halos that fade outward in steps, so it reads as a blazing sun
+  // with real glow instead of a flat pale disc. Moved east and up so its halo
+  // no longer crowds the mission banner. Clouds are puffy clusters (a base
+  // slab plus a smaller cap and a side puff, in white, cream, pink and pale
+  // blue) scattered at varied heights — never one flat plate, and never a bar
+  // drawn across the sun.
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(19, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfffbe8, fog: false }));
+  sunDisc.position.set(520, 62, -80);
   scene.add(sunDisc);
-  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(34, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.45, fog: false }));
-  halo1.position.set(480, 55, -60);
+  const halo1 = new THREE.Mesh(new THREE.SphereGeometry(28, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.4, fog: false }));
+  halo1.position.set(520, 62, -80);
   scene.add(halo1);
-  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(58, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.18, fog: false }));
-  halo2.position.set(480, 55, -60);
+  const halo1b = new THREE.Mesh(new THREE.SphereGeometry(36, 24, 12), new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.28, fog: false }));
+  halo1b.position.set(520, 62, -80);
+  scene.add(halo1b);
+  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(44, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.16, fog: false }));
+  halo2.position.set(520, 62, -80);
   scene.add(halo2);
+  const halo2b = new THREE.Mesh(new THREE.SphereGeometry(56, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.09, fog: false }));
+  halo2b.position.set(520, 62, -80);
+  scene.add(halo2b);
+  const halo3 = new THREE.Mesh(new THREE.SphereGeometry(68, 24, 12), new THREE.MeshBasicMaterial({ color: 0xff9a5a, transparent: true, opacity: 0.07, fog: false }));
+  halo3.position.set(520, 62, -80);
+  scene.add(halo3);
   const cloudParts = [];
   const CLOUD_COLS = [0xffffff, 0xffe9d0, 0xffd9c0, 0xd6ecff, 0xfff6e0];
   for (let i = 0; i < 26; i += 1) {
@@ -498,64 +509,115 @@ export function createRenderer(canvas, city) {
   // Two small wisps near the sun, offset so they frame it without crossing it.
   cloudParts.push({ x: 420, y: 78, z: -110, w: 60, h: 3.5, d: 20, color: 0xffe9d0 });
   cloudParts.push({ x: 420, y: 74, z: -102, w: 30, h: 3, d: 14, color: 0xffffff });
-  cloudParts.push({ x: 440, y: 34, z: -10, w: 55, h: 3.5, d: 18, color: 0xffd9c0 });
-  cloudParts.push({ x: 444, y: 31, z: -4, w: 26, h: 3, d: 12, color: 0xffffff });
+  cloudParts.push({ x: 352, y: 88, z: -70, w: 55, h: 3.5, d: 18, color: 0xffd9c0 });
+  cloudParts.push({ x: 356, y: 85, z: -64, w: 26, h: 3, d: 12, color: 0xffffff });
   scene.add(new THREE.Mesh(mergeBoxes(cloudParts), new THREE.MeshBasicMaterial({ vertexColors: true, fog: false })));
 
-  // Hero car: one group of boxes, recoloured when Rio steals another model.
+  // Taper a car box toward the top: the top-front corner pulls back (sloped
+  // nose / windshield) and the top-rear corner pulls forward (sloped tail /
+  // rear window), so a box reads as a car body instead of a block. Only the x
+  // of top vertices moves, so every face stays planar and the silhouette gets
+  // its slope for free on the hero, traffic and police alike.
+  function taperTop(geo, frontShift, rearShift) {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i += 1) {
+      if (pos.getY(i) > 0) pos.setX(i, pos.getX(i) + (pos.getX(i) > 0 ? -frontShift : rearShift));
+    }
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  // Hero car: tapered body + tapered glasshouse with sloped windshield and
+  // rear window, roof + gold stripe, full-width taillight bar, spoiler on
+  // struts, exhausts, side skirts and pinstripes, and wheels that stand proud
+  // of the body with hubcaps — it must read as a car from behind, not a red
+  // box. Local +X is forward.
   const hero = new THREE.Group();
   const heroBodyMat = new THREE.MeshLambertMaterial({ color: CAR_MODELS[0].color });
-  const heroBody = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.85, 1.9), heroBodyMat);
+  const heroBody = new THREE.Mesh(taperTop(new THREE.BoxGeometry(4.4, 0.85, 1.9), 0.35, 0.35), heroBodyMat);
   heroBody.position.y = 0.75;
   hero.add(heroBody);
-  const heroCabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 1.7), new THREE.MeshLambertMaterial({ color: 0x22303c }));
-  heroCabin.position.set(-0.2, 1.5, 0);
+  const heroCabin = new THREE.Mesh(taperTop(new THREE.BoxGeometry(2.0, 0.62, 1.5), 0.4, 0.35), new THREE.MeshLambertMaterial({ color: 0x22303c }));
+  heroCabin.position.set(-0.15, 1.48, 0);
   hero.add(heroCabin);
-  // Windshield + side glass, gold racing stripe, bumpers, grille, mirrors,
-  // taillights — the hero car must read as a car at 30 m, not a red box.
-  const heroGlass = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.55, 1.6), new THREE.MeshLambertMaterial({ color: 0x9fd4e8 }));
-  heroGlass.position.set(0.95, 1.5, 0);
-  hero.add(heroGlass);
-  const heroStripe = new THREE.Mesh(new THREE.BoxGeometry(4.45, 0.06, 0.7), new THREE.MeshBasicMaterial({ color: 0xf2c94c }));
-  heroStripe.position.set(0, 1.2, 0);
-  hero.add(heroStripe);
+  // Sloped glass on the tapered faces: windshield leans back, rear window
+  // leans forward, both proud of the dark glasshouse.
+  const heroGlassMat = new THREE.MeshLambertMaterial({ color: 0x9fd4e8 });
+  const heroWindshield = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 1.35), heroGlassMat);
+  heroWindshield.position.set(0.67, 1.5, 0);
+  heroWindshield.rotation.z = 0.57;
+  hero.add(heroWindshield);
+  const heroRearGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.76, 1.35), heroGlassMat);
+  heroRearGlass.position.set(-0.99, 1.5, 0);
+  heroRearGlass.rotation.z = -0.51;
+  hero.add(heroRearGlass);
+  const heroRoof = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.1, 1.4), heroBodyMat);
+  heroRoof.position.set(-0.175, 1.83, 0);
+  hero.add(heroRoof);
+  const heroRoofStripe = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.06, 0.45), new THREE.MeshBasicMaterial({ color: 0xf2c94c }));
+  heroRoofStripe.position.set(-0.175, 1.9, 0);
+  hero.add(heroRoofStripe);
+  // Gold pinstripe along each flank + dark side skirts: the crisp body lines.
+  for (const sz of [0.97, -0.97]) {
+    const pin = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.07, 0.04), new THREE.MeshBasicMaterial({ color: 0xf2c94c }));
+    pin.position.set(0, 0.98, sz);
+    hero.add(pin);
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.16, 0.06), new THREE.MeshLambertMaterial({ color: 0x14181d }));
+    skirt.position.set(0, 0.34, Math.sign(sz) * 0.96);
+    hero.add(skirt);
+  }
   const heroBumperF = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.3, 1.95), new THREE.MeshLambertMaterial({ color: 0xd8dde2 }));
-  heroBumperF.position.set(2.28, 0.55, 0);
+  heroBumperF.position.set(2.16, 0.55, 0);
   hero.add(heroBumperF);
   const heroBumperR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.3, 1.95), new THREE.MeshLambertMaterial({ color: 0xd8dde2 }));
-  heroBumperR.position.set(-2.28, 0.55, 0);
+  heroBumperR.position.set(-2.16, 0.55, 0);
   hero.add(heroBumperR);
   const heroGrille = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 1.2), new THREE.MeshLambertMaterial({ color: 0x14181d }));
-  heroGrille.position.set(2.24, 0.85, 0);
+  heroGrille.position.set(2.02, 0.85, 0);
   hero.add(heroGrille);
   for (const mz of [1.0, -1.0]) {
     const mir = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.18, 0.18), new THREE.MeshLambertMaterial({ color: 0x14181d }));
     mir.position.set(0.9, 1.35, mz);
     hero.add(mir);
   }
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
-  for (const tz of [0.6, -0.6]) {
-    const t = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.25, 0.4), tailMat);
-    t.position.set(-2.22, 0.85, tz);
-    hero.add(t);
+  // Full-width taillight bar across the tail, on the sloped rear face.
+  const heroTailBar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 1.7), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
+  heroTailBar.position.set(-1.99, 0.95, 0);
+  hero.add(heroTailBar);
+  // Spoiler blade on two struts, standing on the flat deck — no floating wing.
+  for (const sz of [0.6, -0.6]) {
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3, 0.12), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+    strut.position.set(-1.75, 1.27, sz);
+    hero.add(strut);
   }
-  const heroSpoiler = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 1.9), new THREE.MeshLambertMaterial({ color: 0x222222 }));
-  heroSpoiler.position.set(-2.1, 1.35, 0);
+  const heroSpoiler = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 1.9), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+  heroSpoiler.position.set(-1.85, 1.44, 0);
   hero.add(heroSpoiler);
-  const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 10);
+  // Twin exhausts under the rear bumper.
+  for (const ez of [0.5, -0.5]) {
+    const ex = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.18), new THREE.MeshLambertMaterial({ color: 0x9aa0a6 }));
+    ex.position.set(-2.2, 0.32, ez);
+    hero.add(ex);
+  }
+  const wheelGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.38, 10);
   wheelGeo.rotateX(Math.PI / 2);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x14181d });
+  const hubGeo = new THREE.BoxGeometry(0.34, 0.34, 0.06);
+  const hubMat = new THREE.MeshLambertMaterial({ color: 0xb9c0c7 });
   const heroWheels = [];
-  for (const [wx, wz] of [[1.4, 0.85], [1.4, -0.85], [-1.4, 0.85], [-1.4, -0.85]]) {
+  for (const [wx, wz] of [[1.4, 0.92], [1.4, -0.92], [-1.4, 0.92], [-1.4, -0.92]]) {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
-    w.position.set(wx, 0.42, wz);
+    w.position.set(wx, 0.46, wz);
     hero.add(w);
     heroWheels.push(w);
+    const hub = new THREE.Mesh(hubGeo, hubMat);
+    hub.position.set(wx, 0.46, wz + Math.sign(wz) * 0.2);
+    hero.add(hub);
   }
   const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6c0 });
   for (const hz of [0.6, -0.6]) {
     const h = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.25, 0.4), headMat);
-    h.position.set(2.22, 0.8, hz);
+    h.position.set(2.06, 0.8, hz);
     hero.add(h);
   }
   scene.add(hero);
@@ -578,10 +640,12 @@ export function createRenderer(canvas, city) {
   rioParts.legR = rioBox(0.26, 0.85, 0.26, 0x2c313a, 0.18, 0.42, 0);
   scene.add(rio);
 
-  // Traffic: three InstancedMesh pools (body, cabin, wheels x4).
+  // Traffic: three InstancedMesh pools (body, cabin, wheels x4). Bodies and
+  // cabins get the same top taper as the hero, so NPC cars and cruisers read
+  // as cars too instead of boxes.
   const MAX_CARS = 34;
-  const bodyGeo = new THREE.BoxGeometry(4.4, 0.85, 1.9);
-  const cabinGeo = new THREE.BoxGeometry(2.2, 0.7, 1.7);
+  const bodyGeo = taperTop(new THREE.BoxGeometry(4.4, 0.85, 1.9), 0.35, 0.35);
+  const cabinGeo = taperTop(new THREE.BoxGeometry(2.2, 0.7, 1.7), 0.45, 0.4);
   const wheelGeoI = new THREE.BoxGeometry(0.7, 0.7, 0.35);
   const trafficBodies = new THREE.InstancedMesh(bodyGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_CARS);
   const trafficCabins = new THREE.InstancedMesh(cabinGeo, new THREE.MeshLambertMaterial({ color: 0x22303c }), MAX_CARS);

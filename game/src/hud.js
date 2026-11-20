@@ -62,9 +62,17 @@ export function createHud(callbacks) {
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = 'rgba(20, 28, 36, 0.88)';
     ctx.fillRect(0, 0, size, size);
-    // Roads.
-    ctx.strokeStyle = 'rgba(200, 205, 215, 0.5)';
-    ctx.lineWidth = big ? 3 : 1;
+    // District tints, so the blocks read as neighbourhoods, not a bare grid.
+    if (!big) {
+      for (const d of DISTRICTS) {
+        ctx.fillStyle = `${d.color}24`;
+        ctx.fillRect(toX(d.x0), toZ(d.z0), (d.x1 - d.x0) * s, (d.z1 - d.z0) * s);
+      }
+    }
+    // Roads: thick and bright on the small map, so the street grid reads at
+    // 110 px the way the round v1 minimap's grid did.
+    ctx.strokeStyle = big ? 'rgba(200, 205, 215, 0.5)' : 'rgba(238, 241, 245, 0.92)';
+    ctx.lineWidth = big ? 3 : 2;
     for (const r of state.city.roads) {
       ctx.beginPath();
       ctx.moveTo(toX(r), 0);
@@ -75,8 +83,9 @@ export function createHud(callbacks) {
       ctx.lineTo(size, toZ(r));
       ctx.stroke();
     }
-    // Causeway + pier.
+    // Causeway + pier: a bold gold route, not a hairline.
     ctx.strokeStyle = '#f2c94c';
+    ctx.lineWidth = big ? 3 : 3;
     ctx.beginPath();
     ctx.moveTo(toX(CITY.gridMax), toZ(-6));
     ctx.lineTo(toX(CITY.pier.x), toZ(-6));
@@ -93,7 +102,7 @@ export function createHud(callbacks) {
       ctx.translate(toX(o.x), toZ(o.z));
       ctx.rotate(Math.PI / 4);
       ctx.fillStyle = '#f2c94c';
-      const r = big ? 7 : 4;
+      const r = big ? 7 : 5;
       ctx.fillRect(-r, -r, r * 2, r * 2);
       ctx.restore();
     }
@@ -131,12 +140,31 @@ export function createHud(callbacks) {
     ctx.rotate(-heading);
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.moveTo(7, 0);
-    ctx.lineTo(-5, -5);
-    ctx.lineTo(-5, 5);
+    ctx.moveTo(8, 0);
+    ctx.lineTo(-6, -6);
+    ctx.lineTo(-6, 6);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
+    // District labels on the small map too — the three a player navigates by.
+    // Clamped inside the frame so MARINA, half off the east edge, still reads.
+    // Dark outline under the white text, so the letters survive the bright grid.
+    if (!big) {
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = 'bold 8px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = 'rgba(20,28,36,0.9)';
+      ctx.lineWidth = 3;
+      for (const name of ['DOWNTOWN', 'MARINA', 'PALM BEACH']) {
+        const d = DISTRICTS.find((dd) => dd.name === name);
+        const cx = (d.x0 + d.x1) / 2;
+        const cz = (d.z0 + d.z1) / 2;
+        const lx = Math.max(22, Math.min(size - 24, toX(cx)));
+        const ly = toZ(cz);
+        ctx.strokeText(name, lx, ly);
+        ctx.fillText(name, lx, ly);
+      }
+    }
     // District names on the big pause map, so it reads as a city, not a grid.
     if (big) {
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -160,6 +188,9 @@ export function createHud(callbacks) {
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.font = `bold ${big ? 14 : 10}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
+    ctx.strokeStyle = 'rgba(20,28,36,0.9)';
+    ctx.lineWidth = 3;
+    ctx.strokeText('N', size / 2, big ? 16 : 11);
     ctx.fillText('N', size / 2, big ? 16 : 11);
   }
 
@@ -211,10 +242,10 @@ export function createHud(callbacks) {
     el('cash').textContent = `$${s.cash.toLocaleString('en-US')}`;
     el('health-fill').style.width = `${Math.max(0, p.health)}%`;
     el('health-num').textContent = `${Math.round(p.health)}`;
-    // Rank: number, name, XP to the next rung and what it opens.
+    // Rank: number, name and XP to the next rung — one line, no wrap.
     const rp = rankProgress(s.rank);
     el('rank').textContent = rp.nextXp !== null
-      ? `RANK ${rp.level + 1} · ${rp.name} — ${rp.xp}/${rp.nextXp} RP · NEXT: ${rp.nextUnlock}`
+      ? `RANK ${rp.level + 1} · ${rp.name} — ${rp.xp}/${rp.nextXp} RP`
       : `RANK ${rp.level + 1} · ${rp.name} — ${rp.xp} RP · MAX RANK`;
     // Crew: each ability, its key, its member, READY or the seconds left.
     el('crew').innerHTML = `<div><b>CREW</b></div>` + CREW.map((c, i) => {
@@ -254,7 +285,7 @@ export function createHud(callbacks) {
       ? `${CAR_MODELS[s.heroCar.model].name} · ${100 - dmg}% · ${cond}`
       : 'ON FOOT';
     const di = state.districtIndex;
-    el('district').textContent = `${DISTRICTS[di].name} — ${DISTRICTS[di].tag} · ${s.standing[di] >= 60 ? 'FRIENDLY' : s.standing[di] >= 40 ? 'NEUTRAL' : 'WARY'} ${s.standing[di]} · ${s.completionPct || 0}% DONE`;
+    el('district').textContent = `${DISTRICTS[di].name} · ${s.standing[di] >= 60 ? 'FRIENDLY' : s.standing[di] >= 40 ? 'NEUTRAL' : 'WARY'} ${s.standing[di]}`;
     el('shells').textContent = `SHELLS ${s.shellsTaken}/20 · EXPORTS ${s.exportsDone.length}/5`;
 
     // Dispatch panel: header counts the units, each line names the unit, its job
@@ -262,7 +293,6 @@ export function createHud(callbacks) {
     const disp = s.police.state.dispatch;
     el('dispatch').style.display = disp.length > 0 ? 'block' : 'none';
     el('dispatch-list').innerHTML = `<div><b>KPD RESPONSE · ${disp.length} UNIT${disp.length === 1 ? '' : 'S'}</b></div>` + disp.map((u) => `<div><b>${u.id}</b> · ${u.role} · ${u.dist} m</div>`).join('');
-
     // Dialog.
     const dlg = s.missions.state.dialog;
     if (dlg) {

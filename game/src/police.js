@@ -28,7 +28,7 @@ export function createPolice(random) {
     const p = snapToRoad(x + (random() - 0.5) * 120, z + (random() - 0.5) * 120);
     units.push({
       id, x: p.x, z: p.z, heading: random() * Math.PI * 2, speed: 0,
-      role: 'IN PURSUIT', mode: 'pursue', searchX: 0, searchZ: 0, searchT: 0,
+      role: 'PURSUIT', mode: 'pursue', searchX: 0, searchZ: 0, searchT: 0,
     });
     return units[units.length - 1];
   }
@@ -76,7 +76,7 @@ export function createPolice(random) {
       // The safehouse is sacred ground: units hold at its edge and the trail goes cold.
       if (dist < CITY.safehouse.radius + 12) {
         u.mode = 'hold';
-        u.role = 'HOLDING AT SAFEHOUSE';
+        u.role = 'HOLDING';
         u.speed = Math.max(0, u.speed - 20 * dt);
         return dist;
       }
@@ -84,7 +84,7 @@ export function createPolice(random) {
     if (u.mode === 'hold' && !inSafehouse) u.mode = 'pursue';
 
     if (u.mode === 'pursue') {
-      u.role = dist < 12 ? 'RAMMING' : dist < 40 ? 'IN PURSUIT' : 'RESPONDING';
+      u.role = dist < 12 ? 'RAMMING' : dist < 40 ? 'PURSUIT' : 'RESPONDING';
       const want = Math.atan2(-dz, dx);
       let d = want - u.heading;
       while (d > Math.PI) d -= Math.PI * 2;

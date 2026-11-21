@@ -152,6 +152,14 @@ export function buildLayout(seed = 1) {
     }
   }
 
+  // --- cover-fix round: two literal umbrellas on the southern sand strip
+  // in the beach-hero view cone (west of the pier, clear of the deck),
+  // so the B frame shows beach dressing, not empty sand. Literals only —
+  // no RNG draws, so the layout stream, building positions and the sim
+  // trace are untouched.
+  umbrellas.push({ x: -16, z: 309, color: '#e07a5f', ry: 0.6 });
+  umbrellas.push({ x: -26, z: 306, color: '#4fc3f7', ry: 2.1 });
+
   // --- parked cars: mid-block, 7 m off the road centreline — just past
   // the asphalt edge (6 m) and clear of building faces (>= 8 m), lamps
   // (8.5 m) and ped sidewalks (9 m+). Spots sit 24 m mod 48, lamps sit

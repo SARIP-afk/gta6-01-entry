@@ -125,8 +125,10 @@ export function stageShot(name, world, renderer) {
     // right edge; a palm at (7.4, 253.7) frames the left edge. The car
     // sits at the right third — the v4 camera put him 37° out and cut
     // his rear off the frame edge, the v5 camera pulled 15.6 m back and
-    // shrank him.
-    cam(11.5, 3.1, 247.5, -38, 2, 240);
+    // shrank him. v7 nudge (cover-fix round): 11.4 m out instead of
+    // 13.7 m and the look point pulled east toward the car, so the car
+    // is ~20% bigger and nearer centre; nothing else moved.
+    cam(9.2, 2.9, 246.8, -22, 1.8, 240);
     return 'play';
   }
   if (name === 'beach-hero') {
@@ -146,11 +148,11 @@ export function stageShot(name, world, renderer) {
     // reads inhabited without upstaging him — all inside the view cone
     // (south-west of the camera), clear of the pier deck
     const goers = [
-      [-2, 310, Math.PI, 0.5],
-      [8, 312, Math.PI, 0.6],
-      [-16, 308, Math.PI, 0.4],
-      [-24, 312, Math.PI, 0.5],
-      [2, 306, Math.PI, 0.6],
+      [-2, 309, Math.PI, 0.5],
+      [4, 311, Math.PI, 0.6],
+      [-12, 308, Math.PI, 0.4],
+      [-20, 310, Math.PI, 0.5],
+      [8, 309, Math.PI, 0.6],
     ];
     goers.forEach(([x, z, h, sp], i) => {
       const pd = s.peds[i];
@@ -158,14 +160,14 @@ export function stageShot(name, world, renderer) {
     });
     stepFor(world, 3, () => walkInput(world, 14, 306));
     s.player.x = 14; s.player.z = 306; s.player.heading = -2.85;
-    // camera NORTH-EAST of the hero (the v6 camera sat north-west of him,
-    // so he fell behind the lens entirely) — low and pitched slightly
-    // down: the hero is the biggest figure in frame at the left third,
-    // the pier + sign sit centre with the low sun crowning the sign,
-    // lighthouse right. The beach road's western stretch shows as a minor
-    // sliver at the right edge (unavoidable: the road runs 10 m behind the
-    // camera and the FOV is wide); it reads as the beachfront road.
-    cam(20, 3.4, 298, -10, 1.5, 313);
+    // v7 (cover-fix round): camera dead on the hero's facing axis, 4.5 m
+    // behind him and low (y 2.4) — the v6 camera sat 7.7 m north of the
+    // axis and aimed 30° off it, which threw the hero to the left edge
+    // and left half the frame empty sky. Now the hero is bottom-centre,
+    // ~1/3 of frame height, back to camera, with the sign + sun dead
+    // ahead on the same axis; look point at sand level (y 0.8 at the
+    // sign, v8) so the horizon sits high and the empty sky shrinks.
+    cam(18.3, 2.4, 304.7, -6, 0.8, 312);
     return 'play';
   }
   if (name === 'start') {

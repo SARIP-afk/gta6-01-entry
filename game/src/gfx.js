@@ -148,16 +148,33 @@ function groundTexture(layout) {
     ctx.beginPath(); ctx.moveTo(tx0 + i * tile, tz0); ctx.lineTo(tx0 + i * tile, tz0 + tw); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(tx0, tz0 + i * tile); ctx.lineTo(tx0 + tw, tz0 + i * tile); ctx.stroke();
   }
-  // --- beach sand: dune bands + footprints ---
+  // --- beach sand: dune bands + soft blotches + speckles + pebbles ---
   const sandZ = pz(BEACH_Z), sandH = pz(SEA_Z) - sandZ;
   ctx.fillStyle = '#e8d5a3'; ctx.fillRect(0, sandZ, S, sandH);
   for (let b = 0; b < 8; b++) {
     ctx.fillStyle = b % 2 ? 'rgba(190,160,110,0.35)' : 'rgba(255,240,200,0.3)';
     ctx.fillRect(0, sandZ + b * (sandH / 8), S, sandH / 16);
   }
+  // broad soft blotches in a few sand tones, so the beach reads
+  // varied up close instead of one flat wash
+  const blotchTones = ['rgba(210,180,130,', 'rgba(240,220,170,', 'rgba(170,140,95,'];
+  for (let i = 0; i < 140; i++) {
+    const tone = blotchTones[Math.floor(hash2(i, 21, 1) * blotchTones.length) % blotchTones.length];
+    ctx.fillStyle = `${tone}${0.05 + hash2(i, 22, 1) * 0.09})`;
+    const bw = 8 + hash2(i, 23, 1) * 34, bh = 5 + hash2(i, 24, 1) * 18;
+    ctx.beginPath();
+    ctx.ellipse(hash2(i, 25, 1) * S, sandZ + hash2(i, 26, 1) * sandH, bw, bh, hash2(i, 27, 1) * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
   for (let i = 0; i < 900; i++) {
     ctx.fillStyle = `rgba(120,95,60,${0.08 + hash2(i, 77, 1) * 0.12})`;
     ctx.fillRect(hash2(i, 3, 2) * S, sandZ + hash2(i, 5, 2) * sandH, 3, 2);
+  }
+  // small grey pebbles scattered across the sand
+  for (let i = 0; i < 120; i++) {
+    const grey = 110 + Math.floor(hash2(i, 31, 1) * 90);
+    ctx.fillStyle = `rgba(${grey},${grey - 8},${grey - 18},0.8)`;
+    ctx.fillRect(hash2(i, 32, 1) * S, sandZ + hash2(i, 33, 1) * sandH, 2, 2);
   }
   // The waterline strip (z 306-312) is wet, darker sand; footprint
   // trails wander across the beach and shell flecks dot it, so the
@@ -172,7 +189,7 @@ function groundTexture(layout) {
       ctx.fillRect(startX + step * 4, startZ + Math.sin(step * 0.8) * 6, 3, 2);
     }
   }
-  for (let speck = 0; speck < 60; speck++) {
+  for (let speck = 0; speck < 120; speck++) {
     const pale = hash2(speck, 13, 1) < 0.5;
     ctx.fillStyle = pale ? 'rgba(255,245,230,0.85)' : 'rgba(230,180,180,0.85)';
     ctx.fillRect(hash2(speck, 14, 1) * S, sandZ + hash2(speck, 15, 1) * sandH, 2, 2);
@@ -585,22 +602,33 @@ export class Renderer {
     bulbs.forEach((b, i) => { dummy.position.set(b.x, b.y, b.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); this.bulbs.setMatrixAt(i, dummy.matrix); });
     scene.add(this.bulbs);
 
-    // --- palms: trunk bands + coconuts + two frond rings ---
+    // --- palms: banded trunks + coconuts + a three-ring crown ---
+    // The crown is deliberately lush: an upper ring pitched up, a
+    // middle ring near-flat and a lower ring drooping, 20 fronds per
+    // palm, so the palms read leafy from the street and the beach
+    // instead of a few bare spikes. All fronds live in one
+    // InstancedMesh, so the extra foliage costs 0 draw calls.
     const palmSoup = new BoxSoup();
     const fronds = [];
     const nuts = [];
+    const frondRing = (pl, top, count, yawSeed, pitch, len, col) => {
+      for (let k = 0; k < count; k++) {
+        const yaw = (k / count) * Math.PI * 2 + hash2(Math.round(pl.x), k, yawSeed);
+        fronds.push({ x: pl.x, y: top, z: pl.z, yaw, pitch, len: len * pl.s, col });
+      }
+    };
     for (const pl of L.palms) {
       const h = 5.2 * pl.s;
-      for (let sI = 0; sI < 5; sI++) {
-        const y = (sI + 0.5) * (h / 5);
-        palmSoup.add(pl.x + Math.sin(sI * 1.7) * 0.12, y, pl.z, 0.34, h / 5 + 0.1, 0.34, sI % 2 ? '#8a6a42' : '#7a5a38');
+      for (let seg = 0; seg < 5; seg++) {
+        const y = (seg + 0.5) * (h / 5);
+        palmSoup.add(pl.x + Math.sin(seg * 1.7) * 0.12, y, pl.z, 0.34, h / 5 + 0.1, 0.34, seg % 2 ? '#8a6a42' : '#7a5a38');
       }
       palmSoup.add(pl.x, h * 0.45, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
       palmSoup.add(pl.x, h * 0.8, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
       for (let nI = 0; nI < 3; nI++) nuts.push({ x: pl.x + Math.cos(nI * 2.1) * 0.4, y: h - 0.3, z: pl.z + Math.sin(nI * 2.1) * 0.4 });
-      // upper ring: 5 fronds pitched up; lower ring: 7 drooping
-      for (let fI = 0; fI < 5; fI++) fronds.push({ x: pl.x, y: h + 0.15, z: pl.z, yaw: (fI / 5) * Math.PI * 2 + hash2(Math.round(pl.x), fI, 3), pitch: 0.45, len: 3.4 * pl.s, col: '#3f9e4d' });
-      for (let fI = 0; fI < 7; fI++) fronds.push({ x: pl.x, y: h - 0.1, z: pl.z, yaw: (fI / 7) * Math.PI * 2 + hash2(Math.round(pl.z), fI, 4), pitch: -0.5, len: 3.0 * pl.s, col: '#2f8f3e' });
+      frondRing(pl, h + 0.15, 6, 3, 0.45, 3.4, '#3f9e4d');
+      frondRing(pl, h + 0.05, 6, 5, 0.05, 3.2, '#35873f');
+      frondRing(pl, h - 0.1, 8, 4, -0.5, 3.0, '#2f8f3e');
     }
     scene.add(palmSoup.build(lambertVertex()));
     const frondGeo = new THREE.BoxGeometry(1, 0.05, 0.62);

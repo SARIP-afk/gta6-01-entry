@@ -255,6 +255,11 @@ export function buildLayout(seed = 1) {
     ['rock', -2, 307, 0], ['rock', 16, 311, 0], ['rock', -44, 308, 0],
     ['shell', 6, 311, 0], ['shell', -12, 309, 0], ['shell', 26, 310, 0],
     ['shell', -58, 309, 0], ['shell', 18, 310, 0],
+    // extra shells and pebbles so the foreground sand has small
+    // things to catch the eye at thumbnail size
+    ['shell', -34, 309, 0], ['shell', 22, 309, 0], ['shell', -52, 311, 0],
+    ['shell', 34, 310, 0],
+    ['rock', 24, 309, 0], ['rock', -36, 310, 0], ['rock', -64, 308, 0],
   ];
   for (const [kind, x, z, ry] of sandDressing) props.push({ kind, x, z, ry });
 

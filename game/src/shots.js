@@ -91,7 +91,7 @@ export function stageShot(name, world, renderer) {
     s.player.mode = 'car';
     s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
     s.player.x = 0; s.player.z = 240; s.player.heading = Math.PI;
-    s.wanted = 3; s.heli.active = true; s.heli.staged = true; s.heli.x = -18; s.heli.z = 249; s.heli.alt = 12; s.heli.angle = 0.6; s.heli.scale = 1.4;
+    s.wanted = 3; s.heli.active = true; s.heli.staged = true; s.heli.x = -24; s.heli.z = 247; s.heli.alt = 11; s.heli.angle = -Math.PI / 2; s.heli.scale = 1.5;
     s.smokeFx = true; // pooled drift smoke behind the hero car
     for (let i = 0; i < 2; i++) {
       s.police.push({ x: 16 + i * 12, z: (i % 2 ? 236.5 : 243.5), heading: Math.PI, speed: 14, search: 0, siren: i });
@@ -110,13 +110,21 @@ export function stageShot(name, world, renderer) {
     // nothing moves again.
     s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
     s.player.x = 0; s.player.z = 240;
-    s.heli.active = true; s.heli.staged = true; s.heli.x = -18; s.heli.z = 249; s.heli.alt = 12; s.heli.angle = 0.6; s.heli.scale = 1.4;
+    // heli side-on to the cover camera (nose south): the boom + fin +
+    // skids read, instead of a foreshortened nose-on box (polish round)
+    s.heli.active = true; s.heli.staged = true; s.heli.x = -24; s.heli.z = 247; s.heli.alt = 11; s.heli.angle = -Math.PI / 2; s.heli.scale = 1.5;
     s.smokeFx = true;
     s.roadblock = null; s.roadblockCooldown = 45;
     s.police.length = 0;
     s.police.push(
       { x: -30, z: 237, heading: 0, speed: 0, search: 0, siren: 0 },
       { x: -42, z: 243.5, heading: 0, speed: 0, search: 0, siren: 1 },
+    );
+    // life on the road ahead: a taxi + a sedan facing the hero, headlights
+    // toward the camera, so the asphalt ahead is not empty (polish round)
+    s.traffic.push(
+      { x: -68, z: 237.5, heading: 0, speed: 0, kind: 'taxi', color: '#f1c40f' },
+      { x: -88, z: 243, heading: 0, speed: 0, kind: 'sedan', color: '#2980b9' },
     );
     // low three-quarter camera: 45° off the car's axis so the hero shows
     // his side + rear big in the foreground (a camera dead behind the car
@@ -127,8 +135,11 @@ export function stageShot(name, world, renderer) {
     // his rear off the frame edge, the v5 camera pulled 15.6 m back and
     // shrank him. v7 nudge (cover-fix round): 11.4 m out instead of
     // 13.7 m and the look point pulled east toward the car, so the car
-    // is ~20% bigger and nearer centre; nothing else moved.
-    cam(9.2, 2.9, 246.8, -22, 1.8, 240);
+    // is ~20% bigger and nearer centre; nothing else moved. v8 (polish
+    // round): 9.3 m out so the car is bigger still, look point raised
+    // (2.4) so the marina/sunset fills more of the frame and the asphalt
+    // less; 2 staged traffic cars give the road ahead life.
+    cam(7.8, 2.7, 245.8, -22, 2.4, 240);
     return 'play';
   }
   if (name === 'beach-hero') {
@@ -167,7 +178,10 @@ export function stageShot(name, world, renderer) {
     // ~1/3 of frame height, back to camera, with the sign + sun dead
     // ahead on the same axis; look point at sand level (y 0.8 at the
     // sign, v8) so the horizon sits high and the empty sky shrinks.
-    cam(18.3, 2.4, 304.7, -6, 0.8, 312);
+    // v9 (polish round): look point dropped to y -2.0, pitching the
+    // camera ~10° down — the sea horizon now sits ~30% from the top
+    // instead of ~46%, so the top of the frame is no longer empty sky.
+    cam(18.3, 2.4, 304.7, -6, -2.0, 312);
     return 'play';
   }
   if (name === 'start') {

@@ -10,7 +10,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 const CHROME = `${process.env.HOME}/.cache/ms-playwright/chromium-1187/chrome-linux/chrome`;
 const [base, outDir, ...only] = process.argv.slice(2);
 mkdirSync(outDir, { recursive: true });
-const all = ['cover', 'start', 'play', 'end', 'market', 'nightmarket', 'beach', 'chase'];
+const all = ['cover', 'beach-hero', 'start', 'play', 'end', 'market', 'nightmarket', 'beach', 'chase'];
 const shots = only.length ? only : all;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -58,7 +58,7 @@ try {
   await send('Page.enable');
   await send('Runtime.enable');
   await send('Log.enable');
-  await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
 
   for (const name of shots) {
     const before = events.length;

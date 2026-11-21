@@ -17,6 +17,9 @@ const world = createWorld(seed);
 const renderer = new Renderer(world, canvas, quality);
 const sound = new Sound();
 const hud = new Hud(world, handleAction);
+// cover-clean mode: hide every DOM panel for the cover shots only —
+// gameplay and all other shots keep their HUD (hud.js: coverClean)
+hud.coverClean = shotName === 'cover' || shotName === 'beach-hero';
 
 let keys = {};
 let pressed = {}; // edge-triggered latch: a quick tap must survive until the

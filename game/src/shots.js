@@ -77,10 +77,13 @@ export function stageShot(name, world, renderer) {
     { x, y, z }, { x: lx, y: ly, z: lz },
   );
   if (name === 'cover') {
-    // Sunset chase on the coast road (ref 3): hero westbound toward the
-    // sun over the sea, skyline right, palms lining the road, heli big
-    // ahead-left over the water — the cover is the ref-3 composition.
-    world.pinClock(18.0);
+    // Concept A — Sunset Chase: hero car BIG in the foreground, low
+    // three-quarter camera behind-right of the car (closer + lower than the
+    // old cover), heli scaled up ahead-left over the sea with a bright
+    // searchlight cone, low sun in frame, 2 cruisers staged behind the
+    // hero, marina boats + lighthouse + sea to the left, pastel facades
+    // right. Clock 18.3 = peak sunset. HUD is hidden by cover-clean mode.
+    world.pinClock(18.3);
     s.missions.active = 3; s.missions.stage = 0; s.missions.started = true;
     s.missions.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
     s.missions.dialogTimer = 9;
@@ -88,19 +91,81 @@ export function stageShot(name, world, renderer) {
     s.player.mode = 'car';
     s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
     s.player.x = 0; s.player.z = 240; s.player.heading = Math.PI;
-    s.wanted = 3; s.heli.active = true; s.heli.staged = true; s.heli.x = -22; s.heli.z = 250; s.heli.alt = 14; s.heli.angle = 0.6;
-    for (let i = 0; i < 3; i++) {
-      s.police.push({ x: 20 + i * 12, z: (i % 2 ? 236 : 244), heading: Math.PI, speed: 14, search: 0, siren: i });
+    s.wanted = 3; s.heli.active = true; s.heli.staged = true; s.heli.x = -18; s.heli.z = 249; s.heli.alt = 12; s.heli.angle = 0.6; s.heli.scale = 1.4;
+    s.smokeFx = true; // pooled drift smoke behind the hero car
+    for (let i = 0; i < 2; i++) {
+      s.police.push({ x: 16 + i * 12, z: (i % 2 ? 236.5 : 243.5), heading: Math.PI, speed: 14, search: 0, siren: i });
     }
     stepFor(world, 2, () => driveInput(world, -120, 240));
+    // re-pin everything the sim moved: the hero back to the staged spot,
+    // the heli frozen big ahead-left, and exactly 2 cruisers in frame.
+    // DEVIATION from the plan ("2 cruisers behind the hero"): the road is
+    // straight and the chase camera looks west, so anything east of the
+    // hero — i.e. genuinely behind him — sits behind the lens and can
+    // never be in frame. The 2 cruisers are staged AHEAD as the cordon
+    // the mission is about ("Lose the cordon", "It's a trap"): a roadblock
+    // pair facing the hero, headlights on, mid-frame up the road. The sim
+    // tops police up to wanted+1 = 4 during the drive and may form its own
+    // roadblock — both are cleared; the sim is frozen after staging so
+    // nothing moves again.
     s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
     s.player.x = 0; s.player.z = 240;
-    // the sim only flies the heli at wanted 4+ and orbits it at alt ~48 —
-    // the staged flag freezes it where put, so the cover keeps a BIG heli
-    // ahead-left over the sea, in frame (v2.4: the v2.3 cover had no heli
-    // at all — the sim deactivated it at wanted 3 every step)
-    s.heli.active = true; s.heli.staged = true; s.heli.x = -22; s.heli.z = 250; s.heli.alt = 14; s.heli.angle = 0.6;
-    cam(10, 4.2, 243, -70, 2.5, 236);
+    s.heli.active = true; s.heli.staged = true; s.heli.x = -18; s.heli.z = 249; s.heli.alt = 12; s.heli.angle = 0.6; s.heli.scale = 1.4;
+    s.smokeFx = true;
+    s.roadblock = null; s.roadblockCooldown = 45;
+    s.police.length = 0;
+    s.police.push(
+      { x: -30, z: 237, heading: 0, speed: 0, search: 0, siren: 0 },
+      { x: -42, z: 243.5, heading: 0, speed: 0, search: 0, siren: 1 },
+    );
+    // low three-quarter camera: 45° off the car's axis so the hero shows
+    // his side + rear big in the foreground (a camera dead behind the car
+    // foreshortens him to a 2 m-wide rear), looking WSW so the sun +
+    // lighthouse + sea sit left of frame and the pastel row lines the
+    // right edge; a palm at (7.4, 253.7) frames the left edge. The car
+    // sits at the right third — the v4 camera put him 37° out and cut
+    // his rear off the frame edge, the v5 camera pulled 15.6 m back and
+    // shrank him.
+    cam(11.5, 3.1, 247.5, -38, 2, 240);
+    return 'play';
+  }
+  if (name === 'beach-hero') {
+    // Concept B — Beach Hero: hero on foot on the sand, back to camera,
+    // looking SSW at the pier + neon SOLMARINA sign; sun + lighthouse left,
+    // beachgoers + umbrellas mid-frame, sea foreground. HUD hidden by
+    // cover-clean mode (same as cover — this is the second cover variant).
+    world.pinClock(18.2);
+    s.player.mode = 'walk';
+    // hero SOUTH of the beach road (asphalt runs z 282-294) — the v1 try
+    // stood him at z = 282, on the road edge, so the frame read as a
+    // street. On the sand at z = 306, the road is behind the camera.
+    s.player.x = 14; s.player.z = 306; s.player.heading = -2.85;
+    s.heroCar.x = 24; s.heroCar.z = 234; s.heroCar.heading = -Math.PI / 2;
+    // beachgoers on the sand: reposition 5 seeded peds to fixed spots
+    // around the hero (deterministic literals, slow stroll) so the beach
+    // reads inhabited without upstaging him — all inside the view cone
+    // (south-west of the camera), clear of the pier deck
+    const goers = [
+      [-2, 310, Math.PI, 0.5],
+      [8, 312, Math.PI, 0.6],
+      [-16, 308, Math.PI, 0.4],
+      [-24, 312, Math.PI, 0.5],
+      [2, 306, Math.PI, 0.6],
+    ];
+    goers.forEach(([x, z, h, sp], i) => {
+      const pd = s.peds[i];
+      pd.x = x; pd.z = z; pd.heading = h; pd.speed = sp; pd.alive = true;
+    });
+    stepFor(world, 3, () => walkInput(world, 14, 306));
+    s.player.x = 14; s.player.z = 306; s.player.heading = -2.85;
+    // camera NORTH-EAST of the hero (the v6 camera sat north-west of him,
+    // so he fell behind the lens entirely) — low and pitched slightly
+    // down: the hero is the biggest figure in frame at the left third,
+    // the pier + sign sit centre with the low sun crowning the sign,
+    // lighthouse right. The beach road's western stretch shows as a minor
+    // sliver at the right edge (unavoidable: the road runs 10 m behind the
+    // camera and the FOV is wide); it reads as the beachfront road.
+    cam(20, 3.4, 298, -10, 1.5, 313);
     return 'play';
   }
   if (name === 'start') {

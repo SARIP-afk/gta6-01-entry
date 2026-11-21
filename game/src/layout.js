@@ -56,9 +56,13 @@ export function onRoad(x, z) {
   return rx || rz;
 }
 
+const PASTEL = ['#f2c94c', '#f28482', '#81b29a', '#f4a261', '#a78bfa', '#a8dadc'];
 const PALETTE = {
-  tower: ['#8d99ae', '#a8b2c1', '#7d8597', '#b08968', '#6d6875', '#9c6644', '#5f6c7b', '#c08552'],
-  low: ['#e07a5f', '#f2cc8f', '#81b29a', '#e07a5f', '#f4a261', '#a8dadc', '#e9c46a'],
+  // pastel facades (cover-study concept C): the brown/grey slabs are gone —
+  // same RNG draws as before, only the colour values changed, so building
+  // positions, heights and the sim trace are untouched
+  tower: [...PASTEL, '#8ecae6', '#f6bd60'],
+  low: [...PASTEL],
   roof: ['#4a4e69', '#3d405b', '#6c757d', '#495057'],
 };
 

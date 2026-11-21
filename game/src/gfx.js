@@ -14,13 +14,15 @@ import {
 } from './layout.js';
 
 const DAY = { sun: 0xffdf9e, hemiSky: 0xbfd9ff, hemiGround: 0x8a7a5a, fog: 0xcfe0ee, bg: 0x87b5d9, sunI: 1.25, hemiI: 0.85 };
-const SUNSET = { sun: 0xff9a4d, hemiSky: 0xe8a06a, hemiGround: 0x5a4a3a, fog: 0xe8a06a, bg: 0xf2a35e, sunI: 1.05, hemiI: 0.75 };
+const SUNSET = { sun: 0xff9a4d, hemiSky: 0xe8a06a, hemiGround: 0x5a4a3a, fog: 0xe8a06a, bg: 0xf2a35e, sunI: 1.05, hemiI: 0.85 };
 const NIGHT = { sun: 0x8fa8ff, hemiSky: 0x1c2440, hemiGround: 0x0e0c10, fog: 0x141a2e, bg: 0x0d1226, sunI: 0.4, hemiI: 0.5 };
 // fixed sunset accent colours: the gradient dome needs a purple zenith +
 // pink mid-sky or the sunset reads as one flat orange slab (v2.4 audit)
 const SUNSET_ZENITH = new THREE.Color(0x4a2358);
 const SUNSET_MID = new THREE.Color(0xc94f6d);
 const SUNSET_SEA = new THREE.Color(0xff8a4d);
+// awning stripe accents (concept C shopfronts), picked by building hash
+const AWN_ACCENTS = ['#f28482', '#81b29a', '#f4a261', '#a78bfa', '#4fc3f7', '#f2c94c'];
 
 function hexRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -189,7 +191,7 @@ function seaTexture() {
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 2);
+  tex.repeat.set(12, 4);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
@@ -235,10 +237,16 @@ export class Renderer {
     this.canvas = canvas;
     this.quality = quality;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(62, 1280 / 720, 0.1, 1400);
+    // render at the canvas's real client size (cover round: the driver pins
+    // a 1280x800 viewport, and the old fixed 1280x720 buffer was stretched
+    // 11% vertically by the full-window CSS to fill it). At the playtest's
+    // 1280x720 viewport this is exactly the old size, so nothing changes
+    // there; on other windows the frame is no longer distorted either.
+    const cw = canvas.clientWidth || 1280, ch = canvas.clientHeight || 720;
+    this.camera = new THREE.PerspectiveCamera(62, cw / ch, 0.1, 1400);
     const scale = quality === 'low' ? 0.75 : quality === 'high' ? 1.5 : 1;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setSize(1280, 720, false);
+    this.renderer.setSize(cw, ch, false);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * scale);
     this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -272,9 +280,12 @@ export class Renderer {
     ground.position.set((WORLD.x0 + WORLD.x1) / 2, 0, (WORLD.z0 + WORLD.z1) / 2);
     scene.add(ground);
     this.seaMat = new THREE.MeshLambertMaterial({ map: seaTexture(), transparent: true, opacity: 0.92 });
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(700, 260), this.seaMat);
+    // the sea plane runs out to the sky dome (z = 1012, dome radius 950):
+    // the old 260 m-deep plane ended at z = 572, so most of the "water"
+    // in a beach frame was the dome's dark below-horizon half, not sea
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(1400, 700), this.seaMat);
     sea.rotation.x = -Math.PI / 2;
-    sea.position.set(60, 0.4, SEA_Z + 130);
+    sea.position.set(60, 0.4, SEA_Z + 350);
     scene.add(sea);
     // marina water east of the grid (two planes, clear of the causeway
     // strip) so the moored boats float instead of sitting on concrete
@@ -321,7 +332,15 @@ export class Renderer {
       solid.add(b.x - b.w * 0.22, sy, b.z + b.d / 2 + 0.08, b.w * 0.34, 2.6, 0.16, '#20262e');
       solid.add(b.x + b.w * 0.22, sy, b.z + b.d / 2 + 0.08, b.w * 0.34, 2.6, 0.16, '#20262e');
       solid.add(b.x, 1.3, b.z + b.d / 2 + 0.08, 1.3, 2.5, 0.16, '#3a2e22');
-      glow.add(b.x, 3.1, b.z + b.d / 2 + 0.12, b.w * 0.7, 0.5, 0.12, '#f2c94c');
+      glow.add(b.x, 3.1, b.z + b.d / 2 + 0.12, b.w * 0.7, 0.5, 0.12, b.signColor);
+      // striped shop awning above the shopfront (concept C): 3 alternating
+      // stripes, sloped toward the street — merged into the soup, so the
+      // whole city's awnings cost 0 extra draw calls
+      const awAccent = AWN_ACCENTS[Math.floor(hash2(Math.round(b.x), Math.round(b.z), 29) * AWN_ACCENTS.length) % AWN_ACCENTS.length];
+      const awW = (b.w * 0.7) / 3;
+      for (let aI = 0; aI < 3; aI++) {
+        solid.add(b.x - b.w * 0.35 + awW * (aI + 0.5), 3.65, b.z + b.d / 2 + 0.7, awW, 0.08, 1.4, aI % 2 ? '#f5efe0' : awAccent, 0, 0, 0.18);
+      }
       // sparse balconies on tall buildings
       if (b.h > 30 && hash2(Math.round(b.x), Math.round(b.z), 17) < 0.33) {
         for (let fl = 1; fl <= 2; fl++) {
@@ -331,15 +350,25 @@ export class Renderer {
         }
       }
       // AC unit on the east face + roof water tank on low-rise, so no
-      // facade reads as one bare slab from the street
-      if (hash2(Math.round(b.x), Math.round(b.z), 19) < 0.55) {
+      // facade reads as one bare slab from the street (cover round: denser
+      // — AC on ~85% of buildings, a second unit on ~35%, tanks on ~75%
+      // of low-rise and ~35% of mid-rise)
+      if (hash2(Math.round(b.x), Math.round(b.z), 19) < 0.85) {
         const fl = 1 + Math.floor(hash2(Math.round(b.x), 3, 19) * Math.max(1, b.floors - 1));
         const ay = 2.6 + fl * 3.4;
         if (ay < b.h - 1) solid.add(b.x + b.w / 2 + 0.3, ay, b.z + b.d * 0.2, 0.6, 0.5, 0.9, '#9a9a92');
+        if (hash2(Math.round(b.x), Math.round(b.z), 27) < 0.35) {
+          const fl2 = 1 + Math.floor(hash2(Math.round(b.z), 5, 27) * Math.max(1, b.floors - 1));
+          const ay2 = 2.6 + fl2 * 3.4;
+          if (ay2 < b.h - 1 && Math.abs(ay2 - ay) > 3) solid.add(b.x - b.w / 2 - 0.3, ay2, b.z - b.d * 0.2, 0.6, 0.5, 0.9, '#8a8a82');
+        }
       }
-      if (b.h <= 20 && hash2(Math.round(b.x), Math.round(b.z), 23) < 0.5) {
+      if (b.h <= 20 && hash2(Math.round(b.x), Math.round(b.z), 23) < 0.75) {
         solid.add(b.x + b.w * 0.25, b.h + 1.6, b.z - b.d * 0.2, 1.7, 2.2, 1.7, '#7a7568');
         solid.add(b.x + b.w * 0.25, b.h + 2.8, b.z - b.d * 0.2, 1.9, 0.25, 1.9, '#5a5548');
+      } else if (b.h > 20 && b.h <= 35 && hash2(Math.round(b.x), Math.round(b.z), 25) < 0.35) {
+        solid.add(b.x - b.w * 0.25, b.h + 1.6, b.z + b.d * 0.2, 1.7, 2.2, 1.7, '#7a7568');
+        solid.add(b.x - b.w * 0.25, b.h + 2.8, b.z + b.d * 0.2, 1.9, 0.25, 1.9, '#5a5548');
       }
     }
     // lighthouse on the western headland, in the sea (ref-3 landmark):
@@ -618,14 +647,52 @@ export class Renderer {
       pierSoup.add(sx, 4.5, sz, 0.14, 8, 0.14, '#6b4a2f');
       pierSoup.add(sx + 0.8, 4.2, sz, 0.1, 4.5, 2.6, '#f5efe0', 0, 0.3);
     }
+    // --- beach pier (concept B): a wooden pier jutting south off the sand
+    // at x = -6, with the SOLMARINA sign at its end. Planks + posts go into
+    // the merged pier soup (+0 draw calls); the neon text is one
+    // canvas-texture plane (text drawn on canvas, not letter geometry).
+    for (let z = 300; z <= 338; z += 1.3) {
+      pierSoup.add(-6, 0.12, z, 7, 0.25, 1.2, hash2(Math.round(z), 1, 63) < 0.5 ? '#8a6a42' : '#7a5a38');
+    }
+    for (let z = 306; z <= 338; z += 12) {
+      pierSoup.add(-6 - 3.4, 0.7, z, 0.3, 1.6, 0.3, '#5a4630');
+      pierSoup.add(-6 + 3.4, 0.7, z, 0.3, 1.6, 0.3, '#5a4630');
+    }
+    // sign posts + wooden board at the pier end, facing the beach (north)
+    pierSoup.add(-10.5, 3.4, 312, 0.5, 6.8, 0.5, '#4a3520');
+    pierSoup.add(-1.5, 3.4, 312, 0.5, 6.8, 0.5, '#4a3520');
+    pierSoup.add(-6, 4.9, 312, 12.5, 2.6, 0.35, '#6b4a2f');
+    pierSoup.add(-6, 6.35, 312, 12.7, 0.3, 0.45, '#4a3520');
     scene.add(pierSoup.build(lambertVertex()));
+    // neon SOLMARINA text: pink glow on canvas, one plane in front of the
+    // board (board face at z = 311.825, plane at 311.8, facing north)
+    const sc = document.createElement('canvas');
+    sc.width = 1024; sc.height = 224;
+    const sctx = sc.getContext('2d');
+    sctx.clearRect(0, 0, 1024, 224);
+    sctx.font = '900 148px system-ui, sans-serif';
+    sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
+    sctx.shadowColor = '#ff2a6d'; sctx.shadowBlur = 42;
+    sctx.fillStyle = '#ff5e8a';
+    sctx.fillText('SOLMARINA', 512, 116);
+    sctx.shadowBlur = 12; sctx.fillStyle = '#ffe3ee';
+    sctx.fillText('SOLMARINA', 512, 116);
+    const signTex = new THREE.CanvasTexture(sc);
+    signTex.colorSpace = THREE.SRGBColorSpace;
+    this.solmarinaSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(12, 2.4),
+      new THREE.MeshBasicMaterial({ map: signTex, transparent: true }),
+    );
+    this.solmarinaSign.position.set(-6, 4.9, 311.8);
+    this.solmarinaSign.rotation.y = Math.PI;
+    scene.add(this.solmarinaSign);
   }
 
   pushWindow(dark, lit, mull, b, x, y, z, ry, h, side = false) {
     const px = side ? x : b.x + x;
     const pz = side ? b.z + z : z;
     const h1 = hash2(Math.round(px), Math.round(y), Math.round(pz));
-    const warm = h1 < 0.42;
+    const warm = h1 < 0.5; // cover round: half the windows lit at dusk, up from 0.42
     const rec = { x: px, y, z: pz, ry, color: warm ? (h1 < 0.16 ? '#ffd98a' : '#ffb347') : '#2a3648' };
     (warm ? lit : dark).push(rec);
     if (b.h <= 20) mull.push({ x: px + (ry === 0 ? 0 : ry === Math.PI ? 0 : Math.sin(ry) * 0.1), y, z: pz + (ry === 0 ? 0.08 : ry === Math.PI ? -0.08 : 0), ry });
@@ -821,6 +888,14 @@ export class Renderer {
       t.position.set(-2.32, 0.78, tz);
       this.heroCar.add(t);
     }
+    // full-width LED light bars (concept A: the hero car reads at thumbnail
+    // size — a single red bar across the rear + a white bar across the nose)
+    const rearBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 1.7), tailMat);
+    rearBar.position.set(-2.33, 0.82, 0);
+    this.heroCar.add(rearBar);
+    const frontBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 1.7), headMat);
+    frontBar.position.set(2.33, 0.82, 0);
+    this.heroCar.add(frontBar);
     const wheelG = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 12);
     wheelG.rotateX(Math.PI / 2);
     const wheelM = new THREE.MeshLambertMaterial({ color: 0x14161a });
@@ -925,6 +1000,7 @@ export class Renderer {
     disc.rotation.x = -Math.PI / 2;
     disc.position.y = 1.15;
     this.heli.add(disc);
+    this.rotorDisc = disc; // cover staging brightens it (bigger rotor blur)
     const navR = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
     navR.position.set(-4.9, 0.2, -0.3);
     this.heli.add(navR);
@@ -938,6 +1014,7 @@ export class Renderer {
     beam.position.set(1.2, -7, 0);
     beam.rotation.z = Math.PI;
     this.heli.add(beam);
+    this.heliBeam = beam; // cover staging brightens it (visible searchlight)
     this.heli.visible = false;
     scene.add(this.heli);
 
@@ -950,6 +1027,33 @@ export class Renderer {
     this.shells.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.shells.frustumCulled = false;
     scene.add(this.shells);
+
+    // drift smoke (concept A): 28 pooled soft puffs behind the hero car,
+    // one InstancedMesh, zero per-frame allocation — the 60 FPS audit found
+    // no per-frame `new` in the hot path and this keeps it that way. The
+    // puffs cycle on renderer time (the staged sim is frozen), so the cloud
+    // is fully formed from the first captured frame. Billboards, not
+    // spheres: a soft radial-gradient disc reads as smoke, while the v5
+    // spheres read as hard-edged white balls against the dark asphalt.
+    const smc = document.createElement('canvas');
+    smc.width = smc.height = 128;
+    const smctx = smc.getContext('2d');
+    const smg = smctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    smg.addColorStop(0, 'rgba(255,255,255,0.85)');
+    smg.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+    smg.addColorStop(1, 'rgba(255,255,255,0)');
+    smctx.fillStyle = smg;
+    smctx.fillRect(0, 0, 128, 128);
+    const smokeTex = new THREE.CanvasTexture(smc);
+    this.smoke = new THREE.InstancedMesh(
+      new THREE.CircleGeometry(1, 12),
+      new THREE.MeshBasicMaterial({ map: smokeTex, color: 0xefe9dc, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide }),
+      28,
+    );
+    this.smoke.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.smoke.frustumCulled = false;
+    this.smoke.count = 0;
+    scene.add(this.smoke);
 
     // gunmen — small dark groups
     this.gunmen = [];
@@ -1309,6 +1413,38 @@ export class Renderer {
       this.heli.position.set(heli.x, heli.alt, heli.z);
       this.heli.rotation.y = Math.atan2(-(hz - heli.z), hx - heli.x);
       this.rotor.rotation.y = this.time * 22;
+      // cover staging scales the heli up (s.heli.scale) and brightens the
+      // rotor blur + searchlight; real play is untouched (scale undefined,
+      // staged false — the reset state carries neither)
+      this.heli.scale.setScalar(heli.scale || 1);
+      this.heliBeam.material.opacity = heli.staged ? 0.3 : 0.12;
+      this.rotorDisc.material.opacity = heli.staged ? 0.3 : 0.16;
+    }
+
+    // ---- drift smoke: only the cover shot sets s.smokeFx ----
+    if (s.smokeFx && p.mode === 'car') {
+      this.smoke.count = 28;
+      const fx = Math.cos(car.heading), fz = -Math.sin(car.heading);
+      const lx = Math.sin(car.heading), lz = Math.cos(car.heading); // lateral
+      for (let i = 0; i < 28; i++) {
+        const a = (this.time * 0.45 + i / 28) % 1;
+        const spread = (hash2(i, 7, 1) - 0.5) * 5;
+        // small, faint, short-lived: the v2 puffs (scale to 2.3, 0.38
+        // opacity, 7.5 m trail) formed a wall that hid the hero car — the
+        // trail runs straight back along the road toward the cover camera
+        const px = car.x - fx * (1.5 + a * 6) + lx * spread * (0.4 + a);
+        const pz = car.z - fz * (1.5 + a * 6) + lz * spread * (0.4 + a);
+        const fade = a > 0.6 ? Math.max(0.001, (1 - a) / 0.4) : 1;
+        const sc = (0.6 + a * 2.0) * fade;
+        dummy.position.set(px, 0.4 + a * 1.6, pz);
+        dummy.lookAt(this.camera.position);
+        dummy.scale.set(sc, sc, sc);
+        dummy.updateMatrix();
+        this.smoke.setMatrixAt(i, dummy.matrix);
+      }
+      this.smoke.instanceMatrix.needsUpdate = true;
+    } else if (this.smoke.count !== 0) {
+      this.smoke.count = 0;
     }
 
     // ---- shells + gunmen + marker ----

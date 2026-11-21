@@ -17,6 +17,10 @@ export class Hud {
     this.bigmapCtx = this.bigmap ? this.bigmap.getContext('2d') : null;
     this.cache = {};
     this.mapTimer = 0;
+    // cover-clean: for cover shots (?shot=cover / beach-hero) every DOM
+    // panel is hidden so the frame is pure game, like the Top 1-3 title
+    // screens. Set from main.js; gameplay and other shots never set it.
+    this.coverClean = false;
     this.bindButtons();
     this.drawMap(true);
   }
@@ -77,6 +81,15 @@ export class Hud {
   }
 
   update(dt) {
+    if (this.coverClean) {
+      // hide everything, including the title screen (its CSS default is
+      // display:flex, and the normal screen lines below never run here)
+      for (const id of ['hud', 'title-screen', 'pause-screen', 'over-screen']) {
+        const el = $(id);
+        if (el) el.style.display = 'none';
+      }
+      return;
+    }
     const s = this.world.state;
     const p = s.player;
     const hour = Math.floor(s.hour), min = Math.floor((s.hour % 1) * 60);

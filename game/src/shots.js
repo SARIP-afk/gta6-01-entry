@@ -197,7 +197,7 @@ export function stageShot(name, world, renderer) {
     // the same axis. The look point drops to y -2.0, pitching the camera
     // about 10° down: the sea horizon now sits ~30% from the top instead
     // of ~46%, so the top of the frame is no longer empty sky.
-    pointCam(18.3, 2.4, 304.7, -6, -2.0, 312);
+    pointCam(16.9, 2.2, 305.1, -6, -1.5, 312);
     return 'play';
   }
   if (name === 'start') {

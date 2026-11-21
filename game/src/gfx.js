@@ -752,6 +752,59 @@ function R7_roadSide(b) {
   if (dx <= dz) return { axis: 'x', sign: nx >= b.x ? 1 : -1, len: b.d };
   return { axis: 'z', sign: nz >= b.z ? 1 : -1, len: b.w };
 }
+// K11_ beach-hero surfboards + near-shore boat: two wide striped boards
+// flanking the hero (broad faces turned to the camera, NOT edge-on) and one
+// bright boat on the water inside the beach-hero view cone. All positions
+// are deterministic literals. Board yaws face the camera: board->camera
+// azimuth is ~2.05 rad for the left board and ~1.50 rad for the right one
+// (hero heading -2.85 would turn both boards edge-on, a thin pole again).
+function K11_heroBeach(scene) {
+  const K11_yellow = new THREE.MeshLambertMaterial({ color: 0xf2c200 });
+  const K11_teal = new THREE.MeshLambertMaterial({ color: 0x12b5a5 });
+  const K11_red = new THREE.MeshLambertMaterial({ color: 0xe23b2e });
+  const K11_white = new THREE.MeshLambertMaterial({ color: 0xf7f2e6 });
+  const K11_wood = new THREE.MeshLambertMaterial({ color: 0x8a6a42 });
+  const K11_dark = new THREE.MeshLambertMaterial({ color: 0x3a2e22 });
+  const K11_navy = new THREE.MeshLambertMaterial({ color: 0x1d4e89 });
+  const K11_box = (mat, w, h, d) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  const K11_put = (parent, mesh, x, y, z, rx, ry, rz) => {
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx, ry, rz);
+    parent.add(mesh);
+  };
+  // --- surfboards: 6 boxes each (main, stripe, top band, bottom band, nose, fin)
+  const K11_boards = [
+    { x: 10.5, z: 308.5, yaw: 2.05, mat: K11_yellow, stripe: K11_red },
+    { x: 10.3, z: 305.9, yaw: 1.50, mat: K11_teal, stripe: K11_white },
+  ];
+  for (const K11_b of K11_boards) {
+    const K11_g = new THREE.Group();
+    K11_g.position.set(K11_b.x, 0, K11_b.z);
+    K11_g.rotation.set(0, K11_b.yaw, 0);
+    scene.add(K11_g);
+    K11_put(K11_g, K11_box(K11_b.mat, 1.1, 2.4, 0.1), 0, 1.15, 0, 0.3, 0, 0);
+    K11_put(K11_g, K11_box(K11_b.stripe, 0.22, 2.4, 0.12), 0, 1.15, 0, 0.3, 0, 0);
+    K11_put(K11_g, K11_box(K11_b.stripe, 1.1, 0.25, 0.14), 0, 2.02, 0, 0.3, 0, 0);
+    K11_put(K11_g, K11_box(K11_b.stripe, 1.1, 0.25, 0.14), 0, 0.32, 0, 0.3, 0, 0);
+    K11_put(K11_g, K11_box(K11_white, 0.7, 0.18, 0.14), 0, 2.28, 0, 0.3, 0, 0);
+    K11_put(K11_g, K11_box(K11_dark, 0.3, 0.5, 0.06), 0, 0.2, -0.12, 0.3, 0, 0);
+  }
+  // --- near-shore boat at (-60, 325): 10 boxes, broadside to the camera ---
+  const K11_boat = new THREE.Group();
+  K11_boat.position.set(-60, 0, 380);
+  K11_boat.rotation.set(0, -1.28, 0);
+  scene.add(K11_boat);
+  K11_put(K11_boat, K11_box(K11_white, 6.5, 1.1, 2.4), 0, 0.55, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_red, 6.54, 0.3, 2.44), 0, 0.75, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_wood, 6.0, 0.25, 2.0), 0, 1.2, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_white, 2.2, 1.2, 1.6), 0, 1.9, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_navy, 2.24, 0.4, 1.64), 0, 2.0, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_red, 2.5, 0.15, 1.9), 0, 2.55, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_dark, 0.18, 4.5, 0.18), 2.2, 3.55, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_yellow, 1.1, 0.7, 0.06), 2.75, 5.3, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_red, 0.8, 0.7, 1.4), 3.4, 0.9, 0, 0, 0, 0);
+  K11_put(K11_boat, K11_box(K11_wood, 1.0, 0.5, 2.0), -2.6, 1.5, 0, 0, 0, 0);
+}
 function R7_dressing(scene, L) {
   const asphalt = new THREE.Mesh(
     new THREE.PlaneGeometry(768, 672),
@@ -1511,6 +1564,7 @@ export class Renderer {
     this.solmarinaSign.rotation.y = Math.PI;
     scene.add(this.solmarinaSign);
     R7_dressing(this.scene, L);
+    K11_heroBeach(this.scene);
     // K10_ boulevard palms: six simplified palms lining both sides of
     // the coast road (z = 240) so the cover reads as a palm boulevard.
     // Fresh K10_ code with its own hash — trunk 3 segments + 2 bands +

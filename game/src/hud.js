@@ -1,8 +1,9 @@
-// Solmarina (fresh build) — the DOM HUD and the square minimap.
+// Solmarina — the DOM HUD and the square minimap, rewritten fresh.
 // Panels hug the edges and stay compact; the centre of the screen stays
 // clean for the game, the way the Karimbu reference frames do it.
 import { MISSIONS, WEAPON_ORDER, wantedTier } from './sim.js';
-import { districtAt, GRID_MIN, GRID_MAX, ROAD_STEP, BEACH_Z, SEA_Z, PIER, MARKET, STADIUM } from './layout.js';
+import { districtAt, DISTRICTS, GRID_MIN, GRID_MAX, ROAD_STEP, ROAD_HALF, BEACH_Z, SEA_Z, PIER, MARKET, STADIUM } from './layout.js';
+import { hash2 } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const STARS = '★★★★★';
@@ -196,35 +197,81 @@ export class Hud {
   }
 
   drawMap(big) {
-    this.drawMapOn(this.mapCtx, this.map.width, this.map.height);
+    this.drawMapOn(this.mapCtx, this.map.width, this.map.height, false);
   }
 
   drawBigMap() {
     if (!this.bigmapCtx) return;
-    this.drawMapOn(this.bigmapCtx, this.bigmap.width, this.bigmap.height);
+    this.drawMapOn(this.bigmapCtx, this.bigmap.width, this.bigmap.height, true);
   }
 
-  drawMapOn(ctx, W, H) {
+  drawMapOn(ctx, W, H, big = false) {
     const x0 = GRID_MIN - 48, x1 = 432, z0 = GRID_MIN - 48, z1 = 384;
     const px = (x) => ((x - x0) / (x1 - x0)) * W;
     const pz = (z) => ((z - z0) / (z1 - z0)) * H;
     ctx.fillStyle = '#20262e';
     ctx.fillRect(0, 0, W, H);
-    // districts
-    ctx.fillStyle = '#2c3440';
-    ctx.fillRect(px(-288), pz(-288), px(288) - px(-288), pz(240) - pz(-288));
-    ctx.fillStyle = '#e8d5a3';
-    ctx.fillRect(px(-288), pz(BEACH_Z), px(288) - px(-288), pz(SEA_Z) - pz(BEACH_Z));
+    // sea + sand first (they sit under everything south)
     ctx.fillStyle = '#2e7fa8';
     ctx.fillRect(px(-288), pz(SEA_Z), px(288) - px(-288), pz(384) - pz(SEA_Z));
-    // roads
+    ctx.fillStyle = '#e8d5a3';
+    ctx.fillRect(px(-288), pz(BEACH_Z), px(288) - px(-288), pz(SEA_Z) - pz(BEACH_Z));
+    // marina water east of the grid
+    ctx.fillStyle = '#2e7fa8';
+    ctx.fillRect(px(288), pz(-96), px(432) - px(288), pz(144) - pz(-96));
+    // city blocks, one cell per grid square, in four hash shades so the
+    // map reads as a city of distinct blocks instead of one grey slab
+    const BLOCK_SHADES = ['#2c3440', '#333d4a', '#28303c', '#38424f'];
+    for (let bx = GRID_MIN; bx < GRID_MAX; bx += ROAD_STEP) {
+      for (let bz = GRID_MIN; bz < GRID_MAX; bz += ROAD_STEP) {
+        if (bz >= BEACH_Z) continue;
+        const h = hash2(bx, bz, 7);
+        ctx.fillStyle = BLOCK_SHADES[Math.floor(h * BLOCK_SHADES.length) % BLOCK_SHADES.length];
+        ctx.fillRect(px(bx + ROAD_HALF), pz(bz + ROAD_HALF), px(bx + ROAD_STEP - ROAD_HALF) - px(bx + ROAD_HALF), pz(bz + ROAD_STEP - ROAD_HALF) - pz(bz + ROAD_HALF));
+      }
+    }
+    // market plaza: warm tiled square
+    ctx.fillStyle = '#b8a88f';
+    ctx.fillRect(px(MARKET.x - 24), pz(MARKET.z - 24), px(MARKET.x + 24) - px(MARKET.x - 24), pz(MARKET.z + 24) - pz(MARKET.z - 24));
+    // stadium bowl: ringed oval, green pitch inside
+    ctx.fillStyle = '#b08968';
+    ctx.beginPath();
+    ctx.ellipse(px(STADIUM.x), pz(STADIUM.z), (px(STADIUM.x + 30) - px(STADIUM.x - 30)) / 2, (pz(STADIUM.z + 26) - pz(STADIUM.z - 26)) / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#5d9c4a';
+    ctx.beginPath();
+    ctx.ellipse(px(STADIUM.x), pz(STADIUM.z), (px(STADIUM.x + 17) - px(STADIUM.x - 17)) / 2, (pz(STADIUM.z + 11) - pz(STADIUM.z - 11)) / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // roads: grey band + pale centre line down each road
     ctx.strokeStyle = '#5a6472';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = big ? 3 : 1.5;
     for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
       ctx.beginPath(); ctx.moveTo(px(v), 0); ctx.lineTo(px(v), H); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, pz(v)); ctx.lineTo(W, pz(v)); ctx.stroke();
     }
     ctx.beginPath(); ctx.moveTo(px(288), pz(24)); ctx.lineTo(px(PIER.x), pz(24)); ctx.stroke();
+    ctx.strokeStyle = 'rgba(247,243,224,0.55)';
+    ctx.lineWidth = big ? 1.5 : 1;
+    ctx.setLineDash([6, 6]);
+    for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
+      ctx.beginPath(); ctx.moveTo(px(v), 0); ctx.lineTo(px(v), H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, pz(v)); ctx.lineTo(W, pz(v)); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(px(288), pz(24)); ctx.lineTo(px(PIER.x), pz(24)); ctx.stroke();
+    ctx.setLineDash([]);
+    // district names, big map only — the 132 px minimap has no room
+    if (big) {
+      ctx.font = 'bold 11px system-ui';
+      ctx.textAlign = 'center';
+      for (const d of DISTRICTS) {
+        const cx = (d.x0 + d.x1) / 2, cz = (d.z0 + d.z1) / 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillText(d.name, px(cx) + 1, pz(cz) + 1);
+        ctx.fillStyle = d.color;
+        ctx.fillText(d.name, px(cx), pz(cz));
+      }
+      ctx.textAlign = 'left';
+    }
     // market + stadium + pier markers
     ctx.fillStyle = '#f2c94c';
     ctx.fillRect(px(MARKET.x) - 3, pz(MARKET.z) - 3, 6, 6);

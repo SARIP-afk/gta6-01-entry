@@ -25,13 +25,14 @@ export const DOWNTOWN_PICKUP = { x: -72, z: -144 };
 export const PIER_END = { x: 384, z: 24 };
 
 export const DISTRICTS = [
-  { name: 'DOWNTOWN', tag: 'Glass towers and the night market', color: '#f2c94c', x0: -144, z0: -240, x1: 48, z1: -48 },
+  { name: 'OLD PASARU', tag: 'Night market and lantern stalls', color: '#f4a261', x0: -96, z0: -120, x1: -48, z1: -72 },
+  { name: 'LANTAWA CENTRE', tag: 'Glass towers and the night market', color: '#f2c94c', x0: -144, z0: -240, x1: 48, z1: -48 },
   { name: 'OLD HARBOR', tag: 'Warehouses and fish stalls', color: '#e07a5f', x0: -288, z0: -240, x1: -144, z1: -48 },
   { name: 'NORTHGATE', tag: 'The high road out of town', color: '#8ecae6', x0: -288, z0: -288, x1: 288, z1: -240 },
   { name: 'STADIUM ROW', tag: 'Floodlights and cheap seats', color: '#f28482', x0: -288, z0: 48, x1: -96, z1: 192 },
-  { name: 'PALM BEACH', tag: 'Sand, surf and the long pier', color: '#90be6d', x0: -288, z0: 192, x1: 288, z1: 312 },
+  { name: 'KUMALA STRAND', tag: 'Sand, surf and the long pier', color: '#90be6d', x0: -288, z0: 192, x1: 288, z1: 312 },
   { name: 'FOUNDRY', tag: 'Garages, yards and scrap', color: '#b08968', x0: 48, z0: -48, x1: 288, z1: 192 },
-  { name: 'MARINA', tag: 'Boats, money and the causeway', color: '#4fc3f7', x0: 288, z0: -96, x1: 432, z1: 144 },
+  { name: 'KUMALA PIER', tag: 'Boats, money and the causeway', color: '#4fc3f7', x0: 288, z0: -96, x1: 432, z1: 144 },
 ];
 
 export function districtAt(x, z) {

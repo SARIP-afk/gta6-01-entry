@@ -124,12 +124,30 @@ export function stageShot(name, world, renderer) {
       { x: -30, z: 237, heading: 0, speed: 0, search: 0, siren: 0 },
       { x: -42, z: 243.5, heading: 0, speed: 0, search: 0, siren: 1 },
     );
-    // Life on the road ahead: a taxi and a sedan facing the hero, their
-    // headlights toward the camera, so the asphalt ahead is not empty.
+    // Life on the road ahead: four cars facing the hero, headlights toward
+    // the camera, two lanes of boulevard traffic so the asphalt ahead is
+    // busy — taxi, van and sedans in varied colours. NOTE: each staged car
+    // costs ~407 tris from the instanced pool (measured K10), so the count
+    // is capped at 4 to hold the tri budget for builder D.
     s.traffic.push(
       { x: -68, z: 237.5, heading: 0, speed: 0, kind: 'taxi', color: '#f1c40f' },
       { x: -88, z: 243, heading: 0, speed: 0, kind: 'sedan', color: '#2980b9' },
+      { x: -104, z: 238, heading: 0, speed: 0, kind: 'van', color: '#2e86c1' },
+      { x: -120, z: 242.5, heading: 0, speed: 0, kind: 'sedan', color: '#c0392b' },
     );
+    // Pedestrians on the north sidewalk (right of frame): four seeded
+    // peds repositioned to fixed spots (indices 5-8, clear of the
+    // beach-hero goers at 0-4) so the boulevard reads inhabited.
+    const walkers = [
+      [-10, 234, Math.PI, 0.3],
+      [-20, 233.5, Math.PI, 0.4],
+      [-32, 234, Math.PI, 0.3],
+      [-45, 233.5, Math.PI, 0.4],
+    ];
+    walkers.forEach(([x, z, h, sp], i) => {
+      const pd = s.peds[i + 5];
+      pd.x = x; pd.z = z; pd.heading = h; pd.speed = sp; pd.alive = true;
+    });
     // Low three-quarter camera, 9.3 m out and 45° off the car's axis, so
     // the hero shows his side and rear big in the foreground — a camera
     // dead behind the car foreshortens him to a 2 m-wide rear — looking

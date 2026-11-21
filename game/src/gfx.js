@@ -1000,7 +1000,7 @@ export class Renderer {
     // bucket moves (see rebuildShadows). Starts hidden until update().
     this.shadowMesh = new THREE.Mesh(
       new THREE.BufferGeometry(),
-      new THREE.MeshBasicMaterial({ color: 0x1a1410, transparent: true, opacity: 0.26, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0x1a1410, transparent: true, opacity: 0.34, depthWrite: false }),
     );
     this.shadowMesh.renderOrder = 1;
     this.shadowMesh.visible = false;
@@ -1511,6 +1511,47 @@ export class Renderer {
     this.solmarinaSign.rotation.y = Math.PI;
     scene.add(this.solmarinaSign);
     R7_dressing(this.scene, L);
+    // K10_ boulevard palms: six simplified palms lining both sides of
+    // the coast road (z = 240) so the cover reads as a palm boulevard.
+    // Fresh K10_ code with its own hash — trunk 3 segments + 2 bands +
+    // a 5-frond crown = 10 boxes per palm, 6 palms = 60 boxes = 720 tris.
+    const K10_hash = (n) => {
+      const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    const K10_trunkMat = new THREE.MeshLambertMaterial({ color: 0x8a6a42 });
+    const K10_bandMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2f });
+    const K10_frondMat = new THREE.MeshLambertMaterial({ color: 0x2f7a2e });
+    const K10_frondGeo = new THREE.BoxGeometry(2.4, 0.07, 0.55);
+    K10_frondGeo.translate(1.2, 0, 0);
+    const K10_spots = [
+      [-35, 234, 9.2], [-60, 234, 8.6], [-85, 234, 9.5],
+      [-20, 247, 8.9], [-50, 247, 9.4], [-80, 247, 8.7],
+    ];
+    for (let i = 0; i < K10_spots.length; i++) {
+      const [K10_px, K10_pz, K10_ph] = K10_spots[i];
+      const K10_lean = (K10_hash(i * 3 + 1) - 0.5) * 0.12;
+      for (let seg = 0; seg < 3; seg++) {
+        const K10_segH = K10_ph / 3;
+        const K10_trunk = new THREE.Mesh(
+          new THREE.BoxGeometry(0.36 - seg * 0.04, K10_segH + 0.08, 0.36 - seg * 0.04),
+          K10_trunkMat,
+        );
+        K10_trunk.position.set(K10_px + K10_lean * seg, K10_segH * (seg + 0.5), K10_pz);
+        this.scene.add(K10_trunk);
+      }
+      for (const K10_bf of [0.38, 0.72]) {
+        const K10_band = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.28, 0.46), K10_bandMat);
+        K10_band.position.set(K10_px + K10_lean, K10_ph * K10_bf, K10_pz);
+        this.scene.add(K10_band);
+      }
+      for (let f = 0; f < 5; f++) {
+        const K10_frond = new THREE.Mesh(K10_frondGeo, K10_frondMat);
+        K10_frond.position.set(K10_px + K10_lean * 2, K10_ph, K10_pz);
+        K10_frond.rotation.set(0, (f / 5) * Math.PI * 2 + K10_hash(i * 7 + f) * 0.5, -0.45 - K10_hash(i + f * 3) * 0.15);
+        this.scene.add(K10_frond);
+      }
+    }
   }
 
   pushWindow(dark, lit, mull, b, x, y, z, ry, h, side = false) {
@@ -1868,6 +1909,18 @@ export class Renderer {
       const strut = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.08), spoiler.material);
       strut.position.set(-2.15, 1.05, sx * 8);
       this.heroCar.add(strut);
+    }
+    // K10_ rear-deck louvers: five thin dark slats across the exposed red
+    // deck strip just ahead of the spoiler, like the vented deck on the
+    // orange sports car — 5 boxes = 60 tris. (First try at x -1.6 sat
+    // under the black rear window and was invisible; the strip at x -2.0
+    // is the deck the cover/chase cameras can actually see, through the
+    // gap under the spoiler.)
+    for (let li = 0; li < 5; li++) {
+      const K10_slat = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.06, 0.22), spoiler.material);
+      K10_slat.position.set(-2.0, 1.05, -0.48 + li * 0.24);
+      K10_slat.rotation.z = 0.1;
+      this.heroCar.add(K10_slat);
     }
     // grille, bumpers, mirrors, skirts, lights
     const bumperMat = new THREE.MeshLambertMaterial({ color: 0x22262c });
@@ -2457,7 +2510,7 @@ export class Renderer {
       // rotor blur and the searchlight; real play carries neither field
       // in its reset state, so it is untouched.
       this.heli.scale.setScalar(heli.scale || 1);
-      this.heliBeam.material.opacity = heli.staged ? 0.3 : 0.12;
+      this.heliBeam.material.opacity = heli.staged ? 0.21 : 0.12;
       this.rotorDisc.material.opacity = heli.staged ? 0.3 : 0.16;
     }
 

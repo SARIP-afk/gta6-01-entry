@@ -2,20 +2,20 @@
  "game": "SOLMARINA",
  "competition": "gta6-01",
  "date": "2026-11-21",
- "head": "a6665c7",
- "run": 7,
- "runNote": "full run pasca-repair6 fresh gfx re-application (R6 dressing + district naming rewrite)",
- "wallSeconds": 883,
+ "head": "3b68528",
+ "run": 8,
+ "runNote": "full run pasca-repair7 fresh gfx re-application (R7 dressing + district naming rewrite)",
+ "wallSeconds": 935,
  "total": 48,
  "ok": 48,
  "failed": 0,
  "consoleErrors": [],
- "render": {"drawCalls": 117, "triangles": 489614},
+ "render": {"drawCalls": 123, "triangles": 488500},
  "missions": [
   {"id": 1, "name": "FIRST DROP", "grade": "GOLD", "leg1": 17.9, "leg2": 56.5, "cash": 500, "rp": 400},
   {"id": 2, "name": "THE HANDOFF", "grade": "GOLD", "leg0": 94.4, "leg2": 135.8, "walk": 102.4, "cash": 800, "rp": 400},
   {"id": 3, "name": "TAIL THE VAN", "grade": "GOLD", "leg0": 168.8, "tail": 119.2, "cash": 1200, "rp": 400},
-  {"id": 4, "name": "LOSE THE HEAT", "grade": "GOLD", "attempt": 1, "leg0": 321.3, "leg2": 363.5, "missionTime": 75.5, "kills": 3, "shots": 9, "won": true, "cash": 2150, "rp": 400}
+  {"id": 4, "name": "LOSE THE HEAT", "grade": "GOLD", "attempt": 1, "leg0": 321.2, "leg2": 363.4, "missionTime": 75.3, "kills": 3, "shots": 9, "won": true, "cash": 2150, "rp": 400}
  ],
  "scenarios": [
   {"id": "boot", "ok": true},

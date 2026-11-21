@@ -23,9 +23,12 @@ const SUNSET_MID = new THREE.Color(0xa83a68);    // pink mid-sky
 const SUNSET_SEA = new THREE.Color(0xff8a4d);    // orange band at the horizon
 const AWN_ACCENTS = ['#f28482', '#81b29a', '#f4a261', '#a78bfa', '#4fc3f7', '#f2c94c'];
 const CORNICE_ACCENTS = ['#3fa8a0', '#b3402e', '#d4af37', '#2c4a6b', '#e8e0cc'];
-// Warm sunset tints washed over each facade, now including the teal and
-// sand-beige of the Kumala palette so the skyline is not only orange.
-const FACADE_TINTS = ['#ff9a5a', '#ff7a8a', '#ffc46b', '#ff8a4d', '#3fa8a0', '#d8c08a'];
+// K9_ saturated facades: one loud colour per building (pink / teal /
+// yellow / green / orange / gold / magenta / sea-blue), picked by hash,
+// so the skyline reads as a coloured city at cover distance instead of
+// one mauve-brown mass. The old wash (15-35% tint over a brown base)
+// let the brown base dominate — that is gone.
+const K9_FACADE_COLORS = ['#e84393', '#2ec4b6', '#ffd166', '#06d6a0', '#f4845f', '#e9c46a', '#d81159', '#118ab2'];
 
 function rgbFromHex(hex) {
   const n = parseInt(hex.slice(1), 16);
@@ -1035,23 +1038,35 @@ export class Renderer {
       const f = hash2(bxr, bzr, 13);
       const colsX = Math.max(2, Math.floor(b.w / 6.0));
       const colsZ = Math.max(2, Math.floor(b.d / 6.0));
-      // Each facade leans toward a different warm tone so the sunset
-      // skyline is not one uniform mauve, and the body maps onto the
-      // atlas tile — a framed window plus a floor line on every bay,
-      // lined up with the instanced window grid — at zero extra draw
-      // calls and zero extra triangles.
-      const tintPick = pickFrom(FACADE_TINTS, hash2(bxr, bzr, 41));
-      const tint = rgbFromHex(tintPick);
-      const tintAmt = 0.15 + f * 0.2;
-      const wall = tinted(b.color, 0.92 + f * 0.16);
-      const facade = [0, 1, 2].map((ch) => lerp(wall[ch], tint[ch], tintAmt));
+      // K9_ facade: the palette colour at FULL strength — the atlas
+      // tile ground is near-white, so the vertex colour passes through
+      // almost untouched, and the body still maps onto the tile (a
+      // framed window plus a floor line on every bay, lined up with
+      // the instanced window grid) at zero extra draw calls and zero
+      // extra triangles. Only a small brightness wobble (±10% via f)
+      // is kept, so no two neighbours read as the same flat swatch.
+      const K9_facadeIdx = Math.floor(hash2(bxr, bzr, 41) * K9_FACADE_COLORS.length) % K9_FACADE_COLORS.length;
+      const facade = tinted(K9_FACADE_COLORS[K9_facadeIdx], 0.9 + f * 0.2);
       solid.add(b.x, b.h / 2, b.z, b.w, b.h, b.d, facade, 0, 0, 0, { bx: b.w / colsX, bz: b.d / colsZ, floorH: 3.4, y0: 0 });
       // Cornice accent band just under the roofline, one accent colour
       // per building (teal / brick / gold / navy / cream), picked by
       // hash — the roofline finally has a colour edge instead of a
       // bare slab meeting the sky.
       const corniceCol = pickFrom(CORNICE_ACCENTS, hash2(bxr, bzr, 45));
-      solid.add(b.x, b.h - 0.15, b.z, b.w + 0.3, 0.35, b.d + 0.3, corniceCol);
+      solid.add(b.x, b.h - 0.15, b.z, b.w + 0.3, 0.6, b.d + 0.3, corniceCol);
+      // K9_ string course: one protruding mid-height band on the
+      // strand row (z>=192, 24 buildings) — the row that lines the
+      // cover/chase right edge. First K9 pass gated this on h>30, but
+      // the render proved the cover frame's dominant buildings are the
+      // strand row (h 10-30): downtown bands never showed from the
+      // cover angle. The city has 266 buildings, so a band on every
+      // one would cost 266 boxes / 3,192 tris, far over this round's
+      // 1,500-tri budget. Colour is the palette entry 3 steps from
+      // the facade, so the band never matches its own wall.
+      if (b.z >= 192) {
+        const K9_band = K9_FACADE_COLORS[(K9_facadeIdx + 3) % K9_FACADE_COLORS.length];
+        solid.add(b.x, b.h / 2, b.z, b.w + 0.3, 0.3, b.d + 0.3, K9_band);
+      }
       // Parapet height varies per building and rooftop bulkheads vary
       // in height too, so the skyline is not one flat line.
       const parapet = 0.7 + hash2(bxr, bzr, 39) * 0.9;
@@ -1102,12 +1117,21 @@ export class Renderer {
       for (let aI = 0; aI < 3; aI++) {
         solid.add(b.x - b.w * 0.35 + awW * (aI + 0.5), 3.65, b.z + b.d / 2 + 0.7, awW, 0.08, 1.4, aI % 2 ? '#f5efe0' : awAccent, 0, 0, 0.18);
       }
-      // sparse balconies on tall buildings
-      if (b.h > 30 && hash2(Math.round(b.x), Math.round(b.z), 17) < 0.33) {
-        for (let fl = 1; fl <= 2; fl++) {
+      // K9_ balconies: downtown set as before (h>30, hash<0.33 —
+      // widening that to h>20 / <0.5 would add ~500 boxes / ~6,000
+      // tris, far over this round's 1,500-tri budget) PLUS the strand
+      // row (z>=192, h>15, seed 22 <0.5: 9 buildings incl. the cover's
+      // pink (-19,208) and orange tower (-77,211)), one floor higher
+      // (1-3) and in light cream, so slab and rail read against the
+      // saturated facades instead of vanishing as dark grey. The
+      // strand faces point south, toward the cover/chase camera.
+      const K9_balcDowntown = b.h > 30 && hash2(Math.round(b.x), Math.round(b.z), 17) < 0.33;
+      const K9_balcStrand = b.z >= 192 && b.h > 15 && hash2(Math.round(b.x), Math.round(b.z), 22) < 0.5;
+      if (K9_balcDowntown || K9_balcStrand) {
+        for (let fl = 1; fl <= 3; fl++) {
           const y = 3.4 * fl + 2.6;
-          solid.add(b.x, y, b.z + b.d / 2 + 0.7, b.w * 0.5, 0.25, 1.5, '#7a7568');
-          solid.add(b.x, y + 0.6, b.z + b.d / 2 + 1.4, b.w * 0.5, 0.9, 0.08, '#4a4e57');
+          solid.add(b.x, y, b.z + b.d / 2 + 0.7, b.w * 0.5, 0.25, 1.5, '#e8e0cc');
+          solid.add(b.x, y + 0.6, b.z + b.d / 2 + 1.4, b.w * 0.5, 0.9, 0.08, '#f5efe0');
         }
       }
       // AC unit on the east face + roof water tank on low-rise, so no

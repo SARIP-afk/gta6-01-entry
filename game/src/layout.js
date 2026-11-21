@@ -152,33 +152,36 @@ export function buildLayout(seed = 1) {
     }
   }
 
-  // --- cover-fix round: two literal umbrellas on the southern sand strip
-  // in the beach-hero view cone (west of the pier, clear of the deck),
-  // so the B frame shows beach dressing, not empty sand. Literals only —
-  // no RNG draws, so the layout stream, building positions and the sim
-  // trace are untouched.
-  umbrellas.push({ x: -16, z: 309, color: '#e07a5f', ry: 0.6 });
-  umbrellas.push({ x: -26, z: 306, color: '#4fc3f7', ry: 2.1 });
+  // Beach dressing on the southern sand, placed by hand so the
+  // beach-hero frame (and the beach shot) shows umbrellas in the
+  // foreground instead of bare sand. Every entry is a literal — the
+  // random stream is never touched, so buildings and the sim trace
+  // stay exactly where they were. The first two sit west of the pier
+  // in the hero's view cone; the rest fill the foreground strip,
+  // each x kept off multiples of 12 so no umbrella lands on a palm.
+  const southUmbrellas = [
+    { x: -16, z: 309, color: '#e07a5f', ry: 0.6 },
+    { x: -26, z: 306, color: '#4fc3f7', ry: 2.1 },
+    { x: 2, z: 310, color: '#f2c94c', ry: 0.8 },
+    { x: -20, z: 310, color: '#e07a5f', ry: 2.0 },
+    { x: -44, z: 310, color: '#4fc3f7', ry: 1.2 },
+    { x: -70, z: 309, color: '#f28482', ry: 0.4 },
+    { x: -94, z: 311, color: '#90be6d', ry: 2.6 },
+    { x: 30, z: 308, color: '#e07a5f', ry: 1.0 },
+    { x: -56, z: 311, color: '#f2c94c', ry: 1.8 },
+  ];
+  for (const u of southUmbrellas) umbrellas.push(u);
 
-  // --- polish round: more literal umbrellas on the southern sand strip
-  // (x not a multiple of 12, so none sits on a palm trunk), filling the
-  // beach-hero foreground (west of the pier) and the beach shot's sand.
-  // Literals only — no RNG draws.
-  for (const [ux, uz, uc, ur] of [
-    [2, 310, '#f2c94c', 0.8], [-20, 310, '#e07a5f', 2.0], [-44, 310, '#4fc3f7', 1.2],
-    [-70, 309, '#f28482', 0.4], [-94, 311, '#90be6d', 2.6], [30, 308, '#e07a5f', 1.0],
-    [-56, 311, '#f2c94c', 1.8],
-  ]) umbrellas.push({ x: ux, z: uz, color: uc, ry: ur });
-
-  // --- polish round: literal palms along the southern sand strip
-  // (z ~307-310, clear of the pier at x = -6 and of the beach road), so
-  // the beach reads lined with palms from the beach-hero camera and the
-  // beach shot. Jitter/scale from hash2 — a pure function, no RNG draws.
-  // x in [4, 22] is skipped: a palm at x = 12 stands 7 m from the
-  // beach-hero camera and filled a third of the frame (v1 audit).
+  // A hand-placed palm row along the same southern strip (z around
+  // 307-310, clear of the pier and of the beach road), so the beach
+  // reads palm-lined from the hero camera. Jitter and scale come from
+  // hash2 — a pure function, no RNG draws. Two gaps are kept open:
+  // the pier mouth, and the strip right in front of the beach-hero
+  // camera, where a trunk 7 m from the lens once filled a third of
+  // the frame.
   for (let x = -120; x <= 120; x += 12) {
-    if (Math.abs(x + 6) < 12) continue; // clear of the beach pier
-    if (x >= 4 && x <= 22) continue; // clear of the beach-hero camera
+    if (Math.abs(x + 6) < 12) continue;
+    if (x >= 4 && x <= 22) continue;
     palms.push({ x, z: 307 + hash2(x, 6, 31) * 3, s: 0.9 + hash2(x, 5, 31) * 0.35 });
   }
 
@@ -239,16 +242,21 @@ export function buildLayout(seed = 1) {
     ['cone', 40, 6, 0], ['bench', 200, 16, Math.PI], ['bin', 208, 16, 0], ['planter', 216, 16, 0],
     ['bench', -200, 136, 0], ['bin', -192, 136, 0], ['bench', 120, 232, Math.PI], ['bin', 128, 232, 0],
     ['planter', -72, -120, 0], ['planter', -72, -72, 0], ['bench', -40, -96, Math.PI / 2],
-    // polish round: beach dressing on the southern sand strip, in the
-    // beach-hero foreground — towels, rocks and shells so the sand is not
-    // one empty brown slab (literals, no RNG draws)
-    ['towel', 10, 309, 0.4], ['towel', 20, 308, 1.2], ['towel', -8, 308, 2.4], ['towel', -28, 311, 0.9],
-    ['towel', 14, 311, 1.6],
-    ['rock', -2, 307, 0], ['rock', 16, 311, 0], ['rock', -44, 308, 0],
-    ['shell', 6, 311, 0], ['shell', -12, 309, 0], ['shell', 26, 310, 0], ['shell', -58, 309, 0],
-    ['shell', 18, 310, 0],
   ];
   for (const [kind, x, z, ry] of propSpots) props.push({ kind, x, z, ry });
+
+  // Sand dressing for the beach-hero foreground: towels, rocks and
+  // shells scattered on the southern strip so the sand is not one
+  // empty brown slab. Same literal-only rule as the umbrellas above
+  // — nothing here draws from the RNG stream.
+  const sandDressing = [
+    ['towel', 10, 309, 0.4], ['towel', 20, 308, 1.2], ['towel', -8, 308, 2.4],
+    ['towel', -28, 311, 0.9], ['towel', 14, 311, 1.6],
+    ['rock', -2, 307, 0], ['rock', 16, 311, 0], ['rock', -44, 308, 0],
+    ['shell', 6, 311, 0], ['shell', -12, 309, 0], ['shell', 26, 310, 0],
+    ['shell', -58, 309, 0], ['shell', 18, 310, 0],
+  ];
+  for (const [kind, x, z, ry] of sandDressing) props.push({ kind, x, z, ry });
 
   // --- golden shells (collectibles) ---
   const shellSpots = [

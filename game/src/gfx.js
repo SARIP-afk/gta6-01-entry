@@ -14,7 +14,10 @@ import {
 } from './layout.js';
 
 const DAY = { sun: 0xffdf9e, hemiSky: 0xbfd9ff, hemiGround: 0x8a7a5a, fog: 0xcfe0ee, bg: 0x87b5d9, sunI: 1.25, hemiI: 0.85 };
-const SUNSET = { sun: 0xff9a4d, hemiSky: 0xe8a06a, hemiGround: 0x5a4a3a, fog: 0xe8a06a, bg: 0xf2a35e, sunI: 1.2, hemiI: 0.95 };
+const SUNSET = {
+  sun: 0xff9a4d, hemiSky: 0xe8a06a, hemiGround: 0x5a4a3a,
+  fog: 0xe8a06a, bg: 0xf2a35e, sunI: 1.2, hemiI: 0.95,
+};
 const NIGHT = { sun: 0x8fa8ff, hemiSky: 0x1c2440, hemiGround: 0x0e0c10, fog: 0x141a2e, bg: 0x0d1226, sunI: 0.4, hemiI: 0.5 };
 // fixed sunset accent colours: the gradient dome needs a purple zenith +
 // pink mid-sky or the sunset reads as one flat orange slab (v2.4 audit)
@@ -33,12 +36,13 @@ function shade(hex, f) {
   return [clamp(r * f, 0, 1), clamp(g * f, 0, 1), clamp(b * f, 0, 1)];
 }
 
-/** Accumulator for merged vertex-coloured boxes. Optional per-box UVs
- * (uvOpts) map a box onto the facade atlas: side faces repeat one window
- * bay per (faceW / bayW) metres and one floor per floorH metres, so a
- * framed window + floor line lands on every bay of a building at zero
- * extra draw calls and zero extra triangles. Boxes without uvOpts sample
- * the atlas's plain-white half, i.e. their vertex colour is unchanged. */
+/** Accumulator for merged vertex-coloured boxes. A box may carry facade
+ * options (uvOpts): its side faces then map onto the window-bay tile of
+ * the facade atlas, repeating one bay across per bay width and one floor
+ * up per floor height, so every bay of a building gets a framed window
+ * and a floor line at zero extra draw calls and zero extra triangles.
+ * Boxes without those options sample the atlas's plain-white half, so
+ * their vertex colour is unchanged. */
 export class BoxSoup {
   constructor() { this.pos = []; this.nor = []; this.col = []; this.idx = []; this.uv = []; this.v = 0; }
   add(x, y, z, sx, sy, sz, color, ry = 0, rz = 0, rx = 0, uvOpts = null) {
@@ -57,21 +61,22 @@ export class BoxSoup {
       // top faces get a touch more light baked in, bottom faces less
       const f = n[i + 1] > 0.5 ? 1.12 : n[i + 1] < -0.5 ? 0.82 : 1;
       this.col.push(clamp(c[0] * f, 0, 1), clamp(c[1] * f, 0, 1), clamp(c[2] * f, 0, 1));
-      // UVs: roof/floor faces and plain boxes sample the white half;
-      // facade side faces repeat the window tile per bay / per floor
+      // Mapping onto the atlas: a box with no facade options, and any
+      // roof or floor face, samples the plain-white half of the atlas,
+      // so its vertex colour comes through unchanged. A facade side
+      // face repeats the window tile once per bay across and once per
+      // floor up. The repeat counts ride on the UVs raw and the
+      // texture wraps (RepeatWrapping in facadeTexture): a BoxGeometry
+      // face has only corner vertices, so folding the counts with
+      // fract() here would collapse every repeat onto the tile's edge
+      // and the atlas would silently show nothing.
       if (!uvOpts || Math.abs(n[i + 1]) > 0.5) { this.uv.push(0.75, 0.5); continue; }
-      const sideX = Math.abs(n[i]) > 0.5;
-      const faceW = sideX ? sz : sx;
-      const bayW = sideX ? uvOpts.bz : uvOpts.bx;
-      // NO fract() here: a BoxGeometry face has only corner vertices, so
-      // per-vertex fract would collapse every repeat to the same UV and
-      // the tile would never repeat (the v1-v4 atlas silently rendered
-      // nothing but the tile's left edge). The raw repeat counts ride on
-      // the UVs and the texture wraps (RepeatWrapping, set in
-      // facadeTexture), so the GPU repeats the tile across the face.
-      const u = tuv[(i / 3) * 2] * (faceW / bayW);
-      const v = (p[i + 1] - uvOpts.y0) / uvOpts.floorH;
-      this.uv.push(0.5 * u, v);
+      const alongX = Math.abs(n[i]) > 0.5;
+      const span = alongX ? sz : sx;
+      const bay = alongX ? uvOpts.bz : uvOpts.bx;
+      const repeats = tuv[(i / 3) * 2] * (span / bay);
+      const floorsUp = (p[i + 1] - uvOpts.y0) / uvOpts.floorH;
+      this.uv.push(0.5 * repeats, floorsUp);
     }
     for (let i = 0; i < ix.length; i++) this.idx.push(ix[i] + this.v);
     this.v += p.length / 3;
@@ -154,23 +159,29 @@ function groundTexture(layout) {
     ctx.fillStyle = `rgba(120,95,60,${0.08 + hash2(i, 77, 1) * 0.12})`;
     ctx.fillRect(hash2(i, 3, 2) * S, sandZ + hash2(i, 5, 2) * sandH, 3, 2);
   }
-  // wet-sand band along the waterline (z 306-312) + footprint trails +
-  // shell speckles, so the foreground sand is not one flat brown slab
+  // The waterline strip (z 306-312) is wet, darker sand; footprint
+  // trails wander across the beach and shell flecks dot it, so the
+  // foreground sand is not one flat brown slab.
   ctx.fillStyle = 'rgba(160,130,90,0.45)';
   ctx.fillRect(0, pz(SEA_Z - 6), S, 6 * mpp);
-  for (let i = 0; i < 40; i++) {
-    const fx0 = hash2(i, 11, 1) * S, fz0 = sandZ + hash2(i, 12, 1) * sandH;
-    ctx.fillStyle = 'rgba(120,95,60,0.28)';
-    for (let k = 0; k < 8; k++) {
-      ctx.fillRect(fx0 + k * 4, fz0 + Math.sin(k * 0.8) * 6, 3, 2);
+  ctx.fillStyle = 'rgba(120,95,60,0.28)';
+  for (let trail = 0; trail < 40; trail++) {
+    const startX = hash2(trail, 11, 1) * S;
+    const startZ = sandZ + hash2(trail, 12, 1) * sandH;
+    for (let step = 0; step < 8; step++) {
+      ctx.fillRect(startX + step * 4, startZ + Math.sin(step * 0.8) * 6, 3, 2);
     }
   }
-  for (let i = 0; i < 60; i++) {
-    ctx.fillStyle = hash2(i, 13, 1) < 0.5 ? 'rgba(255,245,230,0.85)' : 'rgba(230,180,180,0.85)';
-    ctx.fillRect(hash2(i, 14, 1) * S, sandZ + hash2(i, 15, 1) * sandH, 2, 2);
+  for (let speck = 0; speck < 60; speck++) {
+    const pale = hash2(speck, 13, 1) < 0.5;
+    ctx.fillStyle = pale ? 'rgba(255,245,230,0.85)' : 'rgba(230,180,180,0.85)';
+    ctx.fillRect(hash2(speck, 14, 1) * S, sandZ + hash2(speck, 15, 1) * sandH, 2, 2);
   }
   // --- roads: asphalt + edge lines + centre dashes + crosswalks ---
-  ctx.fillStyle = '#45484d';
+  // The asphalt is a touch lighter than pure charcoal so the road
+  // reads against the sidewalk concrete at dusk.
+  const asphalt = '#45484d';
+  ctx.fillStyle = asphalt;
   for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
     ctx.fillRect(0, pz(v - ROAD_HALF), S, 2 * ROAD_HALF * mpp);
     ctx.fillRect(px(v - ROAD_HALF), 0, 2 * ROAD_HALF * mpp, S);
@@ -233,40 +244,45 @@ function seaTexture() {
   return tex;
 }
 
-/** Facade atlas (256x128): left half = one window bay (6 m wide x 3.4 m
- * tall) — a framed window with glass, mullion cross, sill and a floor
- * line, drawn to align with the instanced window grid (window centre at
- * v = 2.6/3.4 of the band, i.e. canvas y = 30); right half = plain white,
- * sampled by every non-facade box so its colour is untouched. The tile
- * background is near-white so it multiplies the pastel facade colour
- * instead of replacing it. */
+/** One window bay as a 256x128 atlas tile: the left half (6 m wide by
+ * 3.4 m tall in world units) carries a framed window with glass, a
+ * mullion cross and a sill, drawn to line up with the instanced window
+ * grid — the glass box sits with its centre at 2.6 m up the band, which
+ * is canvas y = 30 here. The right half is plain white and is what every
+ * non-facade box samples, so its colour is untouched. The tile's ground
+ * is near-white, so it multiplies the pastel facade colour instead of
+ * covering it. */
 function facadeTexture() {
   const cv = document.createElement('canvas');
   cv.width = 256; cv.height = 128;
   const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(128, 0, 128, 128);
-  ctx.fillStyle = '#f6f2e8'; ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(0, 0, 128, 3);
-  ctx.fillStyle = 'rgba(0,0,0,0.20)'; ctx.fillRect(0, 122, 128, 6);
-  // bay-edge pilaster lines, so the bays read as separate units
-  ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fillRect(0, 0, 3, 128); ctx.fillRect(125, 0, 3, 128);
-  // window frame — WIDE (2.6 m) so it reads at cover distance, but only
-  // 1.7 m tall and centred on the instanced glass box (worldY 2.6, canvas
-  // y 32): the v2 frame was 2.0 m tall centred at 2.25, so the glass box
-  // sat visibly high inside it on close facades. The glass box (1.7 m)
-  // sits inside the frame, so the pair reads as one window with a
-  // lit/dark centre and a framed surround.
-  ctx.fillStyle = '#2a2f38'; ctx.fillRect(36, 2, 56, 64);
-  const gg = ctx.createLinearGradient(0, 6, 0, 62);
-  gg.addColorStop(0, '#7a93a6'); gg.addColorStop(1, '#4a6578');
-  ctx.fillStyle = gg; ctx.fillRect(40, 6, 48, 56);
+  const paint = (color, x, y, w, h) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
+  paint('#f6f2e8', 0, 0, 128, 128);
+  paint('#ffffff', 128, 0, 128, 128);
+  paint('rgba(0,0,0,0.10)', 0, 0, 128, 3);
+  paint('rgba(0,0,0,0.20)', 0, 122, 128, 6);
+  paint('rgba(0,0,0,0.08)', 0, 0, 3, 128);
+  paint('rgba(0,0,0,0.08)', 125, 0, 3, 128);
+  // The frame is wide (2.6 m) so it reads at cover distance, but only
+  // 1.7 m tall and centred on the instanced glass box: the glass sits
+  // inside the frame, and the pair reads as one window with a lit or
+  // dark centre and a framed surround.
+  paint('#2a2f38', 36, 2, 56, 64);
+  const glass = ctx.createLinearGradient(0, 6, 0, 62);
+  glass.addColorStop(0, '#7a93a6');
+  glass.addColorStop(1, '#4a6578');
+  paint(glass, 40, 6, 48, 56);
   ctx.fillStyle = 'rgba(255,255,255,0.30)';
-  ctx.beginPath(); ctx.moveTo(48, 62); ctx.lineTo(60, 6); ctx.lineTo(66, 6); ctx.lineTo(54, 62); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#2a2f38'; ctx.fillRect(62, 6, 4, 56); ctx.fillRect(40, 32, 48, 4);
-  ctx.fillStyle = '#ddd5c0'; ctx.fillRect(34, 66, 60, 4);
+  ctx.beginPath();
+  ctx.moveTo(48, 62); ctx.lineTo(60, 6); ctx.lineTo(66, 6); ctx.lineTo(54, 62);
+  ctx.closePath(); ctx.fill();
+  paint('#2a2f38', 62, 6, 4, 56);
+  paint('#2a2f38', 40, 32, 48, 4);
+  paint('#ddd5c0', 34, 66, 60, 4);
   const tex = new THREE.CanvasTexture(cv);
-  // the facade UVs carry raw repeat counts (u up to #bays, v up to
-  // #floors) — the texture MUST wrap for the tile to repeat across a face
+  // Facade UVs carry raw repeat counts (u up to the bay count, v up to
+  // the floor count), so the texture has to wrap for the tile to repeat
+  // across a face.
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -356,9 +372,9 @@ export class Renderer {
     ground.rotation.x = -Math.PI / 2;
     ground.position.set((WORLD.x0 + WORLD.x1) / 2, 0, (WORLD.z0 + WORLD.z1) / 2);
     scene.add(ground);
-    // unlit (Basic): the low sunset sun blacked the Lambert sea out, so
-    // the sea read as a dark slit. The colour is driven by time of day
-    // in update() — warm at sunset, dark at night.
+    // The sea is unlit (Basic): under the low sunset sun a Lambert sea
+    // went black and read as a dark slit. Its colour is driven by time
+    // of day in update() — warm at sunset, dark at night.
     this.seaMat = new THREE.MeshBasicMaterial({ map: seaTexture(), transparent: true, opacity: 0.92 });
     // the sea plane runs out to the sky dome (z = 1012, dome radius 950):
     // the old 260 m-deep plane ended at z = 572, so most of the "water"
@@ -384,33 +400,35 @@ export class Renderer {
 
     // --- buildings: body + parapet + roof trim + windows + shopfronts ---
     for (const b of L.buildings) {
-      const f = hash2(Math.round(b.x), Math.round(b.z), 13);
+      const bxr = Math.round(b.x), bzr = Math.round(b.z);
+      const f = hash2(bxr, bzr, 13);
       const colsX = Math.max(2, Math.floor(b.w / 6.0));
       const colsZ = Math.max(2, Math.floor(b.d / 6.0));
-      // warm sunset variation per building: each facade leans toward a
-      // different warm tone (orange / pink / gold) so the sunset skyline
-      // is not one uniform mauve; the facade atlas (window frame + floor
-      // line per bay, aligned with the instanced window grid) breaks the
-      // flat wall at zero extra draw calls / triangles
-      const WARMS = ['#ff9a5a', '#ff7a8a', '#ffc46b', '#ff8a4d'];
-      const warm = hexRgb(WARMS[Math.floor(hash2(Math.round(b.x), Math.round(b.z), 41) * WARMS.length) % WARMS.length]);
-      const warmAmt = 0.15 + f * 0.2;
-      const base = shade(b.color, 0.92 + f * 0.16);
-      const facade = [lerp(base[0], warm[0], warmAmt), lerp(base[1], warm[1], warmAmt), lerp(base[2], warm[2], warmAmt)];
+      // Each facade leans toward a different warm tone (orange, pink,
+      // gold) so the sunset skyline is not one uniform mauve, and the
+      // body maps onto the atlas tile — a framed window plus a floor
+      // line on every bay, lined up with the instanced window grid —
+      // at zero extra draw calls and zero extra triangles.
+      const SUNSET_TINTS = ['#ff9a5a', '#ff7a8a', '#ffc46b', '#ff8a4d'];
+      const tintPick = SUNSET_TINTS[Math.floor(hash2(bxr, bzr, 41) * SUNSET_TINTS.length) % SUNSET_TINTS.length];
+      const tint = hexRgb(tintPick);
+      const tintAmt = 0.15 + f * 0.2;
+      const wall = shade(b.color, 0.92 + f * 0.16);
+      const facade = [0, 1, 2].map((ch) => lerp(wall[ch], tint[ch], tintAmt));
       solid.add(b.x, b.h / 2, b.z, b.w, b.h, b.d, facade, 0, 0, 0, { bx: b.w / colsX, bz: b.d / colsZ, floorH: 3.4, y0: 0 });
-      // parapet height varies per building (hash) so the skyline is not
-      // one flat line; rooftop bulkheads of varying height do the same
-      const parH = 0.7 + hash2(Math.round(b.x), Math.round(b.z), 39) * 0.9;
-      solid.add(b.x, b.h + parH / 2, b.z, b.w + 0.4, parH, b.d + 0.4, shade(b.roof, 1));
+      // Parapet height varies per building and rooftop bulkheads vary
+      // in height too, so the skyline is not one flat line.
+      const parapet = 0.7 + hash2(bxr, bzr, 39) * 0.9;
+      solid.add(b.x, b.h + parapet / 2, b.z, b.w + 0.4, parapet, b.d + 0.4, shade(b.roof, 1));
       solid.add(b.x, b.h + 0.15, b.z, b.w * 0.55, 0.7, b.d * 0.55, shade(b.roof, 0.8));
-      if (hash2(Math.round(b.x), Math.round(b.z), 37) < 0.6) {
-        const bh = 1.5 + hash2(Math.round(b.x), 7, 37) * 2.2;
-        solid.add(b.x - b.w * 0.15, b.h + 0.5 + bh / 2, b.z + b.d * 0.1, b.w * 0.45, bh, b.d * 0.45, shade(b.roof, 0.9));
-        if (hash2(Math.round(b.x), Math.round(b.z), 47) < 0.3) {
+      if (hash2(bxr, bzr, 37) < 0.6) {
+        const bulkH = 1.5 + hash2(bxr, 7, 37) * 2.2;
+        solid.add(b.x - b.w * 0.15, b.h + 0.5 + bulkH / 2, b.z + b.d * 0.1, b.w * 0.45, bulkH, b.d * 0.45, shade(b.roof, 0.9));
+        if (hash2(bxr, bzr, 47) < 0.3) {
           solid.add(b.x + b.w * 0.25, b.h + 1.0, b.z - b.d * 0.2, b.w * 0.2, 1.0, b.d * 0.2, shade(b.roof, 0.75));
         }
       }
-      if (b.sign) glow.add(b.x, b.h + parH + 0.55, b.z + b.d / 2 + 0.1, Math.min(10, b.w * 0.6), 1.1, 0.3, b.signColor);
+      if (b.sign) glow.add(b.x, b.h + parapet + 0.55, b.z + b.d / 2 + 0.1, Math.min(10, b.w * 0.6), 1.1, 0.3, b.signColor);
       // windows on all four faces
       for (let fl = 0; fl < b.floors; fl++) {
         const y = 2.6 + fl * 3.4;
@@ -430,13 +448,15 @@ export class Renderer {
       const sy = 1.5;
       solid.add(b.x - b.w * 0.22, sy, b.z + b.d / 2 + 0.08, b.w * 0.34, 2.6, 0.16, '#20262e');
       solid.add(b.x + b.w * 0.22, sy, b.z + b.d / 2 + 0.08, b.w * 0.34, 2.6, 0.16, '#20262e');
-      // door: light frame + accent-coloured door + step, so the entrance
-      // reads at cover distance instead of a dark slot in a dark wall
-      const DOORS = ['#2f6f6a', '#b3402e', '#2c4a6b', '#7a4a21'];
-      const doorCol = DOORS[Math.floor(hash2(Math.round(b.x), Math.round(b.z), 43) * DOORS.length) % DOORS.length];
-      solid.add(b.x, 1.35, b.z + b.d / 2 + 0.06, 1.7, 2.9, 0.1, '#e8e0cc');
-      solid.add(b.x, 1.3, b.z + b.d / 2 + 0.12, 1.3, 2.5, 0.12, doorCol);
-      solid.add(b.x, 0.09, b.z + b.d / 2 + 0.5, 2.0, 0.18, 0.8, '#9a938a');
+      // The entrance is a light frame around an accent-coloured door
+      // with a step in front, so it reads at cover distance instead of
+      // a dark slot in a dark wall.
+      const DOOR_TINTS = ['#2f6f6a', '#b3402e', '#2c4a6b', '#7a4a21'];
+      const doorTint = DOOR_TINTS[Math.floor(hash2(bxr, bzr, 43) * DOOR_TINTS.length) % DOOR_TINTS.length];
+      const faceZ = b.z + b.d / 2;
+      solid.add(b.x, 1.35, faceZ + 0.06, 1.7, 2.9, 0.1, '#e8e0cc');
+      solid.add(b.x, 1.3, faceZ + 0.12, 1.3, 2.5, 0.12, doorTint);
+      solid.add(b.x, 0.09, faceZ + 0.5, 2.0, 0.18, 0.8, '#9a938a');
       glow.add(b.x, 3.1, b.z + b.d / 2 + 0.12, b.w * 0.7, 0.5, 0.12, b.signColor);
       // striped shop awning above the shopfront (concept C): 3 alternating
       // stripes, sloped toward the street — merged into the soup, so the
@@ -601,17 +621,21 @@ export class Renderer {
     scene.add(this.nuts);
 
     // --- beach umbrellas: segmented canopy + finial + striped towel + balls ---
-    // Canopy panels are BIG (1.9 m) and tilted cone-style (outer edge down,
-    // rz -0.35) so the canopy reads from a low camera instead of edge-on.
+    // Each canopy is four big panels (1.9 m) tilted cone-style, outer
+    // edge down, so the canopy reads from a low camera instead of
+    // edge-on.
     const umbSoup = new BoxSoup();
     const balls = [];
     for (const u of L.umbrellas) {
       const cy = Math.cos(u.ry), sy = Math.sin(u.ry);
       umbSoup.add(u.x, 1.3, u.z, 0.09, 2.6, 0.09, '#e8e0cc');
-      for (let sI = 0; sI < 4; sI++) {
-        const a = (sI / 4) * Math.PI * 2 + u.ry;
-        const cx = u.x + Math.cos(a) * 0.95, cz = u.z + Math.sin(a) * 0.95;
-        umbSoup.add(cx, 2.6 + (sI % 2 ? 0.14 : 0), cz, 1.9, 0.08, 1.9, sI % 2 ? '#f5efe0' : u.color, -a, -0.35, 0);
+      for (let panel = 0; panel < 4; panel++) {
+        const ang = (panel / 4) * Math.PI * 2 + u.ry;
+        const panelX = u.x + Math.cos(ang) * 0.95;
+        const panelZ = u.z + Math.sin(ang) * 0.95;
+        const panelY = 2.6 + (panel % 2 ? 0.14 : 0);
+        const panelCol = panel % 2 ? '#f5efe0' : u.color;
+        umbSoup.add(panelX, panelY, panelZ, 1.9, 0.08, 1.9, panelCol, -ang, -0.35, 0);
       }
       umbSoup.add(u.x, 2.9, u.z, 0.14, 0.3, 0.14, '#d4af37');
       // striped towel
@@ -812,27 +836,33 @@ export class Renderer {
   pushWindow(dark, lit, mull, b, x, y, z, ry, h, side = false) {
     const px = side ? x : b.x + x;
     const pz = side ? b.z + z : z;
-    const h1 = hash2(Math.round(px), Math.round(y), Math.round(pz));
-    const warm = h1 < 0.6; // cover round: 60% of windows lit at dusk, up from 0.5
-    const rec = { x: px, y, z: pz, ry, color: warm ? (h1 < 0.16 ? '#ffd98a' : '#ffb347') : '#2a3648' };
-    (warm ? lit : dark).push(rec);
-    if (b.h <= 20) mull.push({ x: px + (ry === 0 ? 0 : ry === Math.PI ? 0 : Math.sin(ry) * 0.1), y, z: pz + (ry === 0 ? 0.08 : ry === Math.PI ? -0.08 : 0), ry });
+    const roll = hash2(Math.round(px), Math.round(y), Math.round(pz));
+    // Three in five windows glow warm at dusk; the brightest sixth of
+    // those burns a paler gold. The rest stay dark glass.
+    const litUp = roll < 0.6;
+    const shade = litUp ? (roll < 0.16 ? '#ffd98a' : '#ffb347') : '#2a3648';
+    (litUp ? lit : dark).push({ x: px, y, z: pz, ry, color: shade });
+    if (b.h <= 20) {
+      const offX = (ry === 0 || ry === Math.PI) ? 0 : Math.sin(ry) * 0.1;
+      const offZ = ry === 0 ? 0.08 : ry === Math.PI ? -0.08 : 0;
+      mull.push({ x: px + offX, y, z: pz + offZ, ry });
+    }
   }
 
   buildSky() {
-    // sun disc + halo, clouds, stars — the sun is a subject at sunset
-    // (ref 3), not a 14 m speck: disc 36 m, halo 120 m at 620 m distance.
-    // The halo is a soft radial gradient, not a flat circle: a flat disc
-    // reads as an orange balloon with a hard edge (v2.4 beach audit).
+    // The sun is a subject at sunset, not a speck: a 36 m disc with a
+    // 120 m halo at 620 m distance. The halo is a soft radial gradient
+    // rather than a flat circle, which would read as an orange balloon
+    // with a hard edge.
     const sunGeo = new THREE.CircleGeometry(36, 24);
     this.sunDisc = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffe9a8, fog: false }));
     const hc = document.createElement('canvas'); hc.width = hc.height = 256;
     const hctx = hc.getContext('2d');
-    const hg = hctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-    hg.addColorStop(0, 'rgba(255,190,100,0.9)');
-    hg.addColorStop(0.35, 'rgba(255,150,60,0.45)');
-    hg.addColorStop(1, 'rgba(255,140,50,0)');
-    hctx.fillStyle = hg; hctx.fillRect(0, 0, 256, 256);
+    const haloGrad = hctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+    haloGrad.addColorStop(0, 'rgba(255,190,100,0.9)');
+    haloGrad.addColorStop(0.35, 'rgba(255,150,60,0.45)');
+    haloGrad.addColorStop(1, 'rgba(255,140,50,0)');
+    hctx.fillStyle = haloGrad; hctx.fillRect(0, 0, 256, 256);
     const haloTex = new THREE.CanvasTexture(hc);
     haloTex.colorSpace = THREE.SRGBColorSpace;
     this.sunHalo = new THREE.Mesh(new THREE.CircleGeometry(120, 24), new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.9, fog: false, depthWrite: false }));
@@ -880,7 +910,7 @@ export class Renderer {
     this.glitter.rotation.order = 'YXZ';
     this.glitter.rotation.x = -Math.PI / 2;
     this.glitter.position.set(-150, 0.55, 400);
-    // renders AFTER the sea so the sun path is not blended over by it
+    // Drawn after the sea, so the sun path is never blended over by it.
     this.glitter.renderOrder = 5;
     this.scene.add(this.glitter);
     this.clouds = [];
@@ -890,14 +920,15 @@ export class Renderer {
       const g = new THREE.Group();
       const n = 3 + (i % 3);
       for (let j = 0; j < n; j++) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(26 + hash2(i, j, 71) * 30, 3.5, 12), cloudMat);
-        // staggered heights so the group is a broken haze, not one flat slab
-        m.position.set(j * 18 - n * 9, hash2(i, j, 72) * 8, hash2(i, j, 73) * 8 - 4);
-        g.add(m);
+        const puff = new THREE.Mesh(new THREE.BoxGeometry(26 + hash2(i, j, 71) * 30, 3.5, 12), cloudMat);
+        // Each puff sits at a different height, so the group is a broken
+        // haze rather than one flat slab.
+        puff.position.set(j * 18 - n * 9, hash2(i, j, 72) * 8, hash2(i, j, 73) * 8 - 4);
+        g.add(puff);
       }
       g.position.set(-320 + hash2(i, 0, 74) * 640, 95 + hash2(i, 1, 74) * 55, -260 + hash2(i, 2, 74) * 680);
-      // scaled up 1.35x wide / 1.5x tall so clouds read as volume, not
-      // thin streaks, against the sunset sky
+      // Enlarged (1.35x wide, 1.5x tall) so the clouds read as volume,
+      // not thin streaks, against the sunset sky.
       g.scale.set(1.35, 1.5, 1.35);
       this.clouds.push(g);
       this.scene.add(g);
@@ -1076,41 +1107,30 @@ export class Renderer {
     this.pedLegR = mk(legGeo, pedWhite.clone(), P);
     this.pedColorsSet = false;
 
-    // helicopter — a machine, not a speck. Slimmer body + longer tail
-    // boom + bigger fin so the silhouette reads as a helicopter even
-    // from below-front, where the cover camera sees it.
+    // Helicopter — built as a machine, not a speck: a slim body, a long
+    // tail boom and a tall fin, so the silhouette still reads as a
+    // helicopter from below-front, where the cover camera sees it.
     this.heli = new THREE.Group();
     const heliWhite = new THREE.MeshLambertMaterial({ color: 0xe8e8e8 });
-    const heliBody = new THREE.Mesh(taperedBody(3.6, 1.7, 1.5, 0.85), heliWhite);
+    const heliDark = new THREE.MeshLambertMaterial({ color: 0x2f3540 });
+    const heliPart = (geo, mat, x, y, z) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      this.heli.add(m);
+      return m;
+    };
+    const heliBox = (w, h, d, mat, x, y, z) => heliPart(new THREE.BoxGeometry(w, h, d), mat, x, y, z);
+    const heliBody = heliPart(taperedBody(3.6, 1.7, 1.5, 0.85), heliWhite, 0, 0, 0);
     heliBody.position.y = 0;
-    this.heli.add(heliBody);
-    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.0, 1.7), new THREE.MeshLambertMaterial({ color: 0x101c28 }));
-    cockpit.position.set(1.4, 0.1, 0);
-    this.heli.add(cockpit);
-    const frameBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, 0.1), heliWhite);
-    frameBar.position.set(1.4, 0.1, 0);
-    this.heli.add(frameBar);
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.22, 1.72), new THREE.MeshLambertMaterial({ color: 0xd4af37 }));
-    stripe.position.set(0, 0.55, 0);
-    this.heli.add(stripe);
-    const boom = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.4, 0.4), heliWhite);
-    boom.position.set(-3.6, 0.35, 0);
-    this.heli.add(boom);
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.6, 0.12), heliWhite);
-    fin.position.set(-5.5, 1.0, 0);
-    this.heli.add(fin);
-    const stab = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 2.2), heliWhite);
-    stab.position.set(-4.6, 0.4, 0);
-    this.heli.add(stab);
+    heliBox(1.3, 1.0, 1.7, new THREE.MeshLambertMaterial({ color: 0x101c28 }), 1.4, 0.1, 0);
+    heliBox(0.08, 1.0, 0.1, heliWhite, 1.4, 0.1, 0);
+    heliBox(3.7, 0.22, 1.72, new THREE.MeshLambertMaterial({ color: 0xd4af37 }), 0, 0.55, 0);
+    heliBox(4.2, 0.4, 0.4, heliWhite, -3.6, 0.35, 0);
+    heliBox(1.1, 1.6, 0.12, heliWhite, -5.5, 1.0, 0);
+    heliBox(0.7, 0.1, 2.2, heliWhite, -4.6, 0.4, 0);
     for (const sz of [-0.8, 0.8]) {
-      const skid = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.08, 0.08), new THREE.MeshLambertMaterial({ color: 0x2f3540 }));
-      skid.position.set(0, -1.0, sz);
-      this.heli.add(skid);
-      for (const sx of [-1.1, 1.1]) {
-        const strut = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.4, 0.08), skid.material);
-        strut.position.set(sx, -0.8, sz);
-        this.heli.add(strut);
-      }
+      heliBox(3.0, 0.08, 0.08, heliDark, 0, -1.0, sz);
+      for (const sx of [-1.1, 1.1]) heliBox(0.08, 0.4, 0.08, heliDark, sx, -0.8, sz);
     }
     this.rotor = new THREE.Group();
     for (const a of [0, Math.PI / 2]) {
@@ -1128,12 +1148,8 @@ export class Renderer {
     disc.position.y = 1.15;
     this.heli.add(disc);
     this.rotorDisc = disc; // cover staging brightens it (bigger rotor blur)
-    const navR = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
-    navR.position.set(-5.5, 0.2, -0.3);
-    this.heli.add(navR);
-    const navG = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0x2aff5a }));
-    navG.position.set(-5.5, 0.2, 0.3);
-    this.heli.add(navG);
+    const navR = heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), -5.5, 0.2, -0.3);
+    const navG = heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0x2aff5a }), -5.5, 0.2, 0.3);
     const beam = new THREE.Mesh(
       new THREE.ConeGeometry(2.2, 14, 12, 1, true),
       new THREE.MeshBasicMaterial({ color: 0xfff6c8, transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
@@ -1310,42 +1326,43 @@ export class Renderer {
     // sunset factor: 1 at 18.3, fading to 0 by ~15.8 / ~20.8
     const sunsetF = clamp(1 - Math.abs(hour - 18.3) / 2.5, 0, 1);
     const nightAmt = hour < 5.5 || hour > 19.5 ? 1 : hour > 18.5 ? (hour - 18.5) : hour < 6.5 ? (6.5 - hour) : 0;
-    // sky dome gradient, repainted only when the hour bucket changes.
-    // A sunset needs a purple zenith + pink mid-sky + a DEEP orange band
-    // just above the horizon: the visible sky is the top half of the
-    // canvas (the horizon sits at v = 0.5), so the orange stops live at
-    // 0.42-0.50 — the old fog stop at 0.78 was below the horizon and
-    // invisible, which is why the sky read as one flat pink slab.
+    // The sky dome gradient, repainted only when the hour bucket moves.
+    // A sunset wants a purple zenith, a pink mid-sky and a deep orange
+    // band just above the horizon. The visible sky is the top half of
+    // the canvas (the horizon sits at v = 0.5), so the orange stops sit
+    // at 0.42-0.50; a stop below the horizon would be invisible and the
+    // sky would read as one flat pink slab.
     const bucket = Math.round(hour * 4);
     if (bucket !== this.skyBucket) {
       this.skyBucket = bucket;
       const ctx = this.skyCanvas.getContext('2d');
-      const g = ctx.createLinearGradient(0, 0, 0, 256);
-      const zen = pal.bg.clone().multiplyScalar(0.5);
-      zen.lerp(SUNSET_ZENITH, sunsetF);
-      const mid = pal.bg.clone();
-      mid.lerp(SUNSET_MID, sunsetF * 0.9);
-      const hor = pal.fog.clone();
-      hor.lerp(SUNSET_SEA, sunsetF * 0.85);
-      g.addColorStop(0, `#${zen.getHexString()}`);
-      g.addColorStop(0.3, `#${mid.getHexString()}`);
-      g.addColorStop(0.42, `#${hor.getHexString()}`);
-      g.addColorStop(0.5, `#${hor.getHexString()}`);
-      g.addColorStop(0.55, `#${pal.hemiGround.getHexString()}`);
-      g.addColorStop(1, `#${pal.hemiGround.getHexString()}`);
-      ctx.fillStyle = g;
+      const grad = ctx.createLinearGradient(0, 0, 0, 256);
+      const zenith = pal.bg.clone().multiplyScalar(0.5);
+      zenith.lerp(SUNSET_ZENITH, sunsetF);
+      const middle = pal.bg.clone();
+      middle.lerp(SUNSET_MID, sunsetF * 0.9);
+      const horizon = pal.fog.clone();
+      horizon.lerp(SUNSET_SEA, sunsetF * 0.85);
+      const groundHex = pal.hemiGround.getHexString();
+      grad.addColorStop(0, `#${zenith.getHexString()}`);
+      grad.addColorStop(0.3, `#${middle.getHexString()}`);
+      grad.addColorStop(0.42, `#${horizon.getHexString()}`);
+      grad.addColorStop(0.5, `#${horizon.getHexString()}`);
+      grad.addColorStop(0.55, `#${groundHex}`);
+      grad.addColorStop(1, `#${groundHex}`);
+      ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 4, 256);
       this.skyTex.needsUpdate = true;
     }
     this.skyDome.position.set(hx, 0, hz);
-    // clouds: warm at sunset, dark at night — bigger + more opaque at
-    // sunset now, so they read as volume instead of faint haze
+    // Clouds warm at sunset and darken at night; at sunset they are
+    // bigger and more opaque, so they read as volume, not faint haze.
     tmpColor.set(0xffffff).lerp(pal.fog, sunsetF * 0.7);
     tmpColor.lerp(SUNSET_SEA, sunsetF * 0.25);
     tmpColor.multiplyScalar((1 - nightAmt * 0.7) * (1 - sunsetF * 0.15));
     this.cloudMat.color.copy(tmpColor);
     this.cloudMat.opacity = (0.55 - nightAmt * 0.2) * (1 - sunsetF * 0.3);
-    // sea warms toward the sunset so it is a lit band, not a dark slit
+    // The sea warms toward the sunset so it is a lit band, not a dark slit.
     tmpColor.set(0xffffff).lerp(SUNSET_SEA, sunsetF * 0.6);
     tmpColor.multiplyScalar(1 - nightAmt * 0.75);
     this.seaMat.color.copy(tmpColor);
@@ -1547,16 +1564,16 @@ export class Renderer {
     this.heli.visible = heli.active;
     if (heli.active) {
       this.heli.position.set(heli.x, heli.alt, heli.z);
-      // staged shots may pin the heli's yaw (s.heli.angle): the cover
-      // shot turns it side-on to the camera, so the boom + fin + skids
-      // read instead of a foreshortened nose-on box; unstaged play keeps
-      // the old face-the-player behaviour
-      this.heli.rotation.y = (heli.staged && heli.angle !== undefined)
-        ? heli.angle : Math.atan2(-(hz - heli.z), hx - heli.x);
+      // A staged shot may pin the heli's yaw (heli.angle): the cover
+      // shot turns it side-on to the camera, so the boom, fin and skids
+      // read instead of a foreshortened nose-on box. Unstaged play keeps
+      // facing the player.
+      const pinnedYaw = heli.staged && heli.angle !== undefined;
+      this.heli.rotation.y = pinnedYaw ? heli.angle : Math.atan2(-(hz - heli.z), hx - heli.x);
       this.rotor.rotation.y = this.time * 22;
-      // cover staging scales the heli up (s.heli.scale) and brightens the
-      // rotor blur + searchlight; real play is untouched (scale undefined,
-      // staged false — the reset state carries neither)
+      // Staging also scales the heli up (heli.scale) and brightens the
+      // rotor blur and the searchlight; real play carries neither field
+      // in its reset state, so it is untouched.
       this.heli.scale.setScalar(heli.scale || 1);
       this.heliBeam.material.opacity = heli.staged ? 0.3 : 0.12;
       this.rotorDisc.material.opacity = heli.staged ? 0.3 : 0.16;
@@ -1565,24 +1582,25 @@ export class Renderer {
     // ---- drift smoke: only the cover shot sets s.smokeFx ----
     if (s.smokeFx && p.mode === 'car') {
       this.smoke.count = 28;
-      const fx = Math.cos(car.heading), fz = -Math.sin(car.heading);
-      const lx = Math.sin(car.heading), lz = Math.cos(car.heading); // lateral
+      const fwdX = Math.cos(car.heading), fwdZ = -Math.sin(car.heading);
+      const sideX = Math.sin(car.heading), sideZ = Math.cos(car.heading);
       for (let i = 0; i < 28; i++) {
-        const a = (this.time * 0.45 + i / 28) % 1;
+        const age = (this.time * 0.45 + i / 28) % 1;
         const spread = (hash2(i, 7, 1) - 0.5) * 5;
-        // small, faint, short-lived: the v2 puffs (scale to 2.3, 0.38
-        // opacity, 7.5 m trail) formed a wall that hid the hero car — the
-        // trail runs straight back along the road toward the cover camera.
-        // Polish round: the trail now starts 3 m behind the car (was 1.5),
-        // runs 4.5 m (was 6) and tops out smaller, so no puff sits on the
-        // hero's silhouette.
-        const px = car.x - fx * (3.0 + a * 4.5) + lx * spread * (0.4 + a);
-        const pz = car.z - fz * (3.0 + a * 4.5) + lz * spread * (0.4 + a);
-        const fade = a > 0.6 ? Math.max(0.001, (1 - a) / 0.4) : 1;
-        const sc = (0.6 + a * 1.3) * fade;
-        dummy.position.set(px, 0.4 + a * 1.6, pz);
+        // Small, faint and short-lived: the trail runs straight back
+        // along the road toward the cover camera, so big puffs once
+        // formed a wall that hid the hero car. The trail starts 3 m
+        // behind the car, runs 4.5 m, and tops out smaller, so no puff
+        // sits on the hero's silhouette.
+        const back = 3.0 + age * 4.5;
+        const widen = spread * (0.4 + age);
+        const px = car.x - fwdX * back + sideX * widen;
+        const pz = car.z - fwdZ * back + sideZ * widen;
+        const fade = age > 0.6 ? Math.max(0.001, (1 - age) / 0.4) : 1;
+        const size = (0.6 + age * 1.3) * fade;
+        dummy.position.set(px, 0.4 + age * 1.6, pz);
         dummy.lookAt(this.camera.position);
-        dummy.scale.set(sc, sc, sc);
+        dummy.scale.set(size, size, size);
         dummy.updateMatrix();
         this.smoke.setMatrixAt(i, dummy.matrix);
       }

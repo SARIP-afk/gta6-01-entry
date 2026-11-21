@@ -77,42 +77,45 @@ export function stageShot(name, world, renderer) {
     { x, y, z }, { x: lx, y: ly, z: lz },
   );
   if (name === 'cover') {
-    // Concept A — Sunset Chase: hero car BIG in the foreground, low
-    // three-quarter camera behind-right of the car (closer + lower than the
-    // old cover), heli scaled up ahead-left over the sea with a bright
-    // searchlight cone, low sun in frame, 2 cruisers staged behind the
-    // hero, marina boats + lighthouse + sea to the left, pastel facades
-    // right. Clock 18.3 = peak sunset. HUD is hidden by cover-clean mode.
+    // Concept A — Sunset Chase. The hero car sits BIG in the foreground,
+    // shot from a low three-quarter angle behind and right of him; the
+    // heli hangs ahead-left over the sea, scaled up, with a bright
+    // searchlight cone; the low sun is in frame; two cruisers stage the
+    // cordon ahead; marina boats, the lighthouse and the sea fill the
+    // left, pastel facades line the right. Clock 18.3 is peak sunset.
+    // The HUD is hidden by cover-clean mode.
     world.pinClock(18.3);
     s.missions.active = 3; s.missions.stage = 0; s.missions.started = true;
     s.missions.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
     s.missions.dialogTimer = 9;
     s.objective = { x: -72, z: 48, label: 'Lose the cordon — get CLEAR' };
     s.player.mode = 'car';
-    s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
+    const heroSpot = { x: 0, z: 240, heading: Math.PI, speed: 16 };
+    Object.assign(s.heroCar, heroSpot);
     s.player.x = 0; s.player.z = 240; s.player.heading = Math.PI;
-    s.wanted = 3; s.heli.active = true; s.heli.staged = true; s.heli.x = -24; s.heli.z = 247; s.heli.alt = 11; s.heli.angle = -Math.PI / 2; s.heli.scale = 1.5;
+    s.wanted = 3;
+    const heliSpot = { x: -24, z: 247, alt: 11, angle: -Math.PI / 2, scale: 1.5 };
+    Object.assign(s.heli, { active: true, staged: true }, heliSpot);
     s.smokeFx = true; // pooled drift smoke behind the hero car
     for (let i = 0; i < 2; i++) {
       s.police.push({ x: 16 + i * 12, z: (i % 2 ? 236.5 : 243.5), heading: Math.PI, speed: 14, search: 0, siren: i });
     }
     stepFor(world, 2, () => driveInput(world, -120, 240));
-    // re-pin everything the sim moved: the hero back to the staged spot,
+    // Re-pin everything the sim moved: the hero back to the staged spot,
     // the heli frozen big ahead-left, and exactly 2 cruisers in frame.
-    // DEVIATION from the plan ("2 cruisers behind the hero"): the road is
-    // straight and the chase camera looks west, so anything east of the
-    // hero — i.e. genuinely behind him — sits behind the lens and can
-    // never be in frame. The 2 cruisers are staged AHEAD as the cordon
-    // the mission is about ("Lose the cordon", "It's a trap"): a roadblock
-    // pair facing the hero, headlights on, mid-frame up the road. The sim
-    // tops police up to wanted+1 = 4 during the drive and may form its own
-    // roadblock — both are cleared; the sim is frozen after staging so
-    // nothing moves again.
-    s.heroCar.x = 0; s.heroCar.z = 240; s.heroCar.heading = Math.PI; s.heroCar.speed = 16;
+    // The road is straight and the chase camera looks west, so anything
+    // east of the hero — genuinely behind him — sits behind the lens and
+    // can never be in frame. The 2 cruisers are therefore staged AHEAD
+    // as the cordon the mission is about ("Lose the cordon", "It's a
+    // trap"): a roadblock pair facing the hero, headlights on, mid-frame
+    // up the road. The sim tops police up to wanted+1 = 4 during the
+    // drive and may form its own roadblock — both are cleared, and the
+    // sim is frozen after staging so nothing moves again.
+    Object.assign(s.heroCar, heroSpot);
     s.player.x = 0; s.player.z = 240;
-    // heli side-on to the cover camera (nose south): the boom + fin +
-    // skids read, instead of a foreshortened nose-on box (polish round)
-    s.heli.active = true; s.heli.staged = true; s.heli.x = -24; s.heli.z = 247; s.heli.alt = 11; s.heli.angle = -Math.PI / 2; s.heli.scale = 1.5;
+    // The heli is turned side-on to the cover camera (nose south): the
+    // boom, fin and skids read, instead of a foreshortened nose-on box.
+    Object.assign(s.heli, { active: true, staged: true }, heliSpot);
     s.smokeFx = true;
     s.roadblock = null; s.roadblockCooldown = 45;
     s.police.length = 0;
@@ -120,44 +123,42 @@ export function stageShot(name, world, renderer) {
       { x: -30, z: 237, heading: 0, speed: 0, search: 0, siren: 0 },
       { x: -42, z: 243.5, heading: 0, speed: 0, search: 0, siren: 1 },
     );
-    // life on the road ahead: a taxi + a sedan facing the hero, headlights
-    // toward the camera, so the asphalt ahead is not empty (polish round)
+    // Life on the road ahead: a taxi and a sedan facing the hero, their
+    // headlights toward the camera, so the asphalt ahead is not empty.
     s.traffic.push(
       { x: -68, z: 237.5, heading: 0, speed: 0, kind: 'taxi', color: '#f1c40f' },
       { x: -88, z: 243, heading: 0, speed: 0, kind: 'sedan', color: '#2980b9' },
     );
-    // low three-quarter camera: 45° off the car's axis so the hero shows
-    // his side + rear big in the foreground (a camera dead behind the car
-    // foreshortens him to a 2 m-wide rear), looking WSW so the sun +
-    // lighthouse + sea sit left of frame and the pastel row lines the
-    // right edge; a palm at (7.4, 253.7) frames the left edge. The car
-    // sits at the right third — the v4 camera put him 37° out and cut
-    // his rear off the frame edge, the v5 camera pulled 15.6 m back and
-    // shrank him. v7 nudge (cover-fix round): 11.4 m out instead of
-    // 13.7 m and the look point pulled east toward the car, so the car
-    // is ~20% bigger and nearer centre; nothing else moved. v8 (polish
-    // round): 9.3 m out so the car is bigger still, look point raised
-    // (2.4) so the marina/sunset fills more of the frame and the asphalt
-    // less; 2 staged traffic cars give the road ahead life.
+    // Low three-quarter camera, 9.3 m out and 45° off the car's axis, so
+    // the hero shows his side and rear big in the foreground — a camera
+    // dead behind the car foreshortens him to a 2 m-wide rear — looking
+    // WSW so the sun, lighthouse and sea sit left of frame and the pastel
+    // row lines the right edge; a palm at (7.4, 253.7) frames the left
+    // edge. The car sits at the right third. The look point is raised
+    // (2.4) so the marina and sunset fill more of the frame and the
+    // asphalt less.
     cam(7.8, 2.7, 245.8, -22, 2.4, 240);
     return 'play';
   }
   if (name === 'beach-hero') {
-    // Concept B — Beach Hero: hero on foot on the sand, back to camera,
-    // looking SSW at the pier + neon SOLMARINA sign; sun + lighthouse left,
-    // beachgoers + umbrellas mid-frame, sea foreground. HUD hidden by
-    // cover-clean mode (same as cover — this is the second cover variant).
+    // Concept B — Beach Hero. The hero stands on the sand, back to the
+    // camera, looking SSW at the pier and the neon SOLMARINA sign; the
+    // sun and lighthouse sit left, beachgoers and umbrellas fill the
+    // mid-frame, the sea is the foreground. The HUD is hidden by
+    // cover-clean mode, the same as the cover — this is the second
+    // cover variant.
     world.pinClock(18.2);
     s.player.mode = 'walk';
-    // hero SOUTH of the beach road (asphalt runs z 282-294) — the v1 try
-    // stood him at z = 282, on the road edge, so the frame read as a
-    // street. On the sand at z = 306, the road is behind the camera.
-    s.player.x = 14; s.player.z = 306; s.player.heading = -2.85;
+    // The hero stands SOUTH of the beach road (asphalt runs z 282-294),
+    // on the sand at z = 306, so the road stays behind the camera and
+    // the frame reads as a beach, not a street.
+    const heroPose = { x: 14, z: 306, heading: -2.85 };
+    Object.assign(s.player, heroPose);
     s.heroCar.x = 24; s.heroCar.z = 234; s.heroCar.heading = -Math.PI / 2;
-    // beachgoers on the sand: reposition 5 seeded peds to fixed spots
-    // around the hero (deterministic literals, slow stroll) so the beach
-    // reads inhabited without upstaging him — all inside the view cone
-    // (south-west of the camera), clear of the pier deck
+    // Five seeded beachgoers, repositioned to fixed spots around the
+    // hero (deterministic literals, slow stroll) so the beach reads
+    // inhabited without upstaging him — all inside the view cone
+    // (south-west of the camera), clear of the pier deck.
     const goers = [
       [-2, 309, Math.PI, 0.5],
       [4, 311, Math.PI, 0.6],
@@ -170,17 +171,13 @@ export function stageShot(name, world, renderer) {
       pd.x = x; pd.z = z; pd.heading = h; pd.speed = sp; pd.alive = true;
     });
     stepFor(world, 3, () => walkInput(world, 14, 306));
-    s.player.x = 14; s.player.z = 306; s.player.heading = -2.85;
-    // v7 (cover-fix round): camera dead on the hero's facing axis, 4.5 m
-    // behind him and low (y 2.4) — the v6 camera sat 7.7 m north of the
-    // axis and aimed 30° off it, which threw the hero to the left edge
-    // and left half the frame empty sky. Now the hero is bottom-centre,
-    // ~1/3 of frame height, back to camera, with the sign + sun dead
-    // ahead on the same axis; look point at sand level (y 0.8 at the
-    // sign, v8) so the horizon sits high and the empty sky shrinks.
-    // v9 (polish round): look point dropped to y -2.0, pitching the
-    // camera ~10° down — the sea horizon now sits ~30% from the top
-    // instead of ~46%, so the top of the frame is no longer empty sky.
+    Object.assign(s.player, heroPose);
+    // The camera sits dead on the hero's facing axis, 4.5 m behind him
+    // and low (y 2.4), so the hero is bottom-centre, about a third of
+    // frame height, back to camera, with the sign and sun dead ahead on
+    // the same axis. The look point drops to y -2.0, pitching the camera
+    // about 10° down: the sea horizon now sits ~30% from the top instead
+    // of ~46%, so the top of the frame is no longer empty sky.
     cam(18.3, 2.4, 304.7, -6, -2.0, 312);
     return 'play';
   }

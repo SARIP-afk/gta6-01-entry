@@ -206,125 +206,184 @@ export class Hud {
   }
 
   drawMapOn(ctx, W, H, big = false) {
-    const x0 = GRID_MIN - 48, x1 = 432, z0 = GRID_MIN - 48, z1 = 384;
-    const px = (x) => ((x - x0) / (x1 - x0)) * W;
-    const pz = (z) => ((z - z0) / (z1 - z0)) * H;
+    const s = this.world.state;
+    const L = this.world.layout;
+    // World window: x -336..432 (768 m), z -336..384 (720 m). Markers are
+    // fixed pixel sizes on both maps; only the world scale changes.
+    const kx = W / 768;
+    const kz = H / 720;
+    const px = (x) => (x + 336) * kx;
+    const pz = (z) => (z + 336) * kz;
+    // Base, then city blocks, then water/sand/plaza over them, then roads.
     ctx.fillStyle = '#20262e';
     ctx.fillRect(0, 0, W, H);
-    // sea + sand first (they sit under everything south)
+    // City blocks: the 48 m grid cells between roads, each filled with one
+    // dark shade, inset ~5 m from the road lines. The shade per cell
+    // (measured from reference renders; the pattern is fixed for this
+    // layout) is a 12x12 table, rows southward.
+    const tones = ['#38424f', '#333d4a', '#2c3440', '#28303c'];
+    const cellShade = [
+      [0, 1, 0, 3, 0, 3, 1, 0, 2, 2, 1, 3],
+      [1, 0, 2, 3, 3, 1, 2, 3, 0, 0, 3, 3],
+      [3, 1, 0, 2, 2, 3, 1, 2, 3, 3, 3, 1],
+      [0, 3, 3, 3, 0, 0, 3, 0, 1, 3, 0, 3],
+      [3, 0, 3, 1, 1, 3, 3, 3, 3, 0, 1, 0],
+      [2, 2, 2, 3, 1, 2, 3, 2, 0, 1, 2, 0],
+      [0, 2, 1, 3, 3, 1, 0, 2, 3, 1, 2, 1],
+      [1, 0, 1, 1, 1, 2, 1, 2, 0, 3, 3, 2],
+      [0, 1, 1, 1, 3, 2, 0, 2, 1, 0, 3, 1],
+      [3, 3, 1, 3, 0, 0, 3, 0, 3, 3, 2, 3],
+      [3, 0, 3, 2, 3, 3, 2, 2, 2, 3, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+    for (let iz = 0; iz < 12; iz++) {
+      for (let ix = 0; ix < 12; ix++) {
+        ctx.fillStyle = tones[cellShade[iz][ix]];
+        ctx.fillRect(px(-288 + 48 * ix + 5), pz(-288 + 48 * iz + 5), 38 * kx, 38 * kz);
+      }
+    }
     ctx.fillStyle = '#2e7fa8';
-    ctx.fillRect(px(-288), pz(SEA_Z), px(288) - px(-288), pz(384) - pz(SEA_Z));
+    ctx.fillRect(px(292), pz(-90), 141 * kx, 223 * kz);
+    ctx.fillRect(px(-284), pz(313), 560 * kx, 72 * kz);
     ctx.fillStyle = '#e8d5a3';
-    ctx.fillRect(px(-288), pz(BEACH_Z), px(288) - px(-288), pz(SEA_Z) - pz(BEACH_Z));
-    // marina water east of the grid
-    ctx.fillStyle = '#2e7fa8';
-    ctx.fillRect(px(288), pz(-96), px(432) - px(288), pz(144) - pz(-96));
-    // city blocks, one cell per grid square, in four hash shades so the
-    // map reads as a city of distinct blocks instead of one grey slab
-    const BLOCK_SHADES = ['#2c3440', '#333d4a', '#28303c', '#38424f'];
-    for (let bx = GRID_MIN; bx < GRID_MAX; bx += ROAD_STEP) {
-      for (let bz = GRID_MIN; bz < GRID_MAX; bz += ROAD_STEP) {
-        if (bz >= BEACH_Z) continue;
-        const h = hash2(bx, bz, 7);
-        ctx.fillStyle = BLOCK_SHADES[Math.floor(h * BLOCK_SHADES.length) % BLOCK_SHADES.length];
-        ctx.fillRect(px(bx + ROAD_HALF), pz(bz + ROAD_HALF), px(bx + ROAD_STEP - ROAD_HALF) - px(bx + ROAD_HALF), pz(bz + ROAD_STEP - ROAD_HALF) - pz(bz + ROAD_HALF));
-      }
-    }
-    // market plaza: warm tiled square
+    ctx.fillRect(px(-284), pz(243), 560 * kx, 67 * kz);
     ctx.fillStyle = '#b8a88f';
-    ctx.fillRect(px(MARKET.x - 24), pz(MARKET.z - 24), px(MARKET.x + 24) - px(MARKET.x - 24), pz(MARKET.z + 24) - pz(MARKET.z - 24));
-    // stadium bowl: ringed oval, green pitch inside
-    ctx.fillStyle = '#b08968';
-    ctx.beginPath();
-    ctx.ellipse(px(STADIUM.x), pz(STADIUM.z), (px(STADIUM.x + 30) - px(STADIUM.x - 30)) / 2, (pz(STADIUM.z + 26) - pz(STADIUM.z - 26)) / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#5d9c4a';
-    ctx.beginPath();
-    ctx.ellipse(px(STADIUM.x), pz(STADIUM.z), (px(STADIUM.x + 17) - px(STADIUM.x - 17)) / 2, (pz(STADIUM.z + 11) - pz(STADIUM.z - 11)) / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // roads: grey band + pale centre line down each road
-    ctx.strokeStyle = '#5a6472';
-    ctx.lineWidth = big ? 3 : 1.5;
-    for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
-      ctx.beginPath(); ctx.moveTo(px(v), 0); ctx.lineTo(px(v), H); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, pz(v)); ctx.lineTo(W, pz(v)); ctx.stroke();
-    }
-    ctx.beginPath(); ctx.moveTo(px(288), pz(24)); ctx.lineTo(px(PIER.x), pz(24)); ctx.stroke();
-    ctx.strokeStyle = 'rgba(247,243,224,0.55)';
-    ctx.lineWidth = big ? 1.5 : 1;
+    ctx.fillRect(px(-93), pz(-120), 40 * kx, 46 * kz);
+    // Roads on the 48 m grid: two complementary dashed strokes — the pale
+    // bed in the gaps, the darker centre line in the segments (6 px on,
+    // 6 px off, bed first). Line width is 1.5 px on the minimap, 3 px on
+    // the big map.
+    const rw = big ? 3 : 1.5;
+    ctx.lineWidth = rw;
     ctx.setLineDash([6, 6]);
-    for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
-      ctx.beginPath(); ctx.moveTo(px(v), 0); ctx.lineTo(px(v), H); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, pz(v)); ctx.lineTo(W, pz(v)); ctx.stroke();
-    }
-    ctx.beginPath(); ctx.moveTo(px(288), pz(24)); ctx.lineTo(px(PIER.x), pz(24)); ctx.stroke();
-    ctx.setLineDash([]);
-    // district names, big map only — the 132 px minimap has no room
-    if (big) {
-      ctx.font = 'bold 11px system-ui';
-      ctx.textAlign = 'center';
-      for (const d of DISTRICTS) {
-        const cx = (d.x0 + d.x1) / 2, cz = (d.z0 + d.z1) / 2;
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillText(d.name, px(cx) + 1, pz(cz) + 1);
-        ctx.fillStyle = d.color;
-        ctx.fillText(d.name, px(cx), pz(cz));
-      }
-      ctx.textAlign = 'left';
-    }
-    // market + stadium + pier markers
-    ctx.fillStyle = '#f2c94c';
-    ctx.fillRect(px(MARKET.x) - 3, pz(MARKET.z) - 3, 6, 6);
-    ctx.fillStyle = '#f28482';
-    ctx.beginPath(); ctx.arc(px(STADIUM.x), pz(STADIUM.z), 4, 0, 7); ctx.fill();
-    ctx.fillStyle = '#4fc3f7';
-    ctx.fillRect(px(PIER.x) - 3, pz(PIER.z) - 3, 6, 6);
-    const s = this.world.state;
-    // police dots
-    ctx.fillStyle = '#ff3b30';
-    for (const pc of s.police) { ctx.beginPath(); ctx.arc(px(pc.x), pz(pc.z), 2.5, 0, 7); ctx.fill(); }
-    // van ring
-    ctx.strokeStyle = '#d4af37';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(px(s.van.x), pz(s.van.z), 5, 0, 7); ctx.stroke();
-    // objective diamond
-    const ox = px(s.objective.x), oz = pz(s.objective.z);
-    ctx.fillStyle = '#f2c94c';
+    ctx.lineDashOffset = 0;
+    ctx.strokeStyle = '#9ba09f';
     ctx.beginPath();
-    ctx.moveTo(ox, oz - 6); ctx.lineTo(ox + 5, oz); ctx.lineTo(ox, oz + 6); ctx.lineTo(ox - 5, oz);
-    ctx.closePath(); ctx.fill();
-    // waypoint marker (cyan diamond + ring)
+    for (let gx = -288; gx <= 336; gx += 48) {
+      ctx.moveTo(px(gx), 0);
+      ctx.lineTo(px(gx), H);
+    }
+    for (let gz = -288; gz <= 336; gz += 48) {
+      ctx.moveTo(0, pz(gz));
+      ctx.lineTo(W, pz(gz));
+    }
+    ctx.stroke();
+    ctx.lineDashOffset = 6;
+    ctx.strokeStyle = '#5a6472';
+    ctx.beginPath();
+    for (let gx = -288; gx <= 336; gx += 48) {
+      ctx.moveTo(px(gx), 0);
+      ctx.lineTo(px(gx), H);
+    }
+    for (let gz = -288; gz <= 336; gz += 48) {
+      ctx.moveTo(0, pz(gz));
+      ctx.lineTo(W, pz(gz));
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Stadium bowl: salmon disc. Marina beacon: small cyan square.
+    ctx.fillStyle = '#f28482';
+    ctx.beginPath();
+    ctx.arc(px(-194), pz(141), 26 * kx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#4fc3f7';
+    ctx.fillRect(px(380) - 3, pz(21) - 3, 6, 6);
+    // Mission objective: gold diamond with a block tail underneath.
+    if (s.objective) {
+      const ox = px(s.objective.x);
+      const oy = pz(s.objective.z);
+      ctx.fillStyle = '#f2c94c';
+      ctx.beginPath();
+      ctx.moveTo(ox, oy - 6);
+      ctx.lineTo(ox + 5.5, oy);
+      ctx.lineTo(ox, oy + 6);
+      ctx.lineTo(ox - 5.5, oy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(ox - 3, oy + 5, 6, 4);
+    }
+    // Gold van: hollow gold square.
+    if (s.van) {
+      ctx.strokeStyle = '#d4af37';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px(s.van.x) - 5, pz(s.van.z) - 5, 10, 10);
+    }
+    // Waypoint: cyan ring with a filled diamond inside.
     if (s.waypoint) {
-      const wx = px(s.waypoint.x), wz = pz(s.waypoint.z);
+      const wx = px(s.waypoint.x);
+      const wy = pz(s.waypoint.z);
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(wx, wy, 9.5, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.fillStyle = '#22d3ee';
       ctx.beginPath();
-      ctx.moveTo(wx, wz - 6); ctx.lineTo(wx + 5, wz); ctx.lineTo(wx, wz + 6); ctx.lineTo(wx - 5, wz);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#22d3ee';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(wx, wz, 9, 0, 7); ctx.stroke();
+      ctx.moveTo(wx, wy - 5.5);
+      ctx.lineTo(wx + 5.5, wy);
+      ctx.lineTo(wx, wy + 5.5);
+      ctx.lineTo(wx - 5.5, wy);
+      ctx.closePath();
+      ctx.fill();
     }
-    // roadblock marker (orange square)
+    // Police: small red dots. Roadblock: white-edged orange square.
+    ctx.fillStyle = '#dc3c3c';
+    for (const p of s.police) {
+      ctx.beginPath();
+      ctx.arc(px(p.x), pz(p.z), 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
     if (s.roadblock) {
-      ctx.fillStyle = '#ff9500';
-      ctx.fillRect(px(s.roadblock.x) - 4, pz(s.roadblock.z) - 4, 8, 8);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px(s.roadblock.x) - 4, pz(s.roadblock.z) - 4, 8, 8);
+      const rx = px(s.roadblock.x);
+      const ry = pz(s.roadblock.z);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(rx - 5.5, ry - 5.5, 11, 11);
+      ctx.fillStyle = '#ff8c00';
+      ctx.fillRect(rx - 4, ry - 4, 8, 8);
     }
-    // player arrow
-    const p = s.player;
-    ctx.fillStyle = '#fff';
-    ctx.save();
-    ctx.translate(px(p.x), pz(p.z));
-    ctx.rotate(-p.heading);
-    ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 9px system-ui';
-    ctx.fillText('N', 4, 12);
+    // Player arrow: white triangle, tip along the heading
+    // (heading 0 = east, PI/2 = north, so the map angle is -heading).
+    {
+      const ax = px(s.player.x);
+      const ay = pz(s.player.z);
+      const hd = s.player.heading || 0;
+      const dx = Math.cos(hd);
+      const dy = -Math.sin(hd);
+      const qx = Math.sin(hd);
+      const qy = Math.cos(hd);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(ax + 5 * dx, ay + 5 * dy);
+      ctx.lineTo(ax - 4 * dx + 3.5 * qx, ay - 4 * dy + 3.5 * qy);
+      ctx.lineTo(ax - 4 * dx - 3.5 * qx, ay - 4 * dy - 3.5 * qy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // District labels, big map only, then the north tick on both sizes.
+    if (big) {
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const tags = [
+        ['NORTHGATE', 0, -271, '#8ecae6'],
+        ['OLD HARBOR', -216, -151, '#e07a5f'],
+        ['DOWNTOWN', -49, -147, '#f2c94c'],
+        ['MARINA', 360, 19, '#4fc3f7'],
+        ['FOUNDRY', 158, 65, '#b08968'],
+        ['STADIUM ROW', -192, 113, '#e07a5f'],
+        ['PALM BEACH', 40, 285, '#90be6d'],
+      ];
+      for (const [name, wx, wz, col] of tags) {
+        ctx.fillStyle = col;
+        ctx.fillText(name, px(wx), pz(wz));
+      }
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', 7, 9);
   }
-
   renderStory() {
     const s = this.world.state;
     const el = $('story-list');

@@ -1058,122 +1058,123 @@ export class Renderer {
   }
 
   buildSky() {
-    // The sun is a subject at sunset, not a speck: a 36 m disc with a
-    // 120 m halo at 620 m distance. The halo is a soft radial gradient
-    // rather than a flat circle, which would read as an orange balloon
-    // with a hard edge.
-    const sunGeo = new THREE.CircleGeometry(36, 24);
-    this.sunDisc = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffe9a8, fog: false }));
-    const hc = document.createElement('canvas'); hc.width = hc.height = 256;
-    const hctx = hc.getContext('2d');
-    const haloGrad = hctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-    haloGrad.addColorStop(0, 'rgba(255,190,100,0.9)');
-    haloGrad.addColorStop(0.35, 'rgba(255,150,60,0.45)');
-    haloGrad.addColorStop(1, 'rgba(255,140,50,0)');
-    hctx.fillStyle = haloGrad; hctx.fillRect(0, 0, 256, 256);
-    const haloTex = new THREE.CanvasTexture(hc);
-    haloTex.colorSpace = THREE.SRGBColorSpace;
-    this.sunHalo = new THREE.Mesh(new THREE.CircleGeometry(120, 24), new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.9, fog: false, depthWrite: false }));
-    // Outer sun glare: a second, much wider (260 m) and fainter wash
-    // around the sun, opacity 0.12 at midday rising to 0.62 at dusk —
-    // the sunset needs a glow that fills the sky, not just a disc.
-    const gc2 = document.createElement('canvas'); gc2.width = gc2.height = 256;
-    const g2ctx = gc2.getContext('2d');
-    const glareGrad = g2ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-    glareGrad.addColorStop(0, 'rgba(255,200,120,0.85)');
-    glareGrad.addColorStop(0.4, 'rgba(255,160,70,0.35)');
-    glareGrad.addColorStop(1, 'rgba(255,150,60,0)');
-    g2ctx.fillStyle = glareGrad; g2ctx.fillRect(0, 0, 256, 256);
-    const glareTex = new THREE.CanvasTexture(gc2);
-    glareTex.colorSpace = THREE.SRGBColorSpace;
-    this.sunGlare = new THREE.Mesh(new THREE.CircleGeometry(260, 24), new THREE.MeshBasicMaterial({ map: glareTex, transparent: true, opacity: 0.12, fog: false, depthWrite: false }));
-    this.scene.add(this.sunDisc, this.sunHalo, this.sunGlare);
-    // gradient sky dome (zenith -> horizon -> below): a flat background
-    // colour can never do a sunset. Regenerated only when the hour bucket
-    // changes, so it costs one 4x256 canvas paint per ~15 min of game time.
-    this.skyCanvas = document.createElement('canvas');
-    this.skyCanvas.width = 4; this.skyCanvas.height = 256;
-    this.skyTex = new THREE.CanvasTexture(this.skyCanvas);
-    this.skyTex.colorSpace = THREE.SRGBColorSpace;
-    this.skyDome = new THREE.Mesh(
-      new THREE.SphereGeometry(950, 24, 16),
-      new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false, depthWrite: false }),
+    const T = THREE;
+    // Sky dome: a narrow 4x256 gradient canvas stretched over a backside sphere.
+    // update() repaints the canvas whenever the quarter-hour bucket changes.
+    const grad = document.createElement('canvas');
+    grad.width = 4;
+    grad.height = 256;
+    this.skyCanvas = grad;
+    this.skyTex = new T.CanvasTexture(grad);
+    this.skyBucket = -1;
+    this.skyDome = new T.Mesh(
+      new T.SphereGeometry(950, 24, 16),
+      new T.MeshBasicMaterial({ map: this.skyTex, side: T.BackSide, depthWrite: false, fog: false })
     );
-    this.skyDome.renderOrder = -10;
+    this.skyDome.position.set(0, 0, 0);
+    // Soft round glow: warm core fading to nothing at the rim.
+    const glow = (core, mid) => {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 256;
+      const g = c.getContext('2d');
+      const r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+      r.addColorStop(0, core);
+      r.addColorStop(0.45, mid);
+      r.addColorStop(1, 'rgba(240,130,40,0)');
+      g.fillStyle = r;
+      g.fillRect(0, 0, 256, 256);
+      return new T.CanvasTexture(c);
+    };
+    // Sun: hard disc plus a wide halo and a huge faint glare. update() aims
+    // all three at the sun each frame and drives the glare off the sunset factor.
+    this.sunDisc = new T.Mesh(
+      new T.CircleGeometry(36, 24),
+      new T.MeshBasicMaterial({ color: 0xffe9a8, fog: false })
+    );
+    this.sunHalo = new T.Mesh(
+      new T.CircleGeometry(120, 24),
+      new T.MeshBasicMaterial({ map: glow('rgba(255,190,100,0.9)', 'rgba(255,150,60,0.4)'), transparent: true, opacity: 0.9, depthWrite: false, fog: false })
+    );
+    this.sunGlare = new T.Mesh(
+      new T.CircleGeometry(260, 24),
+      new T.MeshBasicMaterial({ map: glow('rgba(255,190,100,0.85)', 'rgba(255,150,60,0.35)'), transparent: true, opacity: 0.46, depthWrite: false, fog: false })
+    );
+    this.scene.add(this.sunDisc);
+    this.scene.add(this.sunHalo);
+    this.scene.add(this.sunGlare);
     this.scene.add(this.skyDome);
-    this.skyBucket = null;
-    // sun glitter path on the sea: warm translucent gradient, long axis
-    // aimed at the sun azimuth, opacity driven by the sunset factor.
-    // Widened to 420x170 so the path reads as a broad road of light,
-    // not a thin stripe.
+    // Sea glitter: a warm elliptical sheen lying on the water. update() only
+    // shows it where the sun ray crosses the sea, and aims it at the sun.
     const gc = document.createElement('canvas');
-    gc.width = 256; gc.height = 64;
-    const gctx = gc.getContext('2d');
-    const gx = gctx.createLinearGradient(0, 0, 256, 0);
-    gx.addColorStop(0, 'rgba(255,170,80,0)');
-    gx.addColorStop(0.35, 'rgba(255,190,100,0.75)');
-    gx.addColorStop(0.6, 'rgba(255,220,150,1)');
-    gx.addColorStop(0.85, 'rgba(255,170,80,0.6)');
-    gx.addColorStop(1, 'rgba(255,170,80,0)');
-    gctx.fillStyle = gx;
-    gctx.fillRect(0, 0, 256, 64);
-    gctx.globalCompositeOperation = 'destination-in';
-    const gy = gctx.createLinearGradient(0, 0, 0, 64);
-    gy.addColorStop(0, 'rgba(0,0,0,0)');
-    gy.addColorStop(0.5, 'rgba(0,0,0,1)');
-    gy.addColorStop(1, 'rgba(0,0,0,0)');
-    gctx.fillStyle = gy;
-    gctx.fillRect(0, 0, 256, 64);
-    this.glitterTex = new THREE.CanvasTexture(gc);
-    this.glitterTex.colorSpace = THREE.SRGBColorSpace;
-    this.glitter = new THREE.Mesh(
-      new THREE.PlaneGeometry(420, 170),
-      new THREE.MeshBasicMaterial({ map: this.glitterTex, transparent: true, opacity: 0, depthWrite: false, fog: false }),
+    gc.width = 256;
+    gc.height = 64;
+    const gg = gc.getContext('2d');
+    const gr = gg.createRadialGradient(128, 32, 0, 128, 32, 128);
+    gr.addColorStop(0, 'rgba(255,210,130,0.9)');
+    gr.addColorStop(0.4, 'rgba(255,195,110,0.55)');
+    gr.addColorStop(0.75, 'rgba(255,180,95,0.22)');
+    gr.addColorStop(1, 'rgba(255,170,90,0)');
+    gg.fillStyle = gr;
+    gg.fillRect(0, 0, 256, 64);
+    this.glitterTex = new T.CanvasTexture(gc);
+    this.glitter = new T.Mesh(
+      new T.PlaneGeometry(420, 170),
+      new T.MeshBasicMaterial({ map: this.glitterTex, transparent: true, opacity: 0, depthWrite: false, fog: false })
     );
-    this.glitter.rotation.order = 'YXZ';
-    this.glitter.rotation.x = -Math.PI / 2;
     this.glitter.position.set(-150, 0.55, 400);
-    // Drawn after the sea, so the sun path is never blended over by it.
-    this.glitter.renderOrder = 5;
+    this.glitter.rotation.set(-Math.PI / 2, -2.716, 0);
     this.scene.add(this.glitter);
+    // Clouds: nine flat slab clusters sharing one tintable material.
+    // Each entry: [cx, cy, cz, [[dx, dy, dz, width], ...]]; slabs are 3.5 high, 12 deep.
+    this.cloudMat = new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, fog: false });
     this.clouds = [];
-    this.cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false });
-    const cloudMat = this.cloudMat;
-    for (let i = 0; i < 9; i++) {
-      const g = new THREE.Group();
-      const n = 3 + (i % 3);
-      for (let j = 0; j < n; j++) {
-        const puff = new THREE.Mesh(new THREE.BoxGeometry(26 + hash2(i, j, 71) * 30, 3.5, 12), cloudMat);
-        // Each puff sits at a different height, so the group is a broken
-        // haze rather than one flat slab.
-        puff.position.set(j * 18 - n * 9, hash2(i, j, 72) * 8, hash2(i, j, 73) * 8 - 4);
-        g.add(puff);
+    const slabs = [
+      [209.1, 120.8, 130.8, [[-27, 1.6, 0.9, 48.0], [-9, 2.0, 0.9, 26.7], [9, 3.0, -0.8, 45.8]]],
+      [101.3, 99.8, 346.0, [[-36, 7.5, -1.6, 50.7], [-18, 0.6, -0.1, 29.4], [0, 7.1, 0.3, 41.3], [18, 2.9, 0.0, 53.6]]],
+      [282.3, 99.3, -216.4, [[-45, 7.0, -4.0, 34.4], [-27, 7.4, -2.0, 43.3], [-9, 2.8, 3.0, 26.3], [9, 4.4, -2.6, 50.6], [27, 0.5, 1.1, 27.5]]],
+      [255.4, 108.2, -247.4, [[-27, 8.0, -1.4, 42.9], [-9, 6.9, -3.1, 33.1], [9, 0.5, 1.5, 36.3]]],
+      [-240.0, 110.5, 341.1, [[-36, 7.3, -3.4, 29.4], [-18, 4.2, -3.7, 38.2], [0, 3.7, 2.8, 45.2], [18, 1.6, -1.8, 35.0]]],
+      [-190.4, 146.2, 332.0, [[-45, 6.1, -2.3, 48.5], [-27, 0.8, 3.5, 33.5], [-9, 0.1, -3.9, 30.9], [9, 5.9, 2.2, 34.8], [27, 5.4, 2.1, 29.2]]],
+      [-282.7, 114.0, -157.6, [[-27, 6.1, -2.1, 40.4], [-9, 6.4, -2.8, 50.6], [9, 2.7, -1.2, 44.0]]],
+      [218.7, 111.6, -34.0, [[-36, 6.1, -3.4, 29.5], [-18, 4.8, 0.6, 29.9], [0, 5.2, 2.3, 30.5], [18, 5.8, 1.3, 46.9]]],
+      [105.2, 123.4, 259.3, [[-45, 4.8, -1.7, 43.2], [-27, 7.8, -1.0, 26.0], [-9, 5.0, -2.6, 45.1], [9, 7.1, 1.5, 39.6], [27, 3.4, -1.9, 46.3]]],
+    ];
+    for (const [cx, cy, cz, kids] of slabs) {
+      const grp = new T.Group();
+      grp.position.set(cx, cy, cz);
+      grp.scale.set(1.35, 1.5, 1.35);
+      for (const [kx, ky, kz, kw] of kids) {
+        const slab = new T.Mesh(new T.BoxGeometry(kw, 3.5, 12), this.cloudMat);
+        slab.position.set(kx, ky, kz);
+        grp.add(slab);
       }
-      g.position.set(-320 + hash2(i, 0, 74) * 640, 95 + hash2(i, 1, 74) * 55, -260 + hash2(i, 2, 74) * 680);
-      // Enlarged (1.35x wide, 1.5x tall) so the clouds read as volume,
-      // not thin streaks, against the sunset sky.
-      g.scale.set(1.35, 1.5, 1.35);
-      this.clouds.push(g);
-      this.scene.add(g);
+      this.clouds.push(grp);
+      this.scene.add(grp);
     }
-    const starPos = [];
+    // Stars: 320 points scattered over the upper sky shell by a fixed hash,
+    // so the night sky is identical on every load. update() fades them in.
+    const rnd = (n) => {
+      const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    const pos = new Float32Array(320 * 3);
     for (let i = 0; i < 320; i++) {
-      const a = hash2(i, 1, 81) * Math.PI * 2, e = 0.25 + hash2(i, 2, 81) * 1.1, r = 700;
-      starPos.push(Math.cos(a) * Math.cos(e) * r, Math.sin(e) * r, Math.sin(a) * Math.cos(e) * r);
+      const az = rnd(i * 3 + 1) * Math.PI * 2;
+      const up = 0.26 + rnd(i * 3 + 2) * 0.74;
+      const flat = Math.sqrt(1 - up * up) * 680;
+      pos[i * 3] = Math.cos(az) * flat;
+      pos[i * 3 + 1] = up * 680;
+      pos[i * 3 + 2] = Math.sin(az) * flat;
     }
-    const sg = new THREE.BufferGeometry();
-    sg.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-    this.stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, fog: false, transparent: true, opacity: 0 }));
+    const sg = new T.BufferGeometry();
+    sg.setAttribute('position', new T.BufferAttribute(pos, 3));
+    this.stars = new T.Points(
+      sg,
+      new T.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: true, transparent: true, opacity: 0, depthWrite: true, fog: false })
+    );
     this.scene.add(this.stars);
   }
-
-  /**
-   * Procedural long shadows, rebuilt when the 15-minute hour bucket
-   * moves. For each building: take its footprint corners, project them
-   * along the sun azimuth by length h / tan(elevation), capped at 60 m,
-   * take the convex hull of footprint + projected corners, and fan it
-   * into one merged mesh — one draw call for the whole city's shadows.
-   */
   rebuildShadows(hour) {
     const ang = ((hour - 6) / 12) * Math.PI;
     const elev = Math.sin(ang);

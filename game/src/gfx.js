@@ -477,567 +477,516 @@ const dummy = new THREE.Object3D();
 const tmpColor = new THREE.Color();
 const sunDirTmp = new THREE.Vector3(); // reused: update() used to `new` one per frame
 
-// ---- R5 dressing: fresh re-application of the Kumala detail pass ----
-// Built only from the layout arrays (L.buildings, L.palms, L.umbrellas,
-// L.parked) and the WORLD / GRID constants. Canvas textures carry the
-// fine detail (0 triangles); instanced boxes carry the rest. Nothing
-// here reuses the previous round's wording or structure.
+// ---- R6 dressing: Kumala detail pass, written fresh for recording #6 ----
+// Seven small visual passes over the static city. Everything here is
+// deterministic: placement comes from an integer hash of world position,
+// never from a nondeterministic random source. All new geometry is merged
+// into one mesh per pass so the draw-call budget barely moves.
 
-const R5_CORNICE = ['#3fa8a0', '#b3402e', '#d4af37', '#2c4a6b', '#e8e0cc'];
-const R5_AWN = ['#f28482', '#81b29a', '#f4a261', '#a78bfa', '#4fc3f7', '#f2c94c'];
-const R5_TOWEL = ['#ff5964', '#ffd166', '#4cc9f0', '#80ed99', '#f72585', '#ff9f1c', '#b5179e', '#06d6a0'];
-const R5_BOARD = ['#ff5964', '#ffd166', '#4cc9f0', '#f72585', '#ff9f1c', '#06d6a0', '#f4f1de', '#e07a5f'];
-const R5_FROND = ['#1d6b2f', '#227636', '#185c27'];
-const R5_FLAG = ['#ff5964', '#ffd166', '#4cc9f0', '#f72585'];
-const R5_HULL = ['#f5f0e6', '#e8e0cc', '#c96f4a'];
+// Deterministic 2D hash -> [0, 1). Same input always gives same output.
+function R6_hash(ax, az, salt) {
+  let h = Math.imul(Math.round(ax * 100), 0x27D4EB2F) ^ Math.imul(Math.round(az * 100), 0x9E3779B1) ^ Math.imul(salt, 0x85EBCA6B);
+  h = Math.imul(h ^ (h >>> 15), 0x2C1B3C6D);
+  h = Math.imul(h ^ (h >>> 12), 0x297A2D39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
 
-function R5_u(x, z, s) {
-  let h = hash2(x + s * 61.7, z - s * 37.3);
-  h = h - Math.floor(h);
-  return h < 0 ? h + 1 : h;
+// '#rrggbb' -> linear-srgb [r, g, b] for vertex colours.
+function R6_hexLin(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const out = [];
+  for (let i = 2; i >= 0; i--) {
+    const c = ((n >> (i * 8)) & 255) / 255;
+    out.push(c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  }
+  return out;
 }
-function R5_pick(arr, x, z, s) {
-  return arr[Math.floor(R5_u(x, z, s) * arr.length) % arr.length];
+
+function R6_pick(list, t) {
+  return list[Math.min(list.length - 1, Math.floor(t * list.length))];
 }
-function R5_cv(w, h) {
+
+// --- merged-box soup: many small boxes, one draw call ----------------------
+const R6_UNIT = new THREE.BoxGeometry(1, 1, 1);
+const R6_BOX_POS = R6_UNIT.attributes.position.array;
+const R6_BOX_NRM = R6_UNIT.attributes.normal.array;
+const R6_BOX_IDX = R6_UNIT.index.array;
+
+function R6_soup() {
+  return { pos: [], nrm: [], col: [], idx: [], v: 0 };
+}
+
+// One axis-aligned box, scaled (sx, sy, sz), rotated by ry about Y then
+// rz about Z, centred at (cx, cy, cz). rgb is a linear [r, g, b] triple.
+function R6_box(soup, cx, cy, cz, sx, sy, sz, ry, rz, rgb) {
+  const cy1 = Math.cos(ry), sy1 = Math.sin(ry);
+  const cz1 = Math.cos(rz), sz1 = Math.sin(rz);
+  const base = soup.v;
+  for (let i = 0; i < 24; i++) {
+    const x = R6_BOX_POS[i * 3] * sx, y = R6_BOX_POS[i * 3 + 1] * sy, z = R6_BOX_POS[i * 3 + 2] * sz;
+    const X = cz1 * x - sz1 * y, Y = sz1 * x + cz1 * y;
+    soup.pos.push(cx + cy1 * X + sy1 * z, cy + Y, cz - sy1 * X + cy1 * z);
+    const nx = R6_BOX_NRM[i * 3], ny = R6_BOX_NRM[i * 3 + 1], nz = R6_BOX_NRM[i * 3 + 2];
+    const NX = cz1 * nx - sz1 * ny, NY = sz1 * nx + cz1 * ny;
+    soup.nrm.push(cy1 * NX + sy1 * nz, NY, -sy1 * NX + cy1 * nz);
+    soup.col.push(rgb[0], rgb[1], rgb[2]);
+  }
+  for (let i = 0; i < 36; i++) soup.idx.push(base + R6_BOX_IDX[i]);
+  soup.v += 24;
+}
+
+function R6_mesh(soup, mat) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(soup.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(soup.nrm, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(soup.col, 3));
+  g.setIndex(soup.idx);
+  g.computeBoundingSphere();
+  return new THREE.Mesh(g, mat);
+}
+
+// --- canvas texture + flat overlay plane ----------------------------------
+function R6_canvasTex(w, h, draw) {
   const cv = document.createElement('canvas');
   cv.width = w;
   cv.height = h;
-  return cv;
+  draw(cv.getContext('2d'), w, h);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
 }
-function R5_tex(cv) {
-  const tx = new THREE.CanvasTexture(cv);
-  tx.colorSpace = THREE.SRGBColorSpace;
-  return tx;
-}
-function R5_sheet(scene, cv, w, d, cx, y, cz, opacity, order) {
+
+function R6_plane(scene, tex, w, h, x, y, z, opacity, order) {
   const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(w, d),
-    new THREE.MeshBasicMaterial({ map: R5_tex(cv), transparent: true, opacity, depthWrite: false })
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: opacity, depthWrite: false })
   );
   m.rotation.x = -Math.PI / 2;
-  m.position.set(cx, y, cz);
+  m.position.set(x, y, z);
   m.renderOrder = order;
   scene.add(m);
   return m;
 }
 
-// --- Road detail: mustard double centre lines, white edge + dashed
-// lane lines, zebra bands on even intersections, wear, cracks, tyre
-// tracks. Transparent everywhere else, so the ground stays visible.
-function R5_roadCanvas() {
+// --- 1. Asphalt: road markings on one 2048x1792 canvas --------------------
+// Ground plane is 768 x 672 m centred at (48, 0): x -336..432, z -336..336.
+// Roads run on the 48 m grid: vertical lines x -288..384, horizontal z -288..288.
+function R6_asphalt(scene) {
   const W = 2048, H = 1792;
-  const cv = R5_cv(W, H);
-  const g = cv.getContext('2d');
-  const sx = W / (WORLD.x1 - WORLD.x0);
-  const sz = H / (WORLD.z1 - WORLD.z0);
-  const X = (x) => (x - WORLD.x0) * sx;
-  const Z = (z) => (z - WORLD.z0) * sz;
-  const rect = (x0, z0, x1, z1) => {
-    g.fillRect(X(x0), Z(z0), (x1 - x0) * sx, (z1 - z0) * sz);
-  };
-  const rng = mulberry32(5107);
-  const nearJunction = (d) => Math.abs(d - Math.round(d / ROAD_STEP) * ROAD_STEP) < 8;
-
-  function paintV(c, a, b) {
-    g.fillStyle = '#c19a2b';
-    g.globalAlpha = 0.92;
-    rect(c - 0.67, a, c - 0.17, b);
-    rect(c + 0.17, a, c + 0.67, b);
-    g.fillStyle = '#f2f2e8';
-    g.globalAlpha = 0.6;
-    rect(c - 5.6, a, c - 5.3, b);
-    rect(c + 5.3, a, c + 5.6, b);
-    g.globalAlpha = 0.55;
-    for (let d = a; d < b; d += 7) {
-      if (nearJunction(d + 1.5)) continue;
-      rect(c - 3.04, d, c - 2.76, Math.min(d + 3, b));
-      rect(c + 2.76, d, c + 3.04, Math.min(d + 3, b));
-    }
-    g.fillStyle = '#0a0806';
-    g.globalAlpha = 0.07;
-    rect(c - 2.3, a, c - 1.8, b);
-    rect(c + 1.8, a, c + 2.3, b);
-    rect(c - 4.0, a, c - 3.5, b);
-    rect(c + 3.5, a, c + 4.0, b);
-    g.globalAlpha = 1;
-  }
-  function paintH(c, a, b) {
-    g.fillStyle = '#c19a2b';
-    g.globalAlpha = 0.92;
-    rect(a, c - 0.67, b, c - 0.17);
-    rect(a, c + 0.17, b, c + 0.67);
-    g.fillStyle = '#f2f2e8';
-    g.globalAlpha = 0.6;
-    rect(a, c - 5.6, b, c - 5.3);
-    rect(a, c + 5.3, b, c + 5.6);
-    g.globalAlpha = 0.55;
-    for (let d = a; d < b; d += 7) {
-      if (nearJunction(d + 1.5)) continue;
-      rect(d, c - 3.04, Math.min(d + 3, b), c - 2.76);
-      rect(d, c + 2.76, Math.min(d + 3, b), c + 3.04);
-    }
-    g.fillStyle = '#0a0806';
-    g.globalAlpha = 0.07;
-    rect(a, c - 2.3, b, c - 1.8);
-    rect(a, c + 1.8, b, c + 2.3);
-    rect(a, c - 4.0, b, c - 3.5);
-    rect(a, c + 3.5, b, c + 4.0);
-    g.globalAlpha = 1;
-  }
-
-  for (let c = GRID_MIN; c <= GRID_MAX; c += ROAD_STEP) {
-    paintV(c, GRID_MIN, GRID_MAX);
-    paintH(c, GRID_MIN, GRID_MAX);
-  }
-  paintH(CAUSEWAY_Z, GRID_MAX, WORLD.x1);
-
-  // Zebra bands on even intersections (both road directions).
-  g.fillStyle = '#f2f2e8';
-  g.globalAlpha = 0.78;
-  for (let ix = -6; ix <= 6; ix += 2) {
-    for (let iz = -6; iz <= 6; iz += 2) {
-      const gx = ix * ROAD_STEP, gz = iz * ROAD_STEP;
-      for (let k = -4; k <= 4; k++) {
-        rect(gx + k * 1.15 - 0.3, gz - 2.2, gx + k * 1.15 + 0.3, gz + 2.2);
-        rect(gx - 2.2, gz + k * 1.15 - 0.3, gx + 2.2, gz + k * 1.15 + 0.3);
+  const X = (x) => (x + 336) * (W / 768);
+  const Y = (z) => (z + 336) * (H / 672);
+  const M = W / 768; // px per metre
+  const VX = [];
+  for (let x = -288; x <= 384; x += 48) VX.push(x);
+  const HZ = [];
+  for (let z = -288; z <= 288; z += 48) HZ.push(z);
+  const EVEN = [-288, -192, -96, 0, 96, 192, 288];
+  const tex = R6_canvasTex(W, H, (ctx) => {
+    // Centre double-yellow lines, edge lines, dashed lane lines.
+    const paintRoadV = (x) => {
+      ctx.fillStyle = '#c19a2b';
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(X(x - 0.44), Y(-294), 0.18 * M, 588 * M);
+      ctx.fillRect(X(x + 0.26), Y(-294), 0.18 * M, 588 * M);
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.7;
+      ctx.fillRect(X(x - 5.475), Y(-294), 0.15 * M, 588 * M);
+      ctx.fillRect(X(x + 5.325), Y(-294), 0.15 * M, 588 * M);
+      ctx.globalAlpha = 0.65;
+      for (let z = -294; z < 294; z += 7.5) {
+        ctx.fillRect(X(x - 3.075), Y(z), 0.15 * M, 3 * M);
+        ctx.fillRect(X(x + 2.925), Y(z), 0.15 * M, 3 * M);
+      }
+    };
+    const paintRoadH = (z) => {
+      ctx.fillStyle = '#c19a2b';
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(X(-294), Y(z - 0.44), 684 * M, 0.18 * M);
+      ctx.fillRect(X(-294), Y(z + 0.26), 684 * M, 0.18 * M);
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.7;
+      ctx.fillRect(X(-294), Y(z - 5.475), 684 * M, 0.15 * M);
+      ctx.fillRect(X(-294), Y(z + 5.325), 684 * M, 0.15 * M);
+      ctx.globalAlpha = 0.65;
+      for (let x = -294; x < 390; x += 7.5) {
+        ctx.fillRect(X(x), Y(z - 3.075), 3 * M, 0.15 * M);
+        ctx.fillRect(X(x), Y(z + 2.925), 3 * M, 0.15 * M);
+      }
+    };
+    for (const x of VX) paintRoadV(x);
+    for (const z of HZ) paintRoadH(z);
+    // Zebra crossings at the 49 even intersections (both roads).
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.8;
+    for (const x of EVEN) {
+      for (const z of EVEN) {
+        for (let k = 0; k < 8; k++) {
+          ctx.fillRect(X(x - 4.375 + k * 1.25), Y(z - 2), 0.55 * M, 4 * M);
+          ctx.fillRect(X(x - 2), Y(z - 4.375 + k * 1.25), 4 * M, 0.55 * M);
+        }
       }
     }
-  }
-  g.globalAlpha = 1;
-
-  // Wear blotches along the roads.
-  for (let i = 0; i < 240; i++) {
-    const vert = rng() < 0.5;
-    const c = GRID_MIN + Math.floor(rng() * 13) * ROAD_STEP;
-    const along = GRID_MIN + rng() * (GRID_MAX - GRID_MIN);
-    const lat = (rng() * 2 - 1) * 5;
-    const rx = (1.5 + rng() * 1.8) * sx;
-    const ry = (3 + rng() * 4) * sz;
-    g.fillStyle = `rgba(20,16,10,${0.05 + rng() * 0.06})`;
-    g.beginPath();
-    if (vert) g.ellipse(X(c + lat), Z(along), rx, ry, 0, 0, Math.PI * 2);
-    else g.ellipse(X(along), Z(c + lat), ry, rx, 0, 0, Math.PI * 2);
-    g.fill();
-  }
-
-  // Cracks: short dark wandering polylines on the asphalt.
-  g.strokeStyle = 'rgba(16,12,8,0.32)';
-  g.lineWidth = 1.4;
-  for (let i = 0; i < 40; i++) {
-    const vert = rng() < 0.5;
-    const c = GRID_MIN + Math.floor(rng() * 13) * ROAD_STEP;
-    let ax = vert ? c + (rng() * 2 - 1) * 4 : GRID_MIN + rng() * (GRID_MAX - GRID_MIN);
-    let az = vert ? GRID_MIN + rng() * (GRID_MAX - GRID_MIN) : c + (rng() * 2 - 1) * 4;
-    let ang = rng() * Math.PI * 2;
-    g.beginPath();
-    g.moveTo(X(ax), Z(az));
-    for (let s = 0; s < 5; s++) {
-      ang += (rng() - 0.5) * 1.2;
-      ax += Math.cos(ang) * (0.9 + rng() * 0.8);
-      az += Math.sin(ang) * (0.9 + rng() * 0.8);
-      g.lineTo(X(ax), Z(az));
+    // Wear blotches: 240 soft dark patches scattered along the roads.
+    for (let i = 0; i < 240; i++) {
+      const vertical = R6_hash(i, 7, 101) < 0.5;
+      const along = R6_hash(i, 13, 102);
+      const pick = R6_hash(i, 29, 103);
+      let bx, bz;
+      if (vertical) {
+        const rx = VX[Math.floor(pick * VX.length)];
+        bx = rx + (R6_hash(i, 41, 104) - 0.5) * 9;
+        bz = -294 + along * 588;
+      } else {
+        const rz = HZ[Math.floor(pick * HZ.length)];
+        bx = -294 + along * 684;
+        bz = rz + (R6_hash(i, 41, 104) - 0.5) * 9;
+      }
+      const r = (1 + R6_hash(i, 53, 105) * 2.5) * M;
+      const g = ctx.createRadialGradient(X(bx), Y(bz), 0, X(bx), Y(bz), r);
+      const a = 0.05 + R6_hash(i, 67, 106) * 0.07;
+      g.addColorStop(0, 'rgba(18,14,9,' + a.toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(18,14,9,0)');
+      ctx.fillStyle = g;
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(X(bx), Y(bz), r, 0, Math.PI * 2);
+      ctx.fill();
     }
-    g.stroke();
-  }
-  return cv;
+    // Cracks: 40 short jagged dark polylines on the roads.
+    ctx.strokeStyle = 'rgba(25,20,15,0.3)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 40; i++) {
+      const vertical = R6_hash(i, 3, 111) < 0.5;
+      const along = R6_hash(i, 5, 112);
+      const pick = R6_hash(i, 11, 113);
+      let px, pz;
+      if (vertical) {
+        const rx = VX[Math.floor(pick * VX.length)];
+        px = rx + (R6_hash(i, 17, 114) - 0.5) * 9;
+        pz = -294 + along * 588;
+      } else {
+        const rz = HZ[Math.floor(pick * HZ.length)];
+        px = -294 + along * 684;
+        pz = rz + (R6_hash(i, 17, 114) - 0.5) * 9;
+      }
+      let ang = R6_hash(i, 23, 115) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(X(px), Y(pz));
+      for (let s = 0; s < 6; s++) {
+        ang += (R6_hash(i, s * 7 + 31, 116) - 0.5) * 1.2;
+        px += Math.cos(ang) * 0.8;
+        pz += Math.sin(ang) * 0.8;
+        ctx.lineTo(X(px), Y(pz));
+      }
+      ctx.stroke();
+    }
+    // Faint tyre tracks along every third road.
+    ctx.strokeStyle = 'rgba(20,16,12,0.07)';
+    ctx.lineWidth = 0.5 * M;
+    for (let vi = 0; vi < VX.length; vi += 3) {
+      const x = VX[vi];
+      const ph = R6_hash(vi, 2, 121) * Math.PI * 2;
+      for (const off of [-3.8, -2.2, 2.2, 3.8]) {
+        ctx.beginPath();
+        for (let z = -294; z <= 294; z += 12) {
+          const xx = x + off + Math.sin(z * 0.02 + ph) * 0.3;
+          if (z === -294) ctx.moveTo(X(xx), Y(z));
+          else ctx.lineTo(X(xx), Y(z));
+        }
+        ctx.stroke();
+      }
+    }
+    for (let hi = 0; hi < HZ.length; hi += 3) {
+      const z = HZ[hi];
+      const ph = R6_hash(hi, 4, 122) * Math.PI * 2;
+      for (const off of [-3.8, -2.2, 2.2, 3.8]) {
+        ctx.beginPath();
+        for (let x = -294; x <= 390; x += 12) {
+          const zz = z + off + Math.sin(x * 0.02 + ph) * 0.3;
+          if (x === -294) ctx.moveTo(X(x), Y(zz));
+          else ctx.lineTo(X(x), Y(zz));
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  });
+  R6_plane(scene, tex, 768, 672, 48, 0.06, 0, 1, 2);
 }
 
-// --- Sea: foam at the shoreline, a few swell arcs, ~110 thin lines.
-function R5_seaCanvas() {
-  const W = 2048, H = 128;
-  const cv = R5_cv(W, H);
-  const g = cv.getContext('2d');
-  const rng = mulberry32(9021);
-  const sx = W / (WORLD.x1 - WORLD.x0);
-  const sz = H / 28;
-  const X = (x) => (x - WORLD.x0) * sx;
-  const Z = (z) => (z - 308) * sz;
-
-  const foam = g.createLinearGradient(0, Z(309), 0, Z(314.5));
-  foam.addColorStop(0, 'rgba(255,255,255,0.55)');
-  foam.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = foam;
-  g.fillRect(0, Z(309), W, Z(314.5) - Z(309));
-  for (let i = 0; i < 90; i++) {
-    g.fillStyle = `rgba(255,255,255,${0.25 + rng() * 0.3})`;
-    g.beginPath();
-    g.ellipse(rng() * W, Z(310.5) + (rng() - 0.5) * 14, 12 + rng() * 22, 2.5 + rng() * 3.5, 0, 0, Math.PI * 2);
-    g.fill();
-  }
-  for (let i = 0; i < 420; i++) {
-    g.fillStyle = `rgba(255,255,255,${0.3 + rng() * 0.4})`;
-    g.fillRect(rng() * W, Z(309.5) + rng() * 16, 1 + rng() * 2, 1 + rng() * 2);
-  }
-  for (let i = 0; i < 9; i++) {
-    const x0 = rng() * W * 0.9;
-    const w = 130 + rng() * 260;
-    const y = 42 + rng() * 62;
-    g.strokeStyle = `rgba(255,255,255,${0.35 + rng() * 0.2})`;
-    g.lineWidth = 2.5 + rng() * 2;
-    g.beginPath();
-    g.moveTo(x0, y);
-    g.quadraticCurveTo(x0 + w / 2, y - 13 - rng() * 16, x0 + w, y + (rng() - 0.5) * 8);
-    g.stroke();
-  }
-  for (let i = 0; i < 110; i++) {
-    const x0 = rng() * W;
-    const y = 26 + rng() * 96;
-    const len = 25 + rng() * 70;
-    g.strokeStyle = `rgba(255,255,255,${0.15 + rng() * 0.3})`;
-    g.lineWidth = 1.5 + rng();
-    g.beginPath();
-    g.moveTo(x0, y);
-    g.quadraticCurveTo(x0 + len / 2, y - 2 - rng() * 3, x0 + len, y + (rng() - 0.5) * 4);
-    g.stroke();
-  }
-  return cv;
+// --- 2. Facades: cornice slabs, balconies, awnings on the street side ------
+// The street side of a building is the face nearest a 48 m grid line.
+function R6_streetSide(b) {
+  const near = (v) => {
+    const k = Math.round(v / 48);
+    return Math.abs(v - 48 * k);
+  };
+  const d = [near(b.x - b.w / 2), near(b.x + b.w / 2), near(b.z - b.d / 2), near(b.z + b.d / 2)];
+  let side = 0;
+  for (let i = 1; i < 4; i++) if (d[i] < d[side]) side = i;
+  return side; // 0 = west, 1 = east, 2 = north, 3 = south
 }
 
-// --- Second sand grain: denser speckle, footprint trails, shells.
-// Drawn only on the two sand bands (the beach road stays clear).
-function R5_sandCanvas() {
-  const W = 2048, H = 256;
-  const cv = R5_cv(W, H);
-  const g = cv.getContext('2d');
-  const rng = mulberry32(7717);
-  const sx = W / (WORLD.x1 - WORLD.x0);
-  const sz = H / 76;
-  const X = (x) => (x - WORLD.x0) * sx;
-  const Z = (z) => (z - 238) * sz;
-  const inSand = (z) => (z >= 240 && z <= 282) || (z >= 294 && z <= 312);
-
-  for (let i = 0; i < 9000; i++) {
-    const x = WORLD.x0 + rng() * (WORLD.x1 - WORLD.x0);
-    const z = 238 + rng() * 76;
-    if (!inSand(z)) continue;
-    const dark = rng() < 0.55;
-    g.fillStyle = dark
-      ? `rgba(96,66,32,${0.2 + rng() * 0.35})`
-      : `rgba(255,232,190,${0.2 + rng() * 0.35})`;
-    const r = 0.8 + rng() * 1.4;
-    g.fillRect(X(x), Z(z), r, r);
-  }
-  for (let t = 0; t < 6; t++) {
-    let px = WORLD.x0 + 60 + rng() * 640;
-    let pz = rng() < 0.5 ? 246 + rng() * 30 : 296 + rng() * 12;
-    let ang = (rng() - 0.5) * 1.2 + (rng() < 0.5 ? 0 : Math.PI);
-    g.fillStyle = 'rgba(90,60,30,0.3)';
-    for (let s = 0; s < 22; s++) {
-      ang += (rng() - 0.5) * 0.5;
-      px += Math.cos(ang) * 0.62;
-      pz += Math.sin(ang) * 0.62;
-      if (!inSand(pz)) { ang += Math.PI / 2; continue; }
-      const side = s % 2 === 0 ? 1 : -1;
-      const ox = px - Math.sin(ang) * 0.11 * side;
-      const oz = pz + Math.cos(ang) * 0.11 * side;
-      g.save();
-      g.translate(X(ox), Z(oz));
-      g.rotate(ang);
-      g.beginPath();
-      g.ellipse(0, 0, 2.4, 1.3, 0, 0, Math.PI * 2);
-      g.fill();
-      g.restore();
+function R6_facades(scene, L) {
+  const CORNICE = ['#3fa8a0', '#b3402e', '#d4af37', '#2c4a6b', '#e8e0cc'];
+  const AWNING = ['#f28482', '#81b29a', '#f4a261', '#a78bfa', '#4fc3f7', '#f2c94c'];
+  const CONCRETE = R6_hexLin('#b8b0a0');
+  const RAIL = R6_hexLin('#3c3a38');
+  const cSoup = R6_soup(), bSoup = R6_soup(), aSoup = R6_soup();
+  let cN = 0, bN = 0, aN = 0;
+  const buildings = L.buildings || [];
+  for (const b of buildings) {
+    const side = R6_streetSide(b);
+    // Outward normal, facade azimuth, face length, face centre.
+    let ox = 0, oz = 0, az = 0, len = 0, fx = 0, fz = 0;
+    if (side === 0) { ox = -1; az = Math.PI; len = b.d; fx = b.x - b.w / 2; fz = b.z; }
+    else if (side === 1) { ox = 1; az = 0; len = b.d; fx = b.x + b.w / 2; fz = b.z; }
+    else if (side === 2) { oz = -1; az = Math.PI / 2; len = b.w; fx = b.x; fz = b.z - b.d / 2; }
+    else { oz = 1; az = -Math.PI / 2; len = b.w; fx = b.x; fz = b.z + b.d / 2; }
+    const ax = Math.sin(az), azz = Math.cos(az); // unit vector along the facade
+    if (R6_hash(b.x, b.z, 11) < 0.8167657408630475) {
+      R6_box(cSoup, b.x, b.h - 0.3, b.z, b.w + 0.7, 0.35, b.d + 0.7, 0, 0,
+        R6_hexLin(R6_pick(CORNICE, R6_hash(b.x, b.z, 12))));
+      cN++;
+    }
+    if (R6_hash(b.x, b.z, 23) < 0.2918182836147025) {
+      const y = (R6_hash(b.x, b.z, 24) < 0.5 || b.h <= 11.5) ? 6 : 9;
+      const wid = Math.min(4.5, len - 0.6);
+      R6_box(bSoup, fx + ox * 0.65, y, fz + oz * 0.65, 1.3, 0.18, wid, az, 0, CONCRETE);
+      R6_box(bSoup, fx + ox * 1.26, y + 0.54, fz + oz * 1.26, 0.08, 0.9, wid, az, 0, RAIL);
+      R6_box(bSoup, fx + ox * 0.65 + ax * (wid / 2 - 0.04), y + 0.54, fz + oz * 0.65 + azz * (wid / 2 - 0.04), 1.3, 0.9, 0.08, az, 0, RAIL);
+      R6_box(bSoup, fx + ox * 0.65 - ax * (wid / 2 - 0.04), y + 0.54, fz + oz * 0.65 - azz * (wid / 2 - 0.04), 1.3, 0.9, 0.08, az, 0, RAIL);
+      bN++;
+    }
+    if (R6_hash(b.x, b.z, 37) < 0.4293799763545394) {
+      const wid = Math.min(9, len - 1);
+      R6_box(aSoup, fx + ox * 0.82, 3.02, fz + oz * 0.82, 1.8, 0.12, wid, az, -0.4363,
+        R6_hexLin(R6_pick(AWNING, R6_hash(b.x, b.z, 38))));
+      aN++;
     }
   }
-  const shellCols = ['#f7c8d8', '#fff8ee', '#f4a261', '#ffd6e0'];
-  for (let i = 0; i < 46; i++) {
-    const x = WORLD.x0 + rng() * (WORLD.x1 - WORLD.x0);
-    const z = 238 + rng() * 76;
-    if (!inSand(z)) continue;
-    g.fillStyle = shellCols[Math.floor(rng() * shellCols.length)];
-    g.globalAlpha = 0.55 + rng() * 0.35;
-    g.beginPath();
-    g.arc(X(x), Z(z), 2 + rng() * 2.5, 0, Math.PI * 2);
-    g.fill();
-  }
-  g.globalAlpha = 1;
-  return cv;
+  const lit = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const cm = R6_mesh(cSoup, lit);
+  cm.userData.r6kind = 'cornice';
+  cm.userData.r6count = cN;
+  scene.add(cm);
+  const bm = R6_mesh(bSoup, lit);
+  bm.userData.r6kind = 'balcony';
+  bm.userData.r6count = bN;
+  scene.add(bm);
+  const am = R6_mesh(aSoup, lit);
+  am.userData.r6kind = 'awning';
+  am.userData.r6count = aN;
+  scene.add(am);
 }
 
-// --- Facades: cornice band under the roof, balcony + rail on the face
-// nearest the road, striped-colour awning over the ground floor.
-function R5_face(b) {
-  const rx = Math.round(b.x / ROAD_STEP) * ROAD_STEP;
-  const rz = Math.round(b.z / ROAD_STEP) * ROAD_STEP;
-  if (Math.abs(b.x - rx) <= Math.abs(b.z - rz)) {
-    return { ax: 'x', s: rx >= b.x ? 1 : -1, off: b.w / 2 };
-  }
-  return { ax: 'z', s: rz >= b.z ? 1 : -1, off: b.d / 2 };
-}
-function R5_facades(scene, L) {
-  const dum = new THREE.Object3D();
-  const col = new THREE.Color();
-  const unit = new THREE.BoxGeometry(1, 1, 1);
-  const lam = new THREE.MeshLambertMaterial({ color: 0xffffff });
-
-  const cor = new THREE.InstancedMesh(unit, lam, 220);
+// --- 3. Parked cars: one small light bar at each end -----------------------
+function R6_parkedLights(scene, L) {
+  const soup = R6_soup();
+  const FRONT = R6_hexLin('#fff6c8');
+  const REAR = R6_hexLin('#ff2a2a');
   let n = 0;
-  for (const b of L.buildings) {
-    if (n >= 220) break;
-    if (R5_u(b.x, b.z, 3) >= 0.83) continue;
-    dum.position.set(b.x, b.h - 0.55, b.z);
-    dum.rotation.set(0, 0, 0);
-    dum.scale.set(b.w + 0.9, 0.34, b.d + 0.9);
-    dum.updateMatrix();
-    cor.setMatrixAt(n, dum.matrix);
-    cor.setColorAt(n, col.set(R5_pick(R5_CORNICE, b.x, b.z, 4)));
-    n++;
+  for (const c of (L.parked || [])) {
+    const fx = Math.cos(c.ry), fz = -Math.sin(c.ry);
+    R6_box(soup, c.x + fx * 2.05, 0.72, c.z + fz * 2.05, 0.18, 0.12, 1.6, c.ry, 0, FRONT);
+    R6_box(soup, c.x - fx * 2.05, 0.72, c.z - fz * 2.05, 0.18, 0.12, 1.6, c.ry, 0, REAR);
+    n += 2;
   }
-  cor.count = n;
-  cor.frustumCulled = false;
-  cor.instanceMatrix.needsUpdate = true;
-  if (cor.instanceColor) cor.instanceColor.needsUpdate = true;
-  scene.add(cor);
-
-  const bal = new THREE.InstancedMesh(unit, lam, 160);
-  n = 0;
-  for (const b of L.buildings) {
-    if (n >= 160) break;
-    if (b.h < 14 || R5_u(b.x, b.z, 5) >= 0.55) continue;
-    const f = R5_face(b);
-    if (f.ax === 'x') {
-      dum.position.set(b.x + f.s * (f.off + 0.72), 5.6, b.z);
-      dum.rotation.set(0, 0, 0);
-      dum.scale.set(1.15, 0.18, 3.4);
-      dum.updateMatrix();
-      bal.setMatrixAt(n, dum.matrix);
-      bal.setColorAt(n, col.set('#cfc8b8'));
-      n++;
-      dum.position.set(b.x + f.s * (f.off + 1.24), 6.15, b.z);
-      dum.scale.set(0.12, 0.9, 3.4);
-      dum.updateMatrix();
-      bal.setMatrixAt(n, dum.matrix);
-      bal.setColorAt(n, col.set('#3a3f44'));
-      n++;
-    } else {
-      dum.position.set(b.x, 5.6, b.z + f.s * (f.off + 0.72));
-      dum.rotation.set(0, 0, 0);
-      dum.scale.set(3.4, 0.18, 1.15);
-      dum.updateMatrix();
-      bal.setMatrixAt(n, dum.matrix);
-      bal.setColorAt(n, col.set('#cfc8b8'));
-      n++;
-      dum.position.set(b.x, 6.15, b.z + f.s * (f.off + 1.24));
-      dum.scale.set(3.4, 0.9, 0.12);
-      dum.updateMatrix();
-      bal.setMatrixAt(n, dum.matrix);
-      bal.setColorAt(n, col.set('#3a3f44'));
-      n++;
-    }
-  }
-  bal.count = n;
-  bal.frustumCulled = false;
-  bal.instanceMatrix.needsUpdate = true;
-  if (bal.instanceColor) bal.instanceColor.needsUpdate = true;
-  scene.add(bal);
-
-  const awn = new THREE.InstancedMesh(unit, lam, 120);
-  n = 0;
-  for (const b of L.buildings) {
-    if (n >= 120) break;
-    if (b.h < 6 || R5_u(b.x, b.z, 7) >= 0.5) continue;
-    const f = R5_face(b);
-    if (f.ax === 'x') {
-      dum.position.set(b.x + f.s * (f.off + 0.95), 3.15, b.z);
-      dum.rotation.set(0, 0, -f.s * 0.38);
-      dum.scale.set(1.7, 0.14, 4.2);
-    } else {
-      dum.position.set(b.x, 3.15, b.z + f.s * (f.off + 0.95));
-      dum.rotation.set(f.s * 0.38, 0, 0);
-      dum.scale.set(4.2, 0.14, 1.7);
-    }
-    dum.updateMatrix();
-    awn.setMatrixAt(n, dum.matrix);
-    awn.setColorAt(n, col.set(R5_pick(R5_AWN, b.x, b.z, 8)));
-    n++;
-  }
-  awn.count = n;
-  awn.frustumCulled = false;
-  awn.instanceMatrix.needsUpdate = true;
-  if (awn.instanceColor) awn.instanceColor.needsUpdate = true;
-  scene.add(awn);
+  const m = R6_mesh(soup, new THREE.MeshBasicMaterial({ vertexColors: true }));
+  m.userData.r6kind = 'parked-light-bars';
+  m.userData.r6count = n;
+  scene.add(m);
 }
 
-// --- Parked cars: warm-white bar at the front, red bar at the rear.
-function R5_parkedLights(scene, L) {
-  const geo = new THREE.PlaneGeometry(1.15, 0.24);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-  const mesh = new THREE.InstancedMesh(geo, mat, L.parked.length * 2);
-  const dum = new THREE.Object3D();
-  const col = new THREE.Color();
-  let n = 0;
-  for (const p of L.parked) {
-    const fx = Math.cos(p.ry);
-    const fz = -Math.sin(p.ry);
-    dum.scale.set(1, 1, 1);
-    dum.position.set(p.x + fx * 2.28, 0.58, p.z + fz * 2.28);
-    dum.rotation.set(0, Math.atan2(fx, fz), 0);
-    dum.updateMatrix();
-    mesh.setMatrixAt(n, dum.matrix);
-    mesh.setColorAt(n, col.set('#fff6c8'));
-    n++;
-    dum.position.set(p.x - fx * 2.28, 0.58, p.z - fz * 2.28);
-    dum.rotation.set(0, Math.atan2(-fx, -fz), 0);
-    dum.updateMatrix();
-    mesh.setMatrixAt(n, dum.matrix);
-    mesh.setColorAt(n, col.set('#ff2a2a'));
-    n++;
+// --- 4. Beach: towels, surfboards, boats, sand grain + prints -------------
+function R6_beach(scene, L) {
+  const TOWEL = ['#f28482', '#f2c94c', '#4fc3f7', '#81b29a', '#ff70a6', '#ffd670', '#a78bfa', '#90be6d'];
+  const BOARD = ['#f28482', '#4fc3f7', '#f2c94c', '#81b29a', '#ff70a6', '#e07a5f'];
+  const HULL = ['#e8e0cc', '#b3402e', '#2c4a6b', '#3fa8a0'];
+  const WHITE = R6_hexLin('#f5f0e6');
+  const DARK = R6_hexLin('#3a3a3a');
+  const soup = R6_soup();
+  let nTowel = 0, nBoard = 0, nBoat = 0;
+  for (const u of (L.umbrellas || [])) {
+    const h1 = R6_hash(u.x, u.z, 61), h2 = R6_hash(u.x, u.z, 62);
+    const dx = (h1 - 0.5) * 3.0;
+    const dz = (u.z < 288 ? -1.9 : 1.9) + (h2 - 0.5) * 0.8;
+    R6_box(soup, u.x + dx, 0.13, u.z + dz, 1.8, 0.06, 0.9, h1 * Math.PI, 0,
+      R6_hexLin(R6_pick(TOWEL, R6_hash(u.x, u.z, 63))));
+    nTowel++;
   }
-  mesh.count = n;
-  mesh.frustumCulled = false;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  scene.add(mesh);
-}
-
-// --- Beach life: a bright towel by every umbrella, surfboards at the
-// waterline, three little boats out on the sea.
-function R5_beach(scene, L) {
-  const dum = new THREE.Object3D();
-  const col = new THREE.Color();
-  const unit = new THREE.BoxGeometry(1, 1, 1);
-  const lam = new THREE.MeshLambertMaterial({ color: 0xffffff });
-
-  const tow = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(1.9, 0.95),
-    new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
-    L.umbrellas.length
-  );
-  let n = 0;
-  for (const u of L.umbrellas) {
-    const a = R5_u(u.x, u.z, 11) * Math.PI * 2;
-    let oz = Math.sin(a) * 2.3;
-    if (u.z + oz > 282 && u.z + oz < 294) oz = -oz;
-    dum.position.set(u.x + Math.cos(a) * 2.3, 0.09, u.z + oz);
-    dum.rotation.set(-Math.PI / 2, 0, R5_u(u.x, u.z, 12) * Math.PI);
-    dum.scale.set(1, 1, 1);
-    dum.updateMatrix();
-    tow.setMatrixAt(n, dum.matrix);
-    tow.setColorAt(n, col.set(R5_pick(R5_TOWEL, u.x, u.z, 13)));
-    n++;
-  }
-  tow.count = n;
-  tow.frustumCulled = false;
-  tow.instanceMatrix.needsUpdate = true;
-  if (tow.instanceColor) tow.instanceColor.needsUpdate = true;
-  scene.add(tow);
-
-  const boards = new THREE.InstancedMesh(unit, lam, 8);
-  n = 0;
   for (let i = 0; i < 8; i++) {
-    const bx = -210 + i * 60 + (R5_u(i * 13.1, 7.7, 21) - 0.5) * 18;
-    const bz = 309.5 + (R5_u(i * 3.3, 9.1, 22) - 0.5) * 2;
-    dum.position.set(bx, 1.02, bz);
-    dum.rotation.set(0, (R5_u(i * 5.9, 2.2, 23) - 0.5) * 0.7, (R5_u(i * 7.7, 4.4, 24) - 0.5) * 0.28);
-    dum.scale.set(0.55, 2.1, 0.14);
-    dum.updateMatrix();
-    boards.setMatrixAt(n, dum.matrix);
-    boards.setColorAt(n, col.set(R5_BOARD[i % R5_BOARD.length]));
-    n++;
+    const x = -252 + i * 72 + (R6_hash(i, 3, 71) - 0.5) * 20;
+    const z = 309.5 + (R6_hash(i, 5, 72) - 0.5) * 2;
+    R6_box(soup, x, 1.25, z, 0.08, 2.2, 0.55, R6_hash(i, 7, 73) * Math.PI, 0.14,
+      R6_hexLin(R6_pick(BOARD, R6_hash(i, 9, 74))));
+    nBoard++;
   }
-  boards.count = n;
-  boards.frustumCulled = false;
-  boards.instanceMatrix.needsUpdate = true;
-  if (boards.instanceColor) boards.instanceColor.needsUpdate = true;
-  scene.add(boards);
-
-  const spots = [[-170, 324], [30, 326], [210, 323]];
-  const boats = new THREE.InstancedMesh(unit, lam, spots.length * 3);
-  const flags = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(1.1, 0.65),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
-    spots.length
-  );
-  n = 0;
-  let nf = 0;
-  for (let i = 0; i < spots.length; i++) {
-    const bx = spots[i][0];
-    const bz = spots[i][1];
-    const yaw = (R5_u(bx, bz, 27) - 0.5) * 0.8;
-    dum.rotation.set(0, yaw, 0);
-    dum.position.set(bx, 0.55, bz);
-    dum.scale.set(6.5, 1.1, 2.3);
-    dum.updateMatrix();
-    boats.setMatrixAt(n, dum.matrix);
-    boats.setColorAt(n, col.set(R5_pick(R5_HULL, bx, bz, 28)));
-    n++;
-    dum.position.set(bx, 1.55, bz);
-    dum.scale.set(2.6, 1.0, 1.7);
-    dum.updateMatrix();
-    boats.setMatrixAt(n, dum.matrix);
-    boats.setColorAt(n, col.set('#f8f6f0'));
-    n++;
-    dum.position.set(bx, 3.1, bz);
-    dum.scale.set(0.14, 4.6, 0.14);
-    dum.updateMatrix();
-    boats.setMatrixAt(n, dum.matrix);
-    boats.setColorAt(n, col.set('#5a4632'));
-    n++;
-    dum.position.set(bx + Math.cos(yaw) * 0.6, 5.0, bz - Math.sin(yaw) * 0.6);
-    dum.rotation.set(0, yaw, 0);
-    dum.scale.set(1, 1, 1);
-    dum.updateMatrix();
-    flags.setMatrixAt(nf, dum.matrix);
-    flags.setColorAt(nf, col.set(R5_FLAG[i % R5_FLAG.length]));
-    nf++;
+  const BOATS = [[-230, 400], [30, 450], [250, 390]];
+  for (let i = 0; i < 3; i++) {
+    const bx = BOATS[i][0] + (R6_hash(i, 1, 81) - 0.5) * 50;
+    const bz = BOATS[i][1] + (R6_hash(i, 2, 82) - 0.5) * 40;
+    const ry = R6_hash(i, 11, 83) * Math.PI * 2;
+    const fx = Math.cos(ry), fz = -Math.sin(ry);
+    R6_box(soup, bx, 0.55, bz, 4.2, 0.9, 1.7, ry, 0, R6_hexLin(R6_pick(HULL, R6_hash(i, 13, 84))));
+    R6_box(soup, bx - fx * 0.3, 1.35, bz - fz * 0.3, 1.8, 0.8, 1.2, ry, 0, WHITE);
+    R6_box(soup, bx + fx * 0.6, 2.9, bz + fz * 0.6, 0.12, 3.8, 0.12, ry, 0, DARK);
+    R6_box(soup, bx + fx * 0.95, 4.55, bz + fz * 0.95, 0.7, 0.45, 0.05, ry, 0,
+      R6_hexLin(R6_pick(['#ff2a2a', '#f2c94c', '#f28482'], R6_hash(i, 17, 85))));
+    nBoat++;
   }
-  boats.count = n;
-  boats.frustumCulled = false;
-  boats.instanceMatrix.needsUpdate = true;
-  if (boats.instanceColor) boats.instanceColor.needsUpdate = true;
-  scene.add(boats);
-  flags.count = nf;
-  flags.frustumCulled = false;
-  flags.instanceMatrix.needsUpdate = true;
-  if (flags.instanceColor) flags.instanceColor.needsUpdate = true;
-  scene.add(flags);
+  const m = R6_mesh(soup, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  m.userData.r6kind = 'beach-props';
+  m.userData.r6count = nTowel + nBoard + nBoat;
+  m.userData.r6towels = nTowel;
+  m.userData.r6boards = nBoard;
+  m.userData.r6boats = nBoat;
+  scene.add(m);
+  // Sand strip is x -336..432, z 240..312; the beach road band z 282..294
+  // stays clear of grain and prints. Canvas 1024x96: py 56..72 is the road.
+  const grainTex = R6_canvasTex(1024, 96, (ctx) => {
+    for (let i = 0; i < 4500; i++) {
+      const px = R6_hash(i, 3, 91) * 1024;
+      const py = R6_hash(i, 5, 92) * 96;
+      if (py >= 56 && py <= 72) continue;
+      const light = R6_hash(i, 7, 93) < 0.5;
+      ctx.fillStyle = light
+        ? 'rgba(255,240,210,' + (0.15 + R6_hash(i, 11, 94) * 0.25).toFixed(3) + ')'
+        : 'rgba(120,95,60,' + (0.15 + R6_hash(i, 13, 95) * 0.25).toFixed(3) + ')';
+      const s = 1 + Math.floor(R6_hash(i, 17, 96) * 2);
+      ctx.fillRect(px, py, s, s);
+    }
+  });
+  R6_plane(scene, grainTex, 768, 72, 48, 0.12, 276, 0.3, 3);
+  const printTex = R6_canvasTex(1024, 96, (ctx) => {
+    const SX = 1024 / 768, SY = 96 / 72;
+    const px = (x) => (x + 336) * SX;
+    const py = (z) => (z - 240) * SY;
+    // Footprint trails: pairs of small prints wandering across the sand.
+    ctx.fillStyle = 'rgba(90,70,45,0.35)';
+    for (let t = 0; t < 26; t++) {
+      const north = R6_hash(t, 1, 97) < 0.5;
+      let x = -320 + R6_hash(t, 3, 98) * 720;
+      let z = north ? 248 + R6_hash(t, 5, 99) * 26 : 298 + R6_hash(t, 5, 99) * 10;
+      let ang = R6_hash(t, 7, 100) * Math.PI * 2;
+      let left = true;
+      for (let s = 0; s < 12; s++) {
+        ang += (R6_hash(t, s, 101) - 0.5) * 0.7;
+        x += Math.cos(ang) * 0.7;
+        z += Math.sin(ang) * 0.7;
+        if (z >= 282 && z <= 294) { left = !left; continue; }
+        const ox = Math.cos(ang + Math.PI / 2) * (left ? 0.14 : -0.14);
+        const oz = Math.sin(ang + Math.PI / 2) * (left ? 0.14 : -0.14);
+        ctx.beginPath();
+        ctx.ellipse(px(x + ox), py(z + oz), 0.28 * SX, 0.12 * SY, -ang, 0, Math.PI * 2);
+        ctx.fill();
+        left = !left;
+      }
+    }
+    // Shells: small bright arcs and dots.
+    const SHELL = ['#ffffff', '#ffd6e0', '#ffe8b0', '#ffb08a'];
+    for (let i = 0; i < 46; i++) {
+      const north = R6_hash(i, 2, 107) < 0.5;
+      const x = -320 + R6_hash(i, 4, 108) * 720;
+      const z = north ? 246 + R6_hash(i, 6, 109) * 32 : 296 + R6_hash(i, 6, 109) * 14;
+      ctx.fillStyle = R6_pick(SHELL, R6_hash(i, 8, 110));
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.arc(px(x), py(z), (0.15 + R6_hash(i, 10, 111) * 0.15) * SX, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  });
+  R6_plane(scene, printTex, 768, 72, 48, 0.14, 276, 0.9, 4);
 }
 
-// --- Palms: a second, lower frond ring, drooping ~49 deg, darker green.
-function R5_palms(scene, L) {
-  const geo = new THREE.PlaneGeometry(2.2, 0.5);
-  geo.translate(1.1, 0, 0);
-  const mesh = new THREE.InstancedMesh(
-    geo,
-    new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
-    L.palms.length * 5
-  );
-  const dum = new THREE.Object3D();
-  const col = new THREE.Color();
+// --- 5. Palms: a second, lower frond ring, drooping, darker green ---------
+function R6_palmRing(scene, L) {
+  const soup = R6_soup();
+  const PITCH = -49 * Math.PI / 180;
+  const CP = Math.cos(PITCH), SP = Math.sin(PITCH);
   let n = 0;
-  for (const p of L.palms) {
-    const base = R5_u(p.x, p.z, 31) * Math.PI * 2;
-    for (let k = 0; k < 5; k++) {
-      dum.position.set(p.x, 4.6 * p.s, p.z);
-      dum.rotation.set(0, 0, 0);
-      dum.rotateY(base + k * (Math.PI * 2 / 5));
-      dum.rotateZ(-0.855);
-      dum.scale.set(p.s, p.s, p.s);
-      dum.updateMatrix();
-      mesh.setMatrixAt(n, dum.matrix);
-      mesh.setColorAt(n, col.set(R5_pick(R5_FROND, p.x + k * 3.1, p.z - k * 1.7, 32)));
+  for (const p of (L.palms || [])) {
+    const len = 2.7 * p.s;
+    const y = 5.2 * p.s - 0.55;
+    for (let j = 0; j < 5; j++) {
+      const az = (j / 5) * Math.PI * 2 + R6_hash(p.x, p.z, 51) * 0.6;
+      const cx = p.x + Math.cos(az) * CP * len / 2;
+      const cy = y + SP * len / 2;
+      const cz = p.z - Math.sin(az) * CP * len / 2;
+      const v = 0.9 + R6_hash(p.x, p.z, 52 + j) * 0.2;
+      R6_box(soup, cx, cy, cz, len, 0.06, 0.62, az, PITCH, [0.028 * v, 0.19 * v, 0.04 * v]);
       n++;
     }
   }
-  mesh.count = n;
-  mesh.frustumCulled = false;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  scene.add(mesh);
+  const m = R6_mesh(soup, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  m.userData.r6kind = 'palm-ring2';
+  m.userData.r6count = n;
+  scene.add(m);
 }
 
-function R5_dressing(scene, L) {
-  R5_sheet(scene, R5_roadCanvas(), WORLD.x1 - WORLD.x0, WORLD.z1 - WORLD.z0,
-    (WORLD.x0 + WORLD.x1) / 2, 0.06, (WORLD.z0 + WORLD.z1) / 2, 1, 2);
-  R5_sheet(scene, R5_seaCanvas(), WORLD.x1 - WORLD.x0, 28,
-    (WORLD.x0 + WORLD.x1) / 2, 0.45, 322, 0.55, 2);
-  R5_sheet(scene, R5_sandCanvas(), WORLD.x1 - WORLD.x0, 76,
-    (WORLD.x0 + WORLD.x1) / 2, 0.07, 276, 0.3, 3);
-  R5_facades(scene, L);
-  R5_parkedLights(scene, L);
-  R5_beach(scene, L);
-  R5_palms(scene, L);
+// --- 6. Sea: foam at the waterline, wave arcs, thin wave lines ------------
+// Sea plane is 1400 x 700 m centred at (60, 662): x -640..760, z 312..1012.
+function R6_sea(scene) {
+  const tex = R6_canvasTex(1024, 512, (ctx) => {
+    const X = (x) => (x + 640) * (1024 / 1400);
+    const Y = (z) => (z - 312) * (512 / 700);
+    // Foam band hugging the waterline (canvas top edge, z = 312).
+    ctx.fillStyle = '#ffffff';
+    for (let x = -640; x <= 760; x += 8) {
+      const ey = 6 + 10 * Math.sin(x * 0.01 + 1.7) + 6 * Math.sin(x * 0.023);
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.arc(X(x), ey, 8 + R6_hash(x, 1, 121) * 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.22;
+      ctx.beginPath();
+      ctx.arc(X(x), ey + 26, 6 + R6_hash(x, 3, 122) * 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 0.8;
+    ctx.fillRect(0, 0, 1024, 2);
+    // Nine wave arcs further out.
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#ffffff';
+    for (let i = 0; i < 9; i++) {
+      const cx = -500 + i * 150 + (R6_hash(i, 1, 123) - 0.5) * 60;
+      const cy = 120 + R6_hash(i, 3, 124) * 280;
+      const r = 25 + R6_hash(i, 5, 125) * 45;
+      ctx.globalAlpha = 0.3 + R6_hash(i, 7, 126) * 0.2;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(X(cx), cy, r, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+    }
+    // About 110 thin wave lines scattered over the sea.
+    for (let i = 0; i < 110; i++) {
+      const x = -640 + R6_hash(i, 1, 127) * 1400;
+      const z = 330 + R6_hash(i, 3, 128) * 650;
+      const len = 4 + R6_hash(i, 5, 129) * 10;
+      const ang = (R6_hash(i, 7, 130) - 0.5) * 0.5;
+      ctx.globalAlpha = 0.15 + R6_hash(i, 9, 131) * 0.2;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(X(x), Y(z));
+      ctx.lineTo(X(x + Math.cos(ang) * len), Y(z + Math.sin(ang) * len));
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  });
+  R6_plane(scene, tex, 1400, 700, 60, 0.45, 662, 0.55, 2);
+}
+
+// --- entry point: called once at the end of buildStatic --------------------
+function R6_dressing(scene, L) {
+  R6_asphalt(scene);
+  R6_facades(scene, L);
+  R6_parkedLights(scene, L);
+  R6_beach(scene, L);
+  R6_palmRing(scene, L);
+  R6_sea(scene);
 }
 
 export class Renderer {
@@ -1602,7 +1551,7 @@ export class Renderer {
     this.solmarinaSign.position.set(-6, 4.9, 311.8);
     this.solmarinaSign.rotation.y = Math.PI;
     scene.add(this.solmarinaSign);
-    R5_dressing(this.scene, L);
+    R6_dressing(this.scene, L);
   }
 
   pushWindow(dark, lit, mull, b, x, y, z, ry, h, side = false) {

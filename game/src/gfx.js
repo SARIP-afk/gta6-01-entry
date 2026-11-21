@@ -950,7 +950,7 @@ export class Renderer {
     this.time = 0;
     this.buildStatic(world.layout);
     this.buildDynamic();
-    this.buildSky();
+    this.K8_buildSky();
   }
 
   // ---- static city ----
@@ -1505,122 +1505,231 @@ export class Renderer {
     }
   }
 
-  buildSky() {
-    const T = THREE;
-    // Sky dome: a narrow 4x256 gradient canvas stretched over a backside sphere.
-    // update() repaints the canvas whenever the quarter-hour bucket changes.
-    const grad = document.createElement('canvas');
-    grad.width = 4;
-    grad.height = 256;
-    this.skyCanvas = grad;
-    this.skyTex = new T.CanvasTexture(grad);
-    this.skyBucket = -1;
-    this.skyDome = new T.Mesh(
-      new T.SphereGeometry(950, 24, 16),
-      new T.MeshBasicMaterial({ map: this.skyTex, side: T.BackSide, depthWrite: false, fog: false })
-    );
-    this.skyDome.position.set(0, 0, 0);
-    // Soft round glow: warm core fading to nothing at the rim.
-    const glow = (core, mid) => {
+  K8_buildSky() {
+    // Kumala sky: deep purple-to-gold sunset, big low sun with anamorphic
+    // glare, bright sun-path glitter on the sea, tall overlapping cloud
+    // puffs. Deterministic hash variation only — no random calls anywhere.
+    const K8_h = (n) => {
+      const s = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+      return s - Math.floor(s);
+    };
+    const K8_canvas = (w, h) => {
       const c = document.createElement('canvas');
-      c.width = 256;
-      c.height = 256;
-      const g = c.getContext('2d');
-      const r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-      r.addColorStop(0, core);
-      r.addColorStop(0.45, mid);
-      r.addColorStop(1, 'rgba(240,130,40,0)');
-      g.fillStyle = r;
-      g.fillRect(0, 0, 256, 256);
-      return new T.CanvasTexture(c);
+      c.width = w;
+      c.height = h;
+      return c;
     };
-    // Sun: hard disc plus a wide halo and a huge faint glare. update() aims
-    // all three at the sun each frame and drives the glare off the sunset factor.
-    this.sunDisc = new T.Mesh(
-      new T.CircleGeometry(36, 24),
-      new T.MeshBasicMaterial({ color: 0xffe9a8, fog: false })
-    );
-    this.sunHalo = new T.Mesh(
-      new T.CircleGeometry(120, 24),
-      new T.MeshBasicMaterial({ map: glow('rgba(255,190,100,0.9)', 'rgba(255,150,60,0.4)'), transparent: true, opacity: 0.9, depthWrite: false, fog: false })
-    );
-    this.sunGlare = new T.Mesh(
-      new T.CircleGeometry(260, 24),
-      new T.MeshBasicMaterial({ map: glow('rgba(255,190,100,0.85)', 'rgba(255,150,60,0.35)'), transparent: true, opacity: 0.46, depthWrite: false, fog: false })
-    );
-    this.scene.add(this.sunDisc);
-    this.scene.add(this.sunHalo);
-    this.scene.add(this.sunGlare);
+    const K8_radial = (ctx, x, y, r, stops) => {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      for (let i = 0; i < stops.length; i++) g.addColorStop(stops[i][0], stops[i][1]);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    };
+
+    // ---- sky dome: rich sunset gradient painted once here; update()
+    // repaints this same canvas per 0.25h bucket with the live palette.
+    this.skyCanvas = K8_canvas(512, 256);
+    const sctx = this.skyCanvas.getContext('2d');
+    const sgrad = sctx.createLinearGradient(0, 0, 0, 256);
+    sgrad.addColorStop(0.0, '#3a1c58');
+    sgrad.addColorStop(0.22, '#5e2560');
+    sgrad.addColorStop(0.42, '#8f2f66');
+    sgrad.addColorStop(0.58, '#c14a63');
+    sgrad.addColorStop(0.72, '#ef7a4e');
+    sgrad.addColorStop(0.84, '#ffb347');
+    sgrad.addColorStop(0.93, '#ffd27a');
+    sgrad.addColorStop(1.0, '#ff9e57');
+    sctx.fillStyle = sgrad;
+    sctx.fillRect(0, 0, 512, 256);
+    this.skyTex = new THREE.CanvasTexture(this.skyCanvas);
+    this.skyTex.colorSpace = THREE.SRGBColorSpace;
+    // No mipmaps: the sphere's UV seam (u 0/1) makes the sampler jump to
+    // the 1x1 mip there, painting a soft orange vertical band — the dome's
+    // average colour — right next to the sun. Linear filtering on the
+    // full-res texture keeps the seam invisible.
+    this.skyTex.generateMipmaps = false;
+    this.skyTex.minFilter = THREE.LinearFilter;
+    this.skyBucket = -1;
+    const domeGeo = new THREE.SphereGeometry(1200, 32, 18);
+    const domeMat = new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false, depthWrite: false });
+    this.skyDome = new THREE.Mesh(domeGeo, domeMat);
+    // Turn the UV seam to the east, behind the city, away from the sunset.
+    this.skyDome.rotation.y = Math.PI;
     this.scene.add(this.skyDome);
-    // Sea glitter: a warm elliptical sheen lying on the water. update() only
-    // shows it where the sun ray crosses the sea, and aims it at the sun.
-    const gc = document.createElement('canvas');
-    gc.width = 256;
-    gc.height = 64;
-    const gg = gc.getContext('2d');
-    const gr = gg.createRadialGradient(128, 32, 0, 128, 32, 128);
-    gr.addColorStop(0, 'rgba(255,210,130,0.9)');
-    gr.addColorStop(0.4, 'rgba(255,195,110,0.55)');
-    gr.addColorStop(0.75, 'rgba(255,180,95,0.22)');
-    gr.addColorStop(1, 'rgba(255,170,90,0)');
-    gg.fillStyle = gr;
-    gg.fillRect(0, 0, 256, 64);
-    this.glitterTex = new T.CanvasTexture(gc);
-    this.glitter = new T.Mesh(
-      new T.PlaneGeometry(420, 170),
-      new T.MeshBasicMaterial({ map: this.glitterTex, transparent: true, opacity: 0, depthWrite: false, fog: false })
+
+    // ---- sun: bigger solid disc, wide warm halo, huge anamorphic glare.
+    const discC = K8_canvas(256, 256);
+    const dctx = discC.getContext('2d');
+    K8_radial(dctx, 128, 128, 128, [
+      [0, 'rgba(255,253,244,1)'],
+      [0.42, 'rgba(255,232,176,1)'],
+      [0.68, 'rgba(255,178,92,1)'],
+      [0.86, 'rgba(255,138,58,0.55)'],
+      [1, 'rgba(255,120,40,0)'],
+    ]);
+    const discTex = new THREE.CanvasTexture(discC);
+    discTex.colorSpace = THREE.SRGBColorSpace;
+    this.sunDisc = new THREE.Mesh(
+      new THREE.PlaneGeometry(118, 118),
+      new THREE.MeshBasicMaterial({ map: discTex, transparent: true, depthWrite: false, fog: false })
     );
-    this.glitter.position.set(-150, 0.55, 400);
-    this.glitter.rotation.set(-Math.PI / 2, -2.716, 0);
+    this.sunDisc.renderOrder = 4;
+    this.scene.add(this.sunDisc);
+
+    const haloC = K8_canvas(256, 256);
+    const hctx = haloC.getContext('2d');
+    K8_radial(hctx, 128, 128, 128, [
+      [0, 'rgba(255,198,122,0.6)'],
+      [0.35, 'rgba(255,168,96,0.34)'],
+      [0.68, 'rgba(255,138,72,0.14)'],
+      [1, 'rgba(255,130,70,0)'],
+    ]);
+    const haloTex = new THREE.CanvasTexture(haloC);
+    haloTex.colorSpace = THREE.SRGBColorSpace;
+    this.sunHalo = new THREE.Mesh(
+      new THREE.PlaneGeometry(390, 390),
+      new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.9, depthWrite: false, fog: false })
+    );
+    this.sunHalo.renderOrder = 5;
+    this.scene.add(this.sunHalo);
+
+    const glareC = K8_canvas(512, 512);
+    const gctx = glareC.getContext('2d');
+    K8_radial(gctx, 256, 256, 256, [
+      [0, 'rgba(255,228,172,0.85)'],
+      [0.22, 'rgba(255,198,122,0.5)'],
+      [0.5, 'rgba(255,164,92,0.2)'],
+      [0.78, 'rgba(255,140,70,0.06)'],
+      [1, 'rgba(255,140,70,0)'],
+    ]);
+    gctx.save();
+    gctx.translate(256, 256);
+    gctx.scale(1, 0.16);
+    const hstreak = gctx.createRadialGradient(0, 0, 0, 0, 0, 252);
+    hstreak.addColorStop(0, 'rgba(255,242,204,0.6)');
+    hstreak.addColorStop(0.45, 'rgba(255,204,132,0.26)');
+    hstreak.addColorStop(1, 'rgba(255,180,100,0)');
+    gctx.fillStyle = hstreak;
+    gctx.fillRect(-256, -256, 512, 512);
+    gctx.restore();
+    const glareTex = new THREE.CanvasTexture(glareC);
+    glareTex.colorSpace = THREE.SRGBColorSpace;
+    this.sunGlare = new THREE.Mesh(
+      new THREE.PlaneGeometry(720, 720),
+      new THREE.MeshBasicMaterial({ map: glareTex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending })
+    );
+    this.sunGlare.renderOrder = 6;
+    this.scene.add(this.sunGlare);
+
+    // ---- sea glitter: a confined sun-path, dimmer now — the old hot sheet
+    // washed the whole beach white. Ends fade out so the bright path
+    // stays in the middle of the plane. update() lays this flat on the
+    // sea and aims its long axis at the sun.
+    const glitC = K8_canvas(512, 256);
+    const lctx = glitC.getContext('2d');
+    const band = lctx.createLinearGradient(0, 88, 0, 168);
+    band.addColorStop(0, 'rgba(255,186,104,0)');
+    band.addColorStop(0.5, 'rgba(255,196,116,0.38)');
+    band.addColorStop(1, 'rgba(255,186,104,0)');
+    lctx.fillStyle = band;
+    lctx.fillRect(0, 88, 512, 80);
+    const core = lctx.createLinearGradient(0, 116, 0, 140);
+    core.addColorStop(0, 'rgba(255,214,140,0)');
+    core.addColorStop(0.5, 'rgba(255,240,196,0.65)');
+    core.addColorStop(1, 'rgba(255,214,140,0)');
+    lctx.fillStyle = core;
+    lctx.fillRect(0, 116, 512, 24);
+    for (let i = 0; i < 60; i++) {
+      const gx = K8_h(i * 3 + 1) * 512;
+      const gy = 128 + (K8_h(i * 7 + 2) - 0.5) * 72;
+      const gw = 4 + K8_h(i * 5 + 3) * 22;
+      const gh = 1 + K8_h(i * 11 + 4) * 2;
+      const ga = 0.12 + K8_h(i * 13 + 5) * 0.3;
+      lctx.fillStyle = 'rgba(255,224,158,' + ga.toFixed(3) + ')';
+      lctx.fillRect(gx - gw / 2, gy - gh / 2, gw, gh);
+    }
+    lctx.globalCompositeOperation = 'destination-in';
+    const fade = lctx.createLinearGradient(0, 0, 512, 0);
+    fade.addColorStop(0, 'rgba(0,0,0,0)');
+    fade.addColorStop(0.18, 'rgba(0,0,0,1)');
+    fade.addColorStop(0.82, 'rgba(0,0,0,1)');
+    fade.addColorStop(1, 'rgba(0,0,0,0)');
+    lctx.fillStyle = fade;
+    lctx.fillRect(0, 0, 512, 256);
+    lctx.globalCompositeOperation = 'source-over';
+    this.glitterTex = new THREE.CanvasTexture(glitC);
+    this.glitterTex.colorSpace = THREE.SRGBColorSpace;
+    const glitGeo = new THREE.PlaneGeometry(470, 150);
+    glitGeo.rotateX(-Math.PI / 2);
+    this.glitter = new THREE.Mesh(
+      glitGeo,
+      new THREE.MeshBasicMaterial({ map: this.glitterTex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })
+    );
+    this.glitter.renderOrder = 3;
     this.scene.add(this.glitter);
-    // Clouds: nine flat slab clusters sharing one tintable material.
-    // Each entry: [cx, cy, cz, [[dx, dy, dz, width], ...]]; slabs are 3.5 high, 12 deep.
-    this.cloudMat = new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, fog: false });
+
+    // ---- clouds: 12 tall multi-puff clusters at varied heights. Puffs
+    // overlap inside one merged mesh per cluster, so the shared material
+    // reads dense even at the low sunset opacity update() applies.
+    // Vertex colours shade each puff warm at the base and bright at the
+    // top, so the clusters read as volumes instead of flat cutouts.
+    this.cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false, fog: false, vertexColors: true });
     this.clouds = [];
-    const slabs = [
-      [209.1, 120.8, 130.8, [[-27, 1.6, 0.9, 48.0], [-9, 2.0, 0.9, 26.7], [9, 3.0, -0.8, 45.8]]],
-      [101.3, 99.8, 346.0, [[-36, 7.5, -1.6, 50.7], [-18, 0.6, -0.1, 29.4], [0, 7.1, 0.3, 41.3], [18, 2.9, 0.0, 53.6]]],
-      [282.3, 99.3, -216.4, [[-45, 7.0, -4.0, 34.4], [-27, 7.4, -2.0, 43.3], [-9, 2.8, 3.0, 26.3], [9, 4.4, -2.6, 50.6], [27, 0.5, 1.1, 27.5]]],
-      [255.4, 108.2, -247.4, [[-27, 8.0, -1.4, 42.9], [-9, 6.9, -3.1, 33.1], [9, 0.5, 1.5, 36.3]]],
-      [-240.0, 110.5, 341.1, [[-36, 7.3, -3.4, 29.4], [-18, 4.2, -3.7, 38.2], [0, 3.7, 2.8, 45.2], [18, 1.6, -1.8, 35.0]]],
-      [-190.4, 146.2, 332.0, [[-45, 6.1, -2.3, 48.5], [-27, 0.8, 3.5, 33.5], [-9, 0.1, -3.9, 30.9], [9, 5.9, 2.2, 34.8], [27, 5.4, 2.1, 29.2]]],
-      [-282.7, 114.0, -157.6, [[-27, 6.1, -2.1, 40.4], [-9, 6.4, -2.8, 50.6], [9, 2.7, -1.2, 44.0]]],
-      [218.7, 111.6, -34.0, [[-36, 6.1, -3.4, 29.5], [-18, 4.8, 0.6, 29.9], [0, 5.2, 2.3, 30.5], [18, 5.8, 1.3, 46.9]]],
-      [105.2, 123.4, 259.3, [[-45, 4.8, -1.7, 43.2], [-27, 7.8, -1.0, 26.0], [-9, 5.0, -2.6, 45.1], [9, 7.1, 1.5, 39.6], [27, 3.4, -1.9, 46.3]]],
-    ];
-    for (const [cx, cy, cz, kids] of slabs) {
-      const grp = new T.Group();
-      grp.position.set(cx, cy, cz);
-      grp.scale.set(1.35, 1.5, 1.35);
-      for (const [kx, ky, kz, kw] of kids) {
-        const slab = new T.Mesh(new T.BoxGeometry(kw, 3.5, 12), this.cloudMat);
-        slab.position.set(kx, ky, kz);
-        grp.add(slab);
+    const puffBase = new THREE.SphereGeometry(1, 12, 8).toNonIndexed();
+    const puffPos = puffBase.attributes.position.array;
+    const puffCount = puffPos.length / 3;
+    for (let c = 0; c < 12; c++) {
+      const az = (c / 12) * Math.PI * 2 + (K8_h(c * 13 + 5) - 0.5) * 0.55;
+      const rad = 520 + K8_h(c * 17 + 2) * 180;
+      const cy = 105 + K8_h(c * 19 + 3) * 175;
+      const cs = 0.85 + K8_h(c * 23 + 7) * 0.95;
+      const nPuff = 5 + Math.floor(K8_h(c * 29 + 11) * 3);
+      const merged = new Float32Array(nPuff * puffCount * 3);
+      const mergedC = new Float32Array(nPuff * puffCount * 3);
+      for (let p = 0; p < nPuff; p++) {
+        const px = (K8_h(c * 101 + p * 7 + 1) - 0.5) * 66 * cs;
+        const py = (K8_h(c * 101 + p * 7 + 2) - 0.5) * 15 * cs;
+        const pz = (K8_h(c * 101 + p * 7 + 3) - 0.5) * 38 * cs;
+        const pr = (12 + K8_h(c * 101 + p * 7 + 4) * 12) * cs;
+        const psy = 0.4 + K8_h(c * 101 + p * 7 + 6) * 0.2;
+        const off = p * puffCount * 3;
+        for (let v = 0; v < puffCount; v++) {
+          const ly = puffPos[v * 3 + 1];
+          const t = ly * 0.5 + 0.5;
+          merged[off + v * 3] = puffPos[v * 3] * pr + px;
+          merged[off + v * 3 + 1] = ly * pr * psy + py;
+          merged[off + v * 3 + 2] = puffPos[v * 3 + 2] * pr * 0.85 + pz;
+          mergedC[off + v * 3] = 0.66 + 0.34 * t;
+          mergedC[off + v * 3 + 1] = 0.52 + 0.45 * t;
+          mergedC[off + v * 3 + 2] = 0.5 + 0.43 * t;
+        }
       }
-      this.clouds.push(grp);
-      this.scene.add(grp);
+      const cGeo = new THREE.BufferGeometry();
+      cGeo.setAttribute('position', new THREE.BufferAttribute(merged, 3));
+      cGeo.setAttribute('color', new THREE.BufferAttribute(mergedC, 3));
+      const cMesh = new THREE.Mesh(cGeo, this.cloudMat);
+      const cGroup = new THREE.Group();
+      cGroup.position.set(Math.cos(az) * rad, cy, Math.sin(az) * rad);
+      cGroup.add(cMesh);
+      this.clouds.push(cGroup);
+      this.scene.add(cGroup);
     }
-    // Stars: 320 points scattered over the upper sky shell by a fixed hash,
-    // so the night sky is identical on every load. update() fades them in.
-    const rnd = (n) => {
-      const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-      return v - Math.floor(v);
-    };
-    const pos = new Float32Array(320 * 3);
-    for (let i = 0; i < 320; i++) {
-      const az = rnd(i * 3 + 1) * Math.PI * 2;
-      const up = 0.26 + rnd(i * 3 + 2) * 0.74;
-      const flat = Math.sqrt(1 - up * up) * 680;
-      pos[i * 3] = Math.cos(az) * flat;
-      pos[i * 3 + 1] = up * 680;
-      pos[i * 3 + 2] = Math.sin(az) * flat;
+
+    // ---- stars: upper hemisphere, invisible by day (update() fades in).
+    const starN = 340;
+    const starPos = new Float32Array(starN * 3);
+    for (let i = 0; i < starN; i++) {
+      const a = K8_h(i * 3 + 1) * Math.PI * 2;
+      const y = 130 + K8_h(i * 3 + 2) * 950;
+      const rr = Math.sqrt(Math.max(60 * 60, 1150 * 1150 - y * y));
+      starPos[i * 3] = Math.cos(a) * rr;
+      starPos[i * 3 + 1] = y;
+      starPos[i * 3 + 2] = Math.sin(a) * rr;
     }
-    const sg = new T.BufferGeometry();
-    sg.setAttribute('position', new T.BufferAttribute(pos, 3));
-    this.stars = new T.Points(
-      sg,
-      new T.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: true, transparent: true, opacity: 0, depthWrite: true, fog: false })
-    );
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    this.stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xfff3cf, size: 2.4, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+    this.stars.renderOrder = 2;
     this.scene.add(this.stars);
   }
   rebuildShadows(hour) {
@@ -2064,12 +2173,16 @@ export class Renderer {
       this.skyBucket = bucket;
       const ctx = this.skyCanvas.getContext('2d');
       const grad = ctx.createLinearGradient(0, 0, 0, 256);
-      const zenith = pal.bg.clone().multiplyScalar(0.5);
+      const zenith = pal.bg.clone().multiplyScalar(0.42);
       zenith.lerp(SUNSET_ZENITH, sunsetF);
       const middle = pal.bg.clone();
-      middle.lerp(SUNSET_MID, sunsetF * 0.9);
+      middle.lerp(SUNSET_MID, sunsetF);
       const horizon = pal.fog.clone();
-      horizon.lerp(SUNSET_SEA, sunsetF * 0.85);
+      horizon.lerp(SUNSET_SEA, sunsetF);
+      const gold = pal.fog.clone().lerp(new THREE.Color(0xffc46b), sunsetF);
+      const upper = zenith.clone().lerp(middle, 0.55);
+      grad.addColorStop(0.34, '#' + upper.getHexString());
+      grad.addColorStop(0.86, '#' + gold.getHexString());
       const groundHex = pal.hemiGround.getHexString();
       grad.addColorStop(0, `#${zenith.getHexString()}`);
       grad.addColorStop(0.3, `#${middle.getHexString()}`);

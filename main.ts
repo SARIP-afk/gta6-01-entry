@@ -1,34 +1,24 @@
-// Solmarina hand-in: gathers the finished game and its screenshots into the
-// output folder the grader reads, then asks the kit library to describe them.
+// Solmarina hand-in — the program that packages the entry.
 //
-// Run it from the repository root (or anywhere — it finds its own folder):
-//   MAKEFUN_OUTPUT_DIR=/tmp/out node main.ts
-// Without MAKEFUN_OUTPUT_DIR it writes to /output, the grader's folder.
-// Only the Node standard library is used, and running it twice in a row
-// must produce byte-identical files both times.
-
+// It mirrors game/ and screenshots/ out of this repository into the
+// hand-in directory, then asks the kit library to write the dossier
+// from what landed there. Node 22, standard library only: nothing is
+// installed, built or fetched, so the grader can run it twice in a
+// bare container and get the same bytes both times.
 import { buildDossier } from './vendor/makefun-game.ts';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The folder this file lives in is the repository root: game/ and
-// screenshots/ sit next to it.
+// The repository root is wherever this file sits; the game and the
+// screenshots are read from there, never from the working directory.
 const repoRoot = dirname(fileURLToPath(import.meta.url));
 
-// The grader hands us /output; a local run can point somewhere else.
-const outRoot = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+// Outside the grader MAKEFUN_OUTPUT_DIR stands in for /output.
+const handInDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
 
-// Limits straight from the bounty gate: the dossier text cap, at most four
-// screenshots of at most 256 KiB each, and the game tree caps.
+// The caps the bounty gate grades against: the dossier text budget,
+// the screenshot count and size, and the game tree limits.
 const dossierCaps = {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
@@ -36,32 +26,19 @@ const dossierCaps = {
   game_max_bytes: 50331648,
 };
 
-// Copy one tree into another, entry by entry in sorted order so the result
-// does not depend on the order the filesystem hands entries back.
-function mirrorTree(fromDir: string, toDir: string): void {
-  mkdirSync(toDir, { recursive: true });
-  const names = readdirSync(fromDir).sort();
-  for (const name of names) {
-    const from = join(fromDir, name);
-    const to = join(toDir, name);
-    if (statSync(from).isDirectory()) {
-      mirrorTree(from, to);
-    } else {
-      copyFileSync(from, to);
-    }
-  }
-}
+// Start from a clean hand-in directory so a stale file from an
+// earlier run can never leak into the dossier.
+if (existsSync(handInDir)) rmSync(handInDir, { recursive: true, force: true });
+mkdirSync(handInDir, { recursive: true });
 
-// Fresh output every run: drop the two trees we own, then mirror them in.
 for (const tree of ['game', 'screenshots']) {
-  const target = join(outRoot, tree);
-  if (existsSync(target)) rmSync(target, { recursive: true, force: true });
-  mirrorTree(join(repoRoot, tree), target);
+  const from = join(repoRoot, tree);
+  if (!existsSync(from)) throw new Error(`hand-in: ${tree}/ is missing from the repository`);
+  cpSync(from, join(handInDir, tree), { recursive: true });
 }
 
-// The dossier is built from what we just wrote, never from the repo, so
-// the file the grader checks is exactly the file that describes /output.
-const dossier = buildDossier(outRoot, dossierCaps);
-writeFileSync(join(outRoot, 'dossier.json'), dossier);
-
-console.log(`wrote ${outRoot}/dossier.json (${dossier.length} bytes)`);
+// The dossier is built from the copied trees, not from the repo, so
+// what the scorer re-derives later is exactly what we wrote here.
+const dossier = buildDossier(handInDir, dossierCaps);
+writeFileSync(join(handInDir, 'dossier.json'), dossier);
+console.log(`hand-in written to ${handInDir} (${dossier.length} byte dossier)`);

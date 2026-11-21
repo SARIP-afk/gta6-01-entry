@@ -1,8 +1,9 @@
-// Solmarina (fresh build) — the city layout, generated once from the seed.
-// Pure data: no three.js here, so the sim and the renderer share one layout
-// and the sim trace never depends on rendering. Roads every 48 m; the beach
-// closes the south edge, the marina and pier close the east edge, and the
-// Old Pasaru night-market plaza sits on the block at (-72, -96).
+// Solmarina — the city plan, rebuilt from one seed.
+// Data only: no rendering code lives here, so the simulation and the
+// renderer both read the same plan and the simulation trace never
+// depends on anything visual. Roads run every 48 m; the beach closes
+// the south edge, the marina and pier close the east edge, and the Old
+// Pasaru night-market plaza sits on the block at (-72, -96).
 import { mulberry32, hash2, pick, range, clamp } from './util.js';
 
 export const STEP = 1 / 60;
@@ -44,31 +45,33 @@ export function roadLines() {
   return lines;
 }
 export function nearestRoad(v) {
-  const lines = roadLines();
-  let best = lines[0], bd = Infinity;
-  for (const r of lines) { const d = Math.abs(v - r); if (d < bd) { bd = d; best = r; } }
+  let best = GRID_MIN, bd = Infinity;
+  for (let r = GRID_MIN; r <= GRID_MAX; r += ROAD_STEP) {
+    const d = Math.abs(v - r);
+    if (d < bd) { bd = d; best = r; }
+  }
   return best;
 }
 export function onRoad(x, z) {
-  const rx = Math.abs(x - nearestRoad(x)) < ROAD_HALF + 1.5;
-  const rz = Math.abs(z - nearestRoad(z)) < ROAD_HALF + 1.5;
+  const nearX = Math.abs(x - nearestRoad(x)) < ROAD_HALF + 1.5;
+  const nearZ = Math.abs(z - nearestRoad(z)) < ROAD_HALF + 1.5;
   if (Math.abs(z - CAUSEWAY_Z) < ROAD_HALF + 1.5 && x > GRID_MAX && x < PIER.x) return true;
-  return rx || rz;
+  return nearX || nearZ;
 }
 
-const PASTEL = ['#f2c94c', '#f28482', '#81b29a', '#f4a261', '#a78bfa', '#a8dadc'];
-const PALETTE = {
-  // pastel facades (cover-study concept C): the brown/grey slabs are gone —
-  // same RNG draws as before, only the colour values changed, so building
-  // positions, heights and the sim trace are untouched
-  tower: [...PASTEL, '#8ecae6', '#f6bd60'],
-  low: [...PASTEL],
+// Pastel facades: the brown/grey slabs are gone — same random draws as
+// before, only the colour values changed, so building positions,
+// heights and the sim trace are untouched.
+const PASTEL_FACES = ['#f2c94c', '#f28482', '#81b29a', '#f4a261', '#a78bfa', '#a8dadc'];
+const FACADE_SET = {
+  tower: [...PASTEL_FACES, '#8ecae6', '#f6bd60'],
+  low: [...PASTEL_FACES],
   roof: ['#4a4e69', '#3d405b', '#6c757d', '#495057'],
 };
 
-/** Build every static placement for a seed. Returns plain data objects. */
+/** Every static placement for a seed, as plain data objects. */
 export function buildLayout(seed = 1) {
-  const rng = mulberry32(seed * 7919 + 13);
+  const draw = mulberry32(seed * 7919 + 13);
   const buildings = [];
   const lamps = [];
   const palms = [];
@@ -79,37 +82,37 @@ export function buildLayout(seed = 1) {
   const parked = []; // {x, z, ry, color} — static cars on the road edges
   const signs = []; // {x, z, ry} — green street-name signs at intersections
 
-  // --- buildings: one block = the square between four roads ---
-  for (let bx = GRID_MIN; bx < GRID_MAX; bx += ROAD_STEP) {
-    for (let bz = GRID_MIN; bz < GRID_MAX; bz += ROAD_STEP) {
-      const cx = bx + ROAD_STEP / 2, cz = bz + ROAD_STEP / 2;
-      if (cz >= BEACH_Z) continue;                       // beach, no buildings
-      if (Math.abs(cx - MARKET.x) < 30 && Math.abs(cz - MARKET.z) < 30) continue; // market plaza
-      if (Math.abs(cx - STADIUM.x) < 40 && Math.abs(cz - STADIUM.z) < 40) continue; // stadium bowl
-      if (cx > 288) continue;
-      const h = hash2(bx, bz, 7);
-      const n = h < 0.25 ? 1 : h < 0.7 ? 2 : 3;
-      for (let i = 0; i < n; i++) {
-        const ox = (i % 2 === 0 ? -10 : 10) + range(rng, -3, 3);
-        const oz = (i < 2 ? (n === 1 ? 0 : -10) : 10) + range(rng, -3, 3);
-        const w = range(rng, 16, 24), d = range(rng, 16, 24);
-        const tall = Math.abs(cx) < 150 && Math.abs(cz + 120) < 130;
-        const height = tall ? range(rng, 28, 68) : range(rng, 10, 30);
-        const color = tall ? pick(rng, PALETTE.tower) : pick(rng, PALETTE.low);
-        // faces stay 8 m from the road line (road half-width 6 + 2 m of
-        // sidewalk): unclamped, a face could sit 0.5 m from the centreline,
-        // scraping the car on the road and putting the follow camera
-        // against a wall (v2.4 play-shot audit — car stuck at 0.5 km/h).
-        // The block interior is 32 m wide and w/d <= 24 m, so the shift
-        // always fits; the RNG stream is untouched (pure arithmetic).
-        const nx = clamp(cx + ox, bx + 8 + w / 2, bx + ROAD_STEP - 8 - w / 2);
-        const nz = clamp(cz + oz, bz + 8 + d / 2, bz + ROAD_STEP - 8 - d / 2);
+  // --- buildings: one block is the square between four roads ---
+  for (let gx = GRID_MIN; gx < GRID_MAX; gx += ROAD_STEP) {
+    for (let gz = GRID_MIN; gz < GRID_MAX; gz += ROAD_STEP) {
+      const midX = gx + ROAD_STEP / 2, midZ = gz + ROAD_STEP / 2;
+      if (midZ >= BEACH_Z) continue;                    // beach, no buildings
+      if (Math.abs(midX - MARKET.x) < 30 && Math.abs(midZ - MARKET.z) < 30) continue; // market plaza
+      if (Math.abs(midX - STADIUM.x) < 40 && Math.abs(midZ - STADIUM.z) < 40) continue; // stadium bowl
+      if (midX > 288) continue;
+      const slotRoll = hash2(gx, gz, 7);
+      const towerCount = slotRoll < 0.25 ? 1 : slotRoll < 0.7 ? 2 : 3;
+      for (let slot = 0; slot < towerCount; slot++) {
+        const offX = (slot % 2 === 0 ? -10 : 10) + range(draw, -3, 3);
+        const offZ = (slot < 2 ? (towerCount === 1 ? 0 : -10) : 10) + range(draw, -3, 3);
+        const wide = range(draw, 16, 24), deep = range(draw, 16, 24);
+        const downtown = Math.abs(midX) < 150 && Math.abs(midZ + 120) < 130;
+        const rise = downtown ? range(draw, 28, 68) : range(draw, 10, 30);
+        const face = downtown ? pick(draw, FACADE_SET.tower) : pick(draw, FACADE_SET.low);
+        // Faces stay 8 m from the road line (road half-width 6 + 2 m of
+        // sidewalk): unclamped, a face could sit 0.5 m from the
+        // centreline, scraping the car on the road and putting the
+        // follow camera against a wall. The block interior is 32 m
+        // wide and w/d <= 24 m, so the shift always fits; the random
+        // stream is untouched (pure arithmetic).
+        const fixX = clamp(midX + offX, gx + 8 + wide / 2, gx + ROAD_STEP - 8 - wide / 2);
+        const fixZ = clamp(midZ + offZ, gz + 8 + deep / 2, gz + ROAD_STEP - 8 - deep / 2);
         buildings.push({
-          x: nx, z: nz, w, d, h: height, color,
-          roof: pick(rng, PALETTE.roof),
-          floors: Math.max(2, Math.floor(height / 3.4)),
-          sign: hash2(bx, bz, 11 + i) < 0.4,
-          signColor: pick(rng, ['#f2c94c', '#e07a5f', '#4fc3f7', '#90be6d', '#f28482']),
+          x: fixX, z: fixZ, w: wide, d: deep, h: rise, color: face,
+          roof: pick(draw, FACADE_SET.roof),
+          floors: Math.max(2, Math.floor(rise / 3.4)),
+          sign: hash2(gx, gz, 11 + slot) < 0.4,
+          signColor: pick(draw, ['#f2c94c', '#e07a5f', '#4fc3f7', '#90be6d', '#f28482']),
         });
       }
     }
@@ -123,31 +126,32 @@ export function buildLayout(seed = 1) {
     }
   }
 
-  // --- palms: beach rows + boulevard lines (dense — the ref-3 coast road
-  // is lined with them, not dotted) ---
+  // --- palms: beach rows + boulevard lines (dense — the coast road is
+  // lined with them, not dotted) ---
   for (let x = -280; x <= 280; x += 12) {
-    if (hash2(x, 1, 31) < 0.85) palms.push({ x: x + range(rng, -3, 3), z: 252 + range(rng, -2, 6), s: range(rng, 0.85, 1.25) });
-    if (hash2(x, 2, 32) < 0.65) palms.push({ x: x + range(rng, -3, 3), z: 228 + range(rng, -2, 3), s: range(rng, 0.8, 1.15) });
+    if (hash2(x, 1, 31) < 0.85) palms.push({ x: x + range(draw, -3, 3), z: 252 + range(draw, -2, 6), s: range(draw, 0.85, 1.25) });
+    if (hash2(x, 2, 32) < 0.65) palms.push({ x: x + range(draw, -3, 3), z: 228 + range(draw, -2, 3), s: range(draw, 0.8, 1.15) });
   }
   for (let z = -240; z <= 180; z += 24) {
-    if (hash2(3, z, 33) < 0.4) palms.push({ x: 296, z: z + range(rng, -3, 3), s: range(rng, 0.85, 1.2) });
+    if (hash2(3, z, 33) < 0.4) palms.push({ x: 296, z: z + range(draw, -3, 3), s: range(draw, 0.85, 1.2) });
   }
 
   // --- beach umbrellas + towels, fixed spots along the sand (two rows —
-  // the ref-4 beach is inhabited, not one dotted line) ---
+  // the beach is inhabited, not one dotted line) ---
+  const UMBRELLA_COLORS = ['#e07a5f', '#4fc3f7', '#f2c94c', '#f28482', '#90be6d'];
   for (let x = -264; x <= 264; x += 24) {
     if (hash2(x, 4, 41) < 0.7) {
       umbrellas.push({
-        x: x + range(rng, -4, 4), z: 262 + range(rng, -4, 10),
-        color: pick(rng, ['#e07a5f', '#4fc3f7', '#f2c94c', '#f28482', '#90be6d']),
-        ry: range(rng, 0, Math.PI * 2),
+        x: x + range(draw, -4, 4), z: 262 + range(draw, -4, 10),
+        color: pick(draw, UMBRELLA_COLORS),
+        ry: range(draw, 0, Math.PI * 2),
       });
     }
     if (hash2(x, 6, 43) < 0.45) {
       umbrellas.push({
-        x: x + 6 + range(rng, -4, 4), z: 298 + range(rng, -3, 3),
-        color: pick(rng, ['#e07a5f', '#4fc3f7', '#f2c94c', '#f28482', '#90be6d']),
-        ry: range(rng, 0, Math.PI * 2),
+        x: x + 6 + range(draw, -4, 4), z: 298 + range(draw, -3, 3),
+        color: pick(draw, UMBRELLA_COLORS),
+        ry: range(draw, 0, Math.PI * 2),
       });
     }
   }
@@ -175,7 +179,7 @@ export function buildLayout(seed = 1) {
   // A hand-placed palm row along the same southern strip (z around
   // 307-310, clear of the pier and of the beach road), so the beach
   // reads palm-lined from the hero camera. Jitter and scale come from
-  // hash2 — a pure function, no RNG draws. Two gaps are kept open:
+  // hash2 — a pure function, no random draws. Two gaps are kept open:
   // the pier mouth, and the strip right in front of the beach-hero
   // camera, where a trunk 7 m from the lens once filled a third of
   // the frame.
@@ -190,23 +194,23 @@ export function buildLayout(seed = 1) {
   // (8.5 m) and ped sidewalks (9 m+). Spots sit 24 m mod 48, lamps sit
   // 8 m mod 48, so a parked car is never next to a lamp pole. Skipped
   // inside the market plaza and the stadium bowl (pedestrian areas).
-  const inPlaza = (x, z) => Math.abs(x - MARKET.x) < 26 && Math.abs(z - MARKET.z) < 26;
-  const inStadium = (x, z) => Math.abs(x - STADIUM.x) < 40 && Math.abs(z - STADIUM.z) < 40;
+  const insidePlaza = (x, z) => Math.abs(x - MARKET.x) < 26 && Math.abs(z - MARKET.z) < 26;
+  const insideStadium = (x, z) => Math.abs(x - STADIUM.x) < 40 && Math.abs(z - STADIUM.z) < 40;
   const parkColors = ['#c0392b', '#2980b9', '#f1c40f', '#ecf0f1', '#2c3e50', '#e67e22', '#16a085', '#8e44ad', '#7f8c8d'];
   for (const v of roadLines()) {
     for (let u = GRID_MIN + 24; u <= GRID_MAX; u += ROAD_STEP) {
       if (hash2(u, v, 91) < 0.38) {
         const side = hash2(u, v, 92) < 0.5 ? 1 : -1;
         const px = u, pz = v + side * 7.0;
-        if (!inPlaza(px, pz) && !inStadium(px, pz)) {
-          parked.push({ x: px, z: pz, ry: side > 0 ? Math.PI : 0, color: pick(rng, parkColors) });
+        if (!insidePlaza(px, pz) && !insideStadium(px, pz)) {
+          parked.push({ x: px, z: pz, ry: side > 0 ? Math.PI : 0, color: pick(draw, parkColors) });
         }
       }
       if (hash2(v, u, 95) < 0.38) {
         const side = hash2(v, u, 96) < 0.5 ? 1 : -1;
         const px = v + side * 7.0, pz = u;
-        if (!inPlaza(px, pz) && !inStadium(px, pz)) {
-          parked.push({ x: px, z: pz, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, color: pick(rng, parkColors) });
+        if (!insidePlaza(px, pz) && !insideStadium(px, pz)) {
+          parked.push({ x: px, z: pz, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, color: pick(draw, parkColors) });
         }
       }
     }
@@ -229,39 +233,50 @@ export function buildLayout(seed = 1) {
       stalls.push({
         x, z, ry: row === 0 ? 0 : Math.PI,
         color: stallColors[(i + row * 2) % stallColors.length],
-        goods: [pick(rng, ['#ff595e', '#ffca3a', '#8ac926', '#1982c4']), pick(rng, ['#ff924c', '#6a4c93', '#ffca3a', '#43aa8b'])],
+        goods: [pick(draw, ['#ff595e', '#ffca3a', '#8ac926', '#1982c4']), pick(draw, ['#ff924c', '#6a4c93', '#ffca3a', '#43aa8b'])],
       });
     }
   }
 
   // --- street props at fixed junctions (literals, no random draws) ---
   const propSpots = [
-    ['bench', -64, 8, 0], ['bench', -56, 8, 0], ['bin', -48, 8, 0], ['planter', -80, 8, 0],
-    ['bench', 8, -56, Math.PI / 2], ['bin', 8, -48, 0], ['planter', 8, -64, 0],
-    ['bench', -136, -88, 0], ['bin', -128, -88, 0], ['cone', 40, -6, 0], ['cone', 44, -6, 0],
-    ['cone', 40, 6, 0], ['bench', 200, 16, Math.PI], ['bin', 208, 16, 0], ['planter', 216, 16, 0],
-    ['bench', -200, 136, 0], ['bin', -192, 136, 0], ['bench', 120, 232, Math.PI], ['bin', 128, 232, 0],
-    ['planter', -72, -120, 0], ['planter', -72, -72, 0], ['bench', -40, -96, Math.PI / 2],
+    { kind: 'bench', x: -64, z: 8, ry: 0 }, { kind: 'bench', x: -56, z: 8, ry: 0 },
+    { kind: 'bin', x: -48, z: 8, ry: 0 }, { kind: 'planter', x: -80, z: 8, ry: 0 },
+    { kind: 'bench', x: 8, z: -56, ry: Math.PI / 2 }, { kind: 'bin', x: 8, z: -48, ry: 0 },
+    { kind: 'planter', x: 8, z: -64, ry: 0 },
+    { kind: 'bench', x: -136, z: -88, ry: 0 }, { kind: 'bin', x: -128, z: -88, ry: 0 },
+    { kind: 'cone', x: 40, z: -6, ry: 0 }, { kind: 'cone', x: 44, z: -6, ry: 0 },
+    { kind: 'cone', x: 40, z: 6, ry: 0 },
+    { kind: 'bench', x: 200, z: 16, ry: Math.PI }, { kind: 'bin', x: 208, z: 16, ry: 0 },
+    { kind: 'planter', x: 216, z: 16, ry: 0 },
+    { kind: 'bench', x: -200, z: 136, ry: 0 }, { kind: 'bin', x: -192, z: 136, ry: 0 },
+    { kind: 'bench', x: 120, z: 232, ry: Math.PI }, { kind: 'bin', x: 128, z: 232, ry: 0 },
+    { kind: 'planter', x: -72, z: -120, ry: 0 }, { kind: 'planter', x: -72, z: -72, ry: 0 },
+    { kind: 'bench', x: -40, z: -96, ry: Math.PI / 2 },
   ];
-  for (const [kind, x, z, ry] of propSpots) props.push({ kind, x, z, ry });
+  for (const spot of propSpots) props.push({ kind: spot.kind, x: spot.x, z: spot.z, ry: spot.ry });
 
   // Sand dressing for the beach-hero foreground: towels, rocks and
   // shells scattered on the southern strip so the sand is not one
   // empty brown slab. Same literal-only rule as the umbrellas above
-  // — nothing here draws from the RNG stream.
+  // — nothing here draws from the random stream.
   const sandDressing = [
-    ['towel', 10, 309, 0.4], ['towel', 20, 308, 1.2], ['towel', -8, 308, 2.4],
-    ['towel', -28, 311, 0.9], ['towel', 14, 311, 1.6],
-    ['rock', -2, 307, 0], ['rock', 16, 311, 0], ['rock', -44, 308, 0],
-    ['shell', 6, 311, 0], ['shell', -12, 309, 0], ['shell', 26, 310, 0],
-    ['shell', -58, 309, 0], ['shell', 18, 310, 0],
+    { kind: 'towel', x: 10, z: 309, ry: 0.4 }, { kind: 'towel', x: 20, z: 308, ry: 1.2 },
+    { kind: 'towel', x: -8, z: 308, ry: 2.4 }, { kind: 'towel', x: -28, z: 311, ry: 0.9 },
+    { kind: 'towel', x: 14, z: 311, ry: 1.6 },
+    { kind: 'rock', x: -2, z: 307, ry: 0 }, { kind: 'rock', x: 16, z: 311, ry: 0 },
+    { kind: 'rock', x: -44, z: 308, ry: 0 },
+    { kind: 'shell', x: 6, z: 311, ry: 0 }, { kind: 'shell', x: -12, z: 309, ry: 0 },
+    { kind: 'shell', x: 26, z: 310, ry: 0 }, { kind: 'shell', x: -58, z: 309, ry: 0 },
+    { kind: 'shell', x: 18, z: 310, ry: 0 },
     // extra shells and pebbles so the foreground sand has small
     // things to catch the eye at thumbnail size
-    ['shell', -34, 309, 0], ['shell', 22, 309, 0], ['shell', -52, 311, 0],
-    ['shell', 34, 310, 0],
-    ['rock', 24, 309, 0], ['rock', -36, 310, 0], ['rock', -64, 308, 0],
+    { kind: 'shell', x: -34, z: 309, ry: 0 }, { kind: 'shell', x: 22, z: 309, ry: 0 },
+    { kind: 'shell', x: -52, z: 311, ry: 0 }, { kind: 'shell', x: 34, z: 310, ry: 0 },
+    { kind: 'rock', x: 24, z: 309, ry: 0 }, { kind: 'rock', x: -36, z: 310, ry: 0 },
+    { kind: 'rock', x: -64, z: 308, ry: 0 },
   ];
-  for (const [kind, x, z, ry] of sandDressing) props.push({ kind, x, z, ry });
+  for (const spot of sandDressing) props.push({ kind: spot.kind, x: spot.x, z: spot.z, ry: spot.ry });
 
   // --- golden shells (collectibles) ---
   const shellSpots = [

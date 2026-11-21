@@ -1,35 +1,36 @@
-// Solmarina (fresh build) — staged screenshot scenes. Each one plays the real
-// rules forward from a fresh world, steered by an autopilot that drives the
-// road grid Manhattan-style toward the objective, so the frame is what short
-// play really looks like and the same seed always gives the same frame.
+// Solmarina — staged screenshot scenes. Each one plays the real rules
+// forward from a fresh world, steered by an autopilot that drives the
+// road grid Manhattan-style toward the objective, so the frame is what
+// short play really looks like and the same seed always gives the same
+// frame.
 import { STEP } from './sim.js';
 import { GRID_MIN, GRID_MAX, ROAD_STEP, MARKET, PIER } from './layout.js';
 import { wrapAngle } from './util.js';
 
-const ROADS = [];
-for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) ROADS.push(v);
-function nearestRoad(v) {
-  let best = ROADS[0], bd = Infinity;
-  for (const r of ROADS) { const d = Math.abs(v - r); if (d < bd) { bd = d; best = r; } }
+const ROAD_LINES = [];
+for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) ROAD_LINES.push(v);
+function closestRoadLine(v) {
+  let best = ROAD_LINES[0], bd = Infinity;
+  for (const r of ROAD_LINES) { const d = Math.abs(v - r); if (d < bd) { bd = d; best = r; } }
   return best;
 }
-function nextWaypoint(x, z, tx, tz) {
-  const rx = nearestRoad(x), rz = nearestRoad(z);
+function pickWaypoint(x, z, tx, tz) {
+  const rx = closestRoadLine(x), rz = closestRoadLine(z);
   const onX = Math.abs(x - rx) < 4, onZ = Math.abs(z - rz) < 4;
-  const step = (d) => Math.min(ROAD_STEP, Math.abs(d));
+  const leg = (d) => Math.min(ROAD_STEP, Math.abs(d));
   if (onX && onZ) {
-    if (Math.abs(tx - x) > 6) return { x: x + Math.sign(tx - x) * step(tx - x), z };
-    return { x, z: z + Math.sign(tz - z) * step(tz - z) };
+    if (Math.abs(tx - x) > 6) return { x: x + Math.sign(tx - x) * leg(tx - x), z };
+    return { x, z: z + Math.sign(tz - z) * leg(tz - z) };
   }
-  if (onX) return { x: rx, z: z + Math.sign(tz - z) * step(tz - z) };
+  if (onX) return { x: rx, z: z + Math.sign(tz - z) * leg(tz - z) };
   if (onZ) {
-    if (Math.abs(tx - x) > 6) return { x: x + Math.sign(tx - x) * step(tx - x), z: rz };
+    if (Math.abs(tx - x) > 6) return { x: x + Math.sign(tx - x) * leg(tx - x), z: rz };
     return { x: rx, z: rz }; // aligned in x: drive to the intersection, then turn
   }
   // off-grid: drive axis-aligned to the nearer road line, never diagonally
   return Math.abs(x - rx) < Math.abs(z - rz) ? { x: rx, z } : { x, z: rz };
 }
-function driveInput(world, tx, tz) {
+function driveToward(world, tx, tz) {
   const s = world.state;
   const car = s.heroCar;
   let ex = tx, ez = tz;
@@ -38,9 +39,9 @@ function driveInput(world, tx, tz) {
   // navigate to the road-aligned target; inside 40 m drive straight at the
   // real target (it may sit mid-block, e.g. a building front). The pier is
   // reached via the causeway at z = 24, not the nearest road line.
-  let navTx = nearestRoad(ex), navTz = nearestRoad(ez);
+  let navTx = closestRoadLine(ex), navTz = closestRoadLine(ez);
   if (tx > GRID_MAX) { navTx = GRID_MAX; navTz = 24; }
-  const wp = dist < 40 ? { x: ex, z: ez } : nextWaypoint(car.x, car.z, navTx, navTz);
+  const wp = dist < 40 ? { x: ex, z: ez } : pickWaypoint(car.x, car.z, navTx, navTz);
   const want = Math.atan2(-(wp.z - car.z), wp.x - car.x);
   const diff = wrapAngle(want - car.heading);
   const wpDist = Math.hypot(wp.x - car.x, wp.z - car.z);
@@ -51,21 +52,21 @@ function driveInput(world, tx, tz) {
     boost: false, enter: false, reload: false, shootAngle: null,
   };
 }
-function walkInput(world, tx, tz) {
+function walkToward(world, tx, tz) {
   const s = world.state;
   const p = s.player;
   const d = Math.hypot(tx - p.x, tz - p.z);
   if (d < 1.5) return { moveX: 0, moveZ: 0, steer: 0, throttle: 0, brake: false, boost: false, enter: false, reload: false, shootAngle: null };
   return { moveX: (tx - p.x) / d, moveZ: (tz - p.z) / d, steer: 0, throttle: 0, brake: false, boost: false, enter: false, reload: false, shootAngle: null };
 }
-function autopilot(world) {
+function autoDrive(world) {
   const s = world.state;
-  if (s.player.mode === 'car') return driveInput(world, s.objective.x, s.objective.z);
-  return walkInput(world, s.heroCar.x, s.heroCar.z);
+  if (s.player.mode === 'car') return driveToward(world, s.objective.x, s.objective.z);
+  return walkToward(world, s.heroCar.x, s.heroCar.z);
 }
-function stepFor(world, seconds, inputFn) {
+function advance(world, seconds, inputFn) {
   const n = Math.round(seconds / STEP);
-  for (let i = 0; i < n; i++) world.step(STEP, inputFn ? inputFn(world) : autopilot(world));
+  for (let i = 0; i < n; i++) world.step(STEP, inputFn ? inputFn(world) : autoDrive(world));
 }
 
 /** Stage a scene; returns the screen the HUD should draw over it. */
@@ -73,7 +74,7 @@ export function stageShot(name, world, renderer) {
   world.reset(1);
   const s = world.state;
   s.screen = 'play';
-  const cam = (x, y, z, lx, ly, lz) => renderer.setCamOverride(
+  const pointCam = (x, y, z, lx, ly, lz) => renderer.setCamOverride(
     { x, y, z }, { x: lx, y: ly, z: lz },
   );
   if (name === 'cover') {
@@ -86,7 +87,7 @@ export function stageShot(name, world, renderer) {
     // The HUD is hidden by cover-clean mode.
     world.pinClock(18.3);
     s.missions.active = 3; s.missions.stage = 0; s.missions.started = true;
-    s.missions.dialog = { speaker: 'DANTE', line: 'It\'s a trap. Lose them — then bring it home.' };
+    s.missions.dialog = { speaker: 'DANTE', line: "It's a trap. Lose them — then bring it home." };
     s.missions.dialogTimer = 9;
     s.objective = { x: -72, z: 48, label: 'Lose the cordon — get CLEAR' };
     s.player.mode = 'car';
@@ -100,7 +101,7 @@ export function stageShot(name, world, renderer) {
     for (let i = 0; i < 2; i++) {
       s.police.push({ x: 16 + i * 12, z: (i % 2 ? 236.5 : 243.5), heading: Math.PI, speed: 14, search: 0, siren: i });
     }
-    stepFor(world, 2, () => driveInput(world, -120, 240));
+    advance(world, 2, () => driveToward(world, -120, 240));
     // Re-pin everything the sim moved: the hero back to the staged spot,
     // the heli frozen big ahead-left, and exactly 2 cruisers in frame.
     // The road is straight and the chase camera looks west, so anything
@@ -137,7 +138,7 @@ export function stageShot(name, world, renderer) {
     // edge. The car sits at the right third. The look point is raised
     // (2.4) so the marina and sunset fill more of the frame and the
     // asphalt less.
-    cam(7.8, 2.7, 245.8, -22, 2.4, 240);
+    pointCam(7.8, 2.7, 245.8, -22, 2.4, 240);
     return 'play';
   }
   if (name === 'beach-hero') {
@@ -170,7 +171,7 @@ export function stageShot(name, world, renderer) {
       const pd = s.peds[i];
       pd.x = x; pd.z = z; pd.heading = h; pd.speed = sp; pd.alive = true;
     });
-    stepFor(world, 3, () => walkInput(world, 14, 306));
+    advance(world, 3, () => walkToward(world, 14, 306));
     Object.assign(s.player, heroPose);
     // The camera sits dead on the hero's facing axis, 4.5 m behind him
     // and low (y 2.4), so the hero is bottom-centre, about a third of
@@ -178,7 +179,7 @@ export function stageShot(name, world, renderer) {
     // the same axis. The look point drops to y -2.0, pitching the camera
     // about 10° down: the sea horizon now sits ~30% from the top instead
     // of ~46%, so the top of the frame is no longer empty sky.
-    cam(18.3, 2.4, 304.7, -6, -2.0, 312);
+    pointCam(18.3, 2.4, 304.7, -6, -2.0, 312);
     return 'play';
   }
   if (name === 'start') {
@@ -186,12 +187,12 @@ export function stageShot(name, world, renderer) {
     s.player.mode = 'walk';
     s.player.x = -48; s.player.z = 52; s.player.heading = Math.PI / 2;
     s.heroCar.x = -48; s.heroCar.z = 42;
-    cam(-48, 4.5, 62, -48, 1.5, 10);
+    pointCam(-48, 4.5, 62, -48, 1.5, 10);
     return 'play';
   }
   if (name === 'play') {
     world.pinClock(17.5);
-    stepFor(world, 20);
+    advance(world, 20);
     renderer.setCamOverride(null);
     renderer.snapFollow();
     return 'play';
@@ -206,41 +207,41 @@ export function stageShot(name, world, renderer) {
     s.heroCar.x = 300; s.heroCar.z = 24; s.heroCar.heading = 0; s.heroCar.speed = 0;
     s.player.x = 300; s.player.z = 24;
     s.wanted = 0;
-    stepFor(world, 4, () => driveInput(world, PIER.x, PIER.z));
+    advance(world, 4, () => driveToward(world, PIER.x, PIER.z));
     s.heroCar.x = 330; s.heroCar.z = 24; s.heroCar.heading = 0;
-    cam(306, 5.5, 40, 384, 2, 24);
+    pointCam(306, 5.5, 40, 384, 2, 24);
     return 'play';
   }
   if (name === 'market') {
     world.pinClock(17.5);
     s.player.mode = 'walk';
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 20; s.player.heading = Math.PI / 2;
-    stepFor(world, 3, () => walkInput(world, MARKET.x, MARKET.z));
+    advance(world, 3, () => walkToward(world, MARKET.x, MARKET.z));
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 16; s.player.heading = Math.PI / 2;
     // camera shifted east + look west so the hero sits at the left third,
-    // not dead-centre with his back to the lens blocking the stalls (v2.4)
-    cam(MARKET.x - 2, 3.2, MARKET.z + 22, MARKET.x - 8, 2, MARKET.z - 12);
+    // not dead-centre with his back to the lens blocking the stalls
+    pointCam(MARKET.x - 2, 3.2, MARKET.z + 22, MARKET.x - 8, 2, MARKET.z - 12);
     return 'play';
   }
   if (name === 'nightmarket') {
     world.pinClock(21.5);
     s.player.mode = 'walk';
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 20; s.player.heading = Math.PI / 2;
-    stepFor(world, 3, () => walkInput(world, MARKET.x, MARKET.z));
+    advance(world, 3, () => walkToward(world, MARKET.x, MARKET.z));
     s.player.x = MARKET.x - 6; s.player.z = MARKET.z + 16; s.player.heading = Math.PI / 2;
-    // same off-centre hero as the day market (v2.4)
-    cam(MARKET.x - 2, 3.2, MARKET.z + 22, MARKET.x - 8, 2, MARKET.z - 12);
+    // same off-centre hero as the day market
+    pointCam(MARKET.x - 2, 3.2, MARKET.z + 22, MARKET.x - 8, 2, MARKET.z - 12);
     return 'play';
   }
   if (name === 'beach') {
-    // sunset on the sand (ref 4): hero on foot ON the sand among the
+    // sunset on the sand: hero on foot ON the sand among the
     // northern umbrella row, camera just east of him looking
     // west-southwest — sun + lighthouse + sea at the left, umbrellas +
     // towels + beachgoers big in the foreground, sand underfoot. The
     // z = 288 road runs parallel to any westward view, so the trick is
     // distance: from the northern strip (camera z = 260) the road is
     // 22 m+ away and reads as a midground band, while the southern
-    // strip (v2.2, camera z = 300) put the lens 12 m from it and the
+    // strip (camera z = 300) put the lens 12 m from it and the
     // road filled half the frame; the first try (hero z = 284) stood
     // ON the road itself.
     world.pinClock(18.2);
@@ -262,15 +263,15 @@ export function stageShot(name, world, renderer) {
       const pd = s.peds[i];
       pd.x = x; pd.z = z; pd.heading = h; pd.speed = sp; pd.alive = true;
     });
-    stepFor(world, 3, () => walkInput(world, -17, 266));
+    advance(world, 3, () => walkToward(world, -17, 266));
     s.player.x = -17; s.player.z = 266; s.player.heading = -2.7;
-    // v2.4: camera closer + lower (9.8 m from the hero, was 13.5 m) so the
+    // camera closer + lower (9.8 m from the hero, was 13.5 m) so the
     // hero reads at thumbnail size; sun + lighthouse stay left of frame
-    cam(-8, 4.2, 262, -75, 2, 280);
+    pointCam(-8, 4.2, 262, -75, 2, 280);
     return 'play';
   }
   if (name === 'chase') {
-    // coastal sunset chase (ref 3): westbound on the beach road at 18:00,
+    // coastal sunset chase: westbound on the beach road at 18:00,
     // sun low ahead-left over the sea, skyline right, palms lining the
     // road, heli ahead over the water, police closing from behind
     world.pinClock(18.0);
@@ -281,19 +282,19 @@ export function stageShot(name, world, renderer) {
     for (let i = 0; i < 4; i++) {
       s.police.push({ x: -24 + i * 10, z: (i % 2 ? 236 : 244), heading: Math.PI, speed: 16, search: 0, siren: i });
     }
-    stepFor(world, 3, () => driveInput(world, -200, 240));
+    advance(world, 3, () => driveToward(world, -200, 240));
     s.heroCar.x = -40; s.heroCar.z = 240; s.heroCar.heading = Math.PI;
     // heli big ahead-left over the sea, frozen by the staged flag — the
-    // v2.3 orbit put it at alt ~48, a small speck clipped at the frame edge;
-    // v2.4 first try (-48, 248, 12) was 22 m out and the rotor disc clipped
-    // the top edge, so it sits 28 m out now
+    // first orbit put it at alt ~48, a small speck clipped at the frame
+    // edge; the first staged try (-48, 248, 12) was 22 m out and the
+    // rotor disc clipped the top edge, so it sits 28 m out now
     s.heli.active = true; s.heli.staged = true; s.heli.x = -54; s.heli.z = 247; s.heli.alt = 13;
-    cam(-28, 4.6, 242, -95, 2, 238);
+    pointCam(-28, 4.6, 242, -95, 2, 238);
     return 'play';
   }
   // default: plain play
   world.pinClock(17.5);
-  stepFor(world, 10);
+  advance(world, 10);
   renderer.setCamOverride(null);
   return 'play';
 }

@@ -44,6 +44,40 @@ window.__pt = (() => {
     if (Math.hypot(wp.x - x, wp.z - z) < 0.5) return { x: tx, z: tz };
     return wp;
   }
+  // Straight-line clearance: does the segment (x1,z1)->(x2,z2) cross any
+  // building's blocked zone (sim.js hitsBuilding: half-size + 0.8 m)?
+  // The autopilot's direct mode (<40 m) used to drive straight at the
+  // target across block interiors — at the M4 safehouse it cut the block
+  // x[-96,-48]/z[0,48] diagonally and pinned the car against the west
+  // face of (-78.7,18.7) at (-88.8,29.1), where it ground itself to a
+  // wreck. A 2.0 m margin (0.8 sim + 1.2 steering slack) keeps the car
+  // off faces it would only just graze; a rejected direct leg falls back
+  // to Manhattan routing, which stays on roads.
+  function directPathClear(x1, z1, x2, z2) {
+    const M = 2.0;
+    for (const b of W.layout.buildings) {
+      const bx0 = b.x - b.w / 2 - M, bx1 = b.x + b.w / 2 + M;
+      const bz0 = b.z - b.d / 2 - M, bz1 = b.z + b.d / 2 + M;
+      let tmin = 0, tmax = 1;
+      const dx = x2 - x1, dz = z2 - z1;
+      if (Math.abs(dx) < 1e-9) { if (x1 < bx0 || x1 > bx1) continue; }
+      else {
+        let ta = (bx0 - x1) / dx, tb = (bx1 - x1) / dx;
+        if (ta > tb) { const t = ta; ta = tb; tb = t; }
+        tmin = Math.max(tmin, ta); tmax = Math.min(tmax, tb);
+        if (tmin > tmax) continue;
+      }
+      if (Math.abs(dz) < 1e-9) { if (z1 < bz0 || z1 > bz1) continue; }
+      else {
+        let ta = (bz0 - z1) / dz, tb = (bz1 - z1) / dz;
+        if (ta > tb) { const t = ta; ta = tb; tb = t; }
+        tmin = Math.max(tmin, ta); tmax = Math.min(tmax, tb);
+        if (tmin > tmax) continue;
+      }
+      return false;
+    }
+    return true;
+  }
   function driveInput(tx, tz, opts = {}) {
     const s = S(), car = s.heroCar;
     let ex = tx, ez = tz;
@@ -57,10 +91,25 @@ window.__pt = (() => {
     // straight at the (gated) target instead. opts.manhattan forces the
     // router even when close (tailing: a direct diagonal at the moving van
     // cuts across blocks/stalls and wrecks the car).
-    const useDirect = !opts.manhattan && dist < 40;
+    // Direct mode only when the straight line is clear of buildings —
+    // otherwise the car cuts a block diagonal and pins itself on a face
+    // (M4 leg0: (-89,28.9)->(-72,48) crosses (-78.7,18.7)'s blocked zone).
+    const useDirect = !opts.manhattan && dist < 40 && directPathClear(car.x, car.z, ex, ez);
     let wp = (useDirect || car.x > GRID_MAX) ? { x: ex, z: ez } : nextWaypoint(car.x, car.z, navTx, navTz);
     const want0 = Math.atan2(-(wp.z - car.z), wp.x - car.x);
     let diff = wrapAngle(want0 - car.heading);
+    // Reversing at speed: the sim's brake is -30 on speed, so braking a
+    // car that is already moving backward PINS it at -9 m/s (clamped) —
+    // driveTo's watchdog reverse ends with the car at -9, the sharp-turn
+    // brake below then holds it there, and the car backs all the way to
+    // the target (M4 leg0 arrived at the safehouse in reverse at -9, and
+    // exitCar's brake could not stop it either — it reversed 82 m east
+    // into a building face). Recover first: throttle forward (steer is
+    // flipped while reversing, the sim inverts it) until the reverse is
+    // killed, then normal logic resumes next step.
+    if (car.speed < -0.5) {
+      return { moveX: 0, moveZ: 0, steer: clamp(-diff * 1.6, -1, 1), throttle: 0.5, brake: false, boost: false, enter: false, reload: false, shoot: false, shootAngle: null };
+    }
     // U-turn (|diff| ~ pi): the waypoint is behind the car. The old fix
     // aimed at the FINAL target instead — correct at the causeway entrance
     // (target just past the corner) but fatal when the target is far away:
@@ -311,6 +360,14 @@ window.__pt = (() => {
       const st = S();
       if (st.player.mode === 'walk') return { ok: true, ...snap() };
       if (Math.abs(st.heroCar.speed) < 1) W.step(STEP, { ...noInput(), enter: true });
+      // Reversing: the sim's brake is -30 on speed, so braking a car
+      // moving backward pins it at -9 m/s instead of stopping it (M4
+      // leg0's car arrived at the safehouse in reverse and exitCar's
+      // brake let it reverse 82 m east into a building face before the
+      // collision flip finally stopped it). Throttle forward to kill the
+      // reverse first — the space ahead is where the car just came from,
+      // so it is clear — then brake to a stop as before.
+      else if (st.heroCar.speed < -0.5) W.step(STEP, { ...noInput(), throttle: 0.4 });
       else W.step(STEP, { ...noInput(), brake: true });
     }
     return { ok: false, reason: 'timeout-exit', ...snap() };

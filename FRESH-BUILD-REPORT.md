@@ -494,3 +494,8 @@ node --experimental-strip-types serve.ts --port 8091   # game on http://localhos
 node driver.mjs http://127.0.0.1:8091 verify-shots     # all 8 shots, PNG + errors
 MAKEFUN_OUTPUT_DIR=/tmp/fresh-out node main.ts         # dossier hand-in check
 ```
+
+## Ronde grafik Kumala (mulai 21 Nov 22:19 WIB, koordinator + recording #8 01a1feb0)
+- Perintah syarif 22:19 WIB: "pokoknya saya mau detail kayak gini apapun caranya mau nambah apapun itu" — patokan 2 screenshot Kumala (fasad warna-warni, langit ungu-oranye, glare + pantulan laut, bayangan panjang, traffic padat, mercusuar).
+- Keputusan syarif 22:24 WIB: batas draw calls ronde ini DINAIKKAN 250 → 350-400 (triangles tetap <500k). Verifikasi ronde pakai budget baru.
+- Builder A (langit/matahari/laut/awan, prefix K8_) jalan; lanjut B (fasad), C (density + mobil + bayangan), D (framing beach-hero). Playtest 48/48 GOLD + 0 console error tetap wajib. JANGAN submit (slot terakhir, deadline 24 Nov 22:00 WIB).

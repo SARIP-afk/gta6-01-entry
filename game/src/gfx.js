@@ -752,58 +752,123 @@ function R7_roadSide(b) {
   if (dx <= dz) return { axis: 'x', sign: nx >= b.x ? 1 : -1, len: b.d };
   return { axis: 'z', sign: nz >= b.z ? 1 : -1, len: b.w };
 }
-// K11_ beach-hero surfboards + near-shore boat: two wide striped boards
-// flanking the hero (broad faces turned to the camera, NOT edge-on) and one
-// bright boat on the water inside the beach-hero view cone. All positions
-// are deterministic literals. Board yaws face the camera: board->camera
-// azimuth is ~2.05 rad for the left board and ~1.50 rad for the right one
-// (hero heading -2.85 would turn both boards edge-on, a thin pole again).
-function K11_heroBeach(scene) {
-  const K11_yellow = new THREE.MeshLambertMaterial({ color: 0xf2c200 });
-  const K11_teal = new THREE.MeshLambertMaterial({ color: 0x12b5a5 });
-  const K11_red = new THREE.MeshLambertMaterial({ color: 0xe23b2e });
-  const K11_white = new THREE.MeshLambertMaterial({ color: 0xf7f2e6 });
-  const K11_wood = new THREE.MeshLambertMaterial({ color: 0x8a6a42 });
-  const K11_dark = new THREE.MeshLambertMaterial({ color: 0x3a2e22 });
-  const K11_navy = new THREE.MeshLambertMaterial({ color: 0x1d4e89 });
-  const K11_box = (mat, w, h, d) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  const K11_put = (parent, mesh, x, y, z, rx, ry, rz) => {
+// K12_ beach-hero surfboards + near-shore boat, rewritten from scratch.
+// The K11 boards were boxes (1.1 x 2.4 x 0.1): at 2K they read as giant
+// doors / monoliths flanking the hero, and the Lambert yellow went
+// olive-brown under the orange sunset light. These boards are real
+// surfboard silhouettes: a tapered outline (pointed nose, rounded tail,
+// widest just behind the middle) via THREE.Shape + ExtrudeGeometry,
+// 0.08 thick, 0.60 wide, ~2.3 long — a sane scale next to the ~1.8 m
+// hero. Bodies use MeshBasicMaterial (unlit) so the yellow renders TRUE
+// YELLOW at sunset instead of being dragged olive by the sunset hemi +
+// directional lights; the extrude side faces get a slightly darker
+// shade of the same hue for a hint of depth. A thin centre stripe +
+// nose band follow the taper. Boards lean back ~17 deg and splay so the
+// noses point up-and-outward from the hero. The boat is copied unchanged
+// from K11 (it already read well) — position (-60, 0, 380), yaw -1.28.
+function K12_boardShape(len, hw) {
+  // len: total length, hw: half-width at the widest point. Outline in
+  // local XY: +Y is nose-ward, +X is across the board. Nose pointed,
+  // tail rounded, widest at ~40% up from the tail.
+  const s = new THREE.Shape();
+  const h = len / 2;
+  s.moveTo(0, h);
+  s.quadraticCurveTo(hw * 0.45, h * 0.82, hw * 0.72, h * 0.45);
+  s.lineTo(hw, -h * 0.05);
+  s.lineTo(hw * 0.98, -h * 0.55);
+  s.quadraticCurveTo(hw * 0.95, -h * 0.92, hw * 0.55, -h * 0.98);
+  s.quadraticCurveTo(hw * 0.28, -h, 0, -h);
+  s.quadraticCurveTo(-hw * 0.28, -h, -hw * 0.55, -h * 0.98);
+  s.quadraticCurveTo(-hw * 0.95, -h * 0.92, -hw * 0.98, -h * 0.55);
+  s.lineTo(-hw, -h * 0.05);
+  s.lineTo(-hw * 0.72, h * 0.45);
+  s.quadraticCurveTo(-hw * 0.45, h * 0.82, 0, h);
+  return s;
+}
+function K12_heroBeach(scene) {
+  const K12_yellowFace = new THREE.MeshBasicMaterial({ color: 0xffd400 });
+  const K12_yellowSide = new THREE.MeshBasicMaterial({ color: 0xeab800 });
+  const K12_tealFace = new THREE.MeshBasicMaterial({ color: 0x14c8b8 });
+  const K12_tealSide = new THREE.MeshBasicMaterial({ color: 0x0e9a8c });
+  const K12_red = new THREE.MeshBasicMaterial({ color: 0xe23b2e });
+  const K12_white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const K12_dark = new THREE.MeshLambertMaterial({ color: 0x3a2e22 });
+  const K12_boatWhite = new THREE.MeshLambertMaterial({ color: 0xf7f2e6 }); // boat: K11 Lambert, untouched
+  const K12_wood = new THREE.MeshLambertMaterial({ color: 0x8a6a42 });
+  const K12_navy = new THREE.MeshLambertMaterial({ color: 0x1d4e89 });
+  const K12_box = (mat, w, h, d) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  const K12_put = (parent, mesh, x, y, z, rx, ry, rz) => {
     mesh.position.set(x, y, z);
     mesh.rotation.set(rx, ry, rz);
     parent.add(mesh);
   };
-  // --- surfboards: 6 boxes each (main, stripe, top band, bottom band, nose, fin)
-  const K11_boards = [
-    { x: 10.5, z: 308.5, yaw: 2.05, mat: K11_yellow, stripe: K11_red },
-    { x: 10.3, z: 305.9, yaw: 1.50, mat: K11_teal, stripe: K11_white },
+  // Extruded tapered board: front/back caps + sides, centred on z = 0.
+  const K12_extrude = (shape, depth, faceMat, sideMat) => {
+    const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 8 });
+    g.translate(0, 0, -depth / 2);
+    return new THREE.Mesh(g, [faceMat, sideMat]);
+  };
+  // Fin: small swept triangle, plane perpendicular to the board face.
+  const K12_finGeo = (() => {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0);
+    s.lineTo(0.20, -0.05);
+    s.lineTo(0.04, -0.30);
+    s.closePath();
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.03, bevelEnabled: false });
+    g.translate(0, 0, -0.015);
+    return g;
+  })();
+  // --- surfboards: tapered, true-colour, sane scale, leaning in sand ---
+  const K12_boards = [
+    { x: 10.5, z: 308.5, yaw: 2.05, splay: -0.12, face: K12_yellowFace, side: K12_yellowSide, stripe: K12_red },
+    { x: 10.3, z: 305.9, yaw: 1.60, splay: 0.12, face: K12_tealFace, side: K12_tealSide, stripe: K12_white },
   ];
-  for (const K11_b of K11_boards) {
-    const K11_g = new THREE.Group();
-    K11_g.position.set(K11_b.x, 0, K11_b.z);
-    K11_g.rotation.set(0, K11_b.yaw, 0);
-    scene.add(K11_g);
-    K11_put(K11_g, K11_box(K11_b.mat, 1.1, 2.4, 0.1), 0, 1.15, 0, 0.3, 0, 0);
-    K11_put(K11_g, K11_box(K11_b.stripe, 0.22, 2.4, 0.12), 0, 1.15, 0, 0.3, 0, 0);
-    K11_put(K11_g, K11_box(K11_b.stripe, 1.1, 0.25, 0.14), 0, 2.02, 0, 0.3, 0, 0);
-    K11_put(K11_g, K11_box(K11_b.stripe, 1.1, 0.25, 0.14), 0, 0.32, 0, 0.3, 0, 0);
-    K11_put(K11_g, K11_box(K11_white, 0.7, 0.18, 0.14), 0, 2.28, 0, 0.3, 0, 0);
-    K11_put(K11_g, K11_box(K11_dark, 0.3, 0.5, 0.06), 0, 0.2, -0.12, 0.3, 0, 0);
+  for (const K12_b of K12_boards) {
+    const K12_g = new THREE.Group();
+    K12_g.position.set(K12_b.x, 0, K12_b.z);
+    K12_g.rotation.y = K12_b.yaw; // broad face toward the beach-hero camera
+    scene.add(K12_g);
+    const K12_lean = new THREE.Group();
+    K12_lean.rotation.x = -0.30; // ~17 deg back, nose up-and-away
+    K12_g.add(K12_lean);
+    const K12_tilt = new THREE.Group();
+    K12_tilt.position.set(0, 1.06, 0); // tail buried ~4 cm in the sand
+    K12_tilt.rotation.z = K12_b.splay;
+    K12_lean.add(K12_tilt);
+    // body: 2.3 long, 0.60 max wide, 0.08 thick
+    K12_tilt.add(K12_extrude(K12_boardShape(2.3, 0.30), 0.08, K12_b.face, K12_b.side));
+    // centre stripe following the taper, proud of both faces
+    K12_tilt.add(K12_extrude(K12_boardShape(1.9, 0.095), 0.10, K12_b.stripe, K12_b.stripe));
+    // nose band: a tapered slice across the nose (y 0.72..0.95)
+    const K12_band = new THREE.Shape();
+    K12_band.moveTo(-0.20, 0.72);
+    K12_band.lineTo(0.20, 0.72);
+    K12_band.lineTo(0.14, 0.95);
+    K12_band.lineTo(-0.14, 0.95);
+    K12_band.closePath();
+    K12_tilt.add(K12_extrude(K12_band, 0.10, K12_b.stripe, K12_b.stripe));
+    // fin under the tail, sticking out the back face
+    const K12_fin = new THREE.Mesh(K12_finGeo, K12_dark);
+    K12_fin.position.set(0, -0.78, -0.05);
+    K12_fin.rotation.y = Math.PI / 2;
+    K12_tilt.add(K12_fin);
   }
-  // --- near-shore boat at (-60, 325): 10 boxes, broadside to the camera ---
-  const K11_boat = new THREE.Group();
-  K11_boat.position.set(-60, 0, 380);
-  K11_boat.rotation.set(0, -1.28, 0);
-  scene.add(K11_boat);
-  K11_put(K11_boat, K11_box(K11_white, 6.5, 1.1, 2.4), 0, 0.55, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_red, 6.54, 0.3, 2.44), 0, 0.75, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_wood, 6.0, 0.25, 2.0), 0, 1.2, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_white, 2.2, 1.2, 1.6), 0, 1.9, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_navy, 2.24, 0.4, 1.64), 0, 2.0, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_red, 2.5, 0.15, 1.9), 0, 2.55, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_dark, 0.18, 4.5, 0.18), 2.2, 3.55, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_yellow, 1.1, 0.7, 0.06), 2.75, 5.3, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_red, 0.8, 0.7, 1.4), 3.4, 0.9, 0, 0, 0, 0);
-  K11_put(K11_boat, K11_box(K11_wood, 1.0, 0.5, 2.0), -2.6, 1.5, 0, 0, 0, 0);
+  // --- near-shore boat at (-60, 380): unchanged from K11, broadside ---
+  const K12_boat = new THREE.Group();
+  K12_boat.position.set(-60, 0, 380);
+  K12_boat.rotation.set(0, -1.28, 0);
+  scene.add(K12_boat);
+  K12_put(K12_boat, K12_box(K12_boatWhite, 6.5, 1.1, 2.4), 0, 0.55, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_red, 6.54, 0.3, 2.44), 0, 0.75, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_wood, 6.0, 0.25, 2.0), 0, 1.2, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_boatWhite, 2.2, 1.2, 1.6), 0, 1.9, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_navy, 2.24, 0.4, 1.64), 0, 2.0, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_red, 2.5, 0.15, 1.9), 0, 2.55, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_dark, 0.18, 4.5, 0.18), 2.2, 3.55, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(new THREE.MeshLambertMaterial({ color: 0xf2c200 }), 1.1, 0.7, 0.06), 2.75, 5.3, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_red, 0.8, 0.7, 1.4), 3.4, 0.9, 0, 0, 0, 0);
+  K12_put(K12_boat, K12_box(K12_wood, 1.0, 0.5, 2.0), -2.6, 1.5, 0, 0, 0, 0);
 }
 function R7_dressing(scene, L) {
   const asphalt = new THREE.Mesh(
@@ -1564,7 +1629,7 @@ export class Renderer {
     this.solmarinaSign.rotation.y = Math.PI;
     scene.add(this.solmarinaSign);
     R7_dressing(this.scene, L);
-    K11_heroBeach(this.scene);
+    K12_heroBeach(this.scene);
     // K10_ boulevard palms: six simplified palms lining both sides of
     // the coast road (z = 240) so the cover reads as a palm boulevard.
     // Fresh K10_ code with its own hash — trunk 3 segments + 2 bands +

@@ -1272,24 +1272,34 @@ export class Renderer {
           solid.add(b.x, y + 0.6, b.z + b.d / 2 + 1.4, b.w * 0.5, 0.9, 0.08, '#f5efe0');
         }
       }
-      // AC unit on the east face + roof water tank on low-rise, so no
-      // facade reads as one bare slab from the street (cover round:
-      // denser — AC on ~85% of buildings, a second unit on ~35%,
-      // tanks on ~75% of low-rise and ~35% of mid-rise)
-      if (hash2(Math.round(b.x), Math.round(b.z), 19) < 0.85) {
-        const fl = 1 + Math.floor(hash2(Math.round(b.x), 3, 19) * Math.max(1, b.floors - 1));
-        const ay = 2.6 + fl * 3.4;
-        if (ay < b.h - 1) solid.add(b.x + b.w / 2 + 0.3, ay, b.z + b.d * 0.2, 0.6, 0.5, 0.9, '#9a9a92');
-        if (hash2(Math.round(b.x), Math.round(b.z), 27) < 0.35) {
-          const fl2 = 1 + Math.floor(hash2(Math.round(b.z), 5, 27) * Math.max(1, b.floors - 1));
-          const ay2 = 2.6 + fl2 * 3.4;
-          if (ay2 < b.h - 1 && Math.abs(ay2 - ay) > 3) solid.add(b.x - b.w / 2 - 0.3, ay2, b.z - b.d * 0.2, 0.6, 0.5, 0.9, '#8a8a82');
+      // K15_ tri budget: AC + roof tanks, rewritten from scratch.
+      // K14 kept AC on ~85% of buildings (234 first units + 63 second
+      // units = 297 boxes = 3,564 tris) and tanks on ~75% of low-rise
+      // + ~35% of mid-rise (112 buildings x 2 boxes = 2,688 tris).
+      // Both are sub-metre grey boxes on east faces and roofs: at
+      // cover distance they are invisible, at street level they read
+      // only as speckle. The debug-minimap phase sat at 498,290 tris
+      // against the 500k cap, so K15 thins them by hash — same seeds,
+      // same geometry, same placement rule, only lower thresholds, so
+      // every surviving unit sits exactly where it sat before:
+      // AC first unit 0.85 -> 0.60 (234 -> 167), second 0.35 -> 0.20
+      // (63 -> 29): -1,212 tris. Tanks low-rise 0.75 -> 0.50 (75 ->
+      // 55), mid-rise 0.35 -> 0.20 (37 -> 20): -888 tris. Facades,
+      // balconies, strand row, palms and staged cars are untouched.
+      if (hash2(Math.round(b.x), Math.round(b.z), 19) < 0.60) {
+        const K15_fl = 1 + Math.floor(hash2(Math.round(b.x), 3, 19) * Math.max(1, b.floors - 1));
+        const K15_ay = 2.6 + K15_fl * 3.4;
+        if (K15_ay < b.h - 1) solid.add(b.x + b.w / 2 + 0.3, K15_ay, b.z + b.d * 0.2, 0.6, 0.5, 0.9, '#9a9a92');
+        if (hash2(Math.round(b.x), Math.round(b.z), 27) < 0.20) {
+          const K15_fl2 = 1 + Math.floor(hash2(Math.round(b.z), 5, 27) * Math.max(1, b.floors - 1));
+          const K15_ay2 = 2.6 + K15_fl2 * 3.4;
+          if (K15_ay2 < b.h - 1 && Math.abs(K15_ay2 - K15_ay) > 3) solid.add(b.x - b.w / 2 - 0.3, K15_ay2, b.z - b.d * 0.2, 0.6, 0.5, 0.9, '#8a8a82');
         }
       }
-      if (b.h <= 20 && hash2(Math.round(b.x), Math.round(b.z), 23) < 0.75) {
+      if (b.h <= 20 && hash2(Math.round(b.x), Math.round(b.z), 23) < 0.50) {
         solid.add(b.x + b.w * 0.25, b.h + 1.6, b.z - b.d * 0.2, 1.7, 2.2, 1.7, '#7a7568');
         solid.add(b.x + b.w * 0.25, b.h + 2.8, b.z - b.d * 0.2, 1.9, 0.25, 1.9, '#5a5548');
-      } else if (b.h > 20 && b.h <= 35 && hash2(Math.round(b.x), Math.round(b.z), 25) < 0.35) {
+      } else if (b.h > 20 && b.h <= 35 && hash2(Math.round(b.x), Math.round(b.z), 25) < 0.20) {
         solid.add(b.x - b.w * 0.25, b.h + 1.6, b.z + b.d * 0.2, 1.7, 2.2, 1.7, '#7a7568');
         solid.add(b.x - b.w * 0.25, b.h + 2.8, b.z + b.d * 0.2, 1.9, 0.25, 1.9, '#5a5548');
       }
@@ -1319,6 +1329,43 @@ export class Renderer {
     solid.add(K14_LH.x, 20, K14_LH.z, 5.5, 4.5, 5.5, '#c0392b');
     solid.add(K14_LH.x, 22.8, K14_LH.z, 6, 1.2, 6, '#2f3540');
     glow.add(K14_LH.x, 24, K14_LH.z, 1.8, 1.8, 1.8, '#ffe9a8');
+    // K15_ cover foreground asphalt dressing, written from scratch.
+    // The ground texture already paints crosswalks, dashes, oil and
+    // wear — but at 4096 px over a 768 m world (5.3 px/m) and a
+    // grazing camera angle they wash out, so the bottom half of the
+    // cover read as empty dark asphalt. These 16 flat boxes sit in
+    // the merged solid soup (+192 tris, 0 extra draw calls), 0.06 m
+    // thick with tops at y = 0.12 — above the ground grain (0.03)
+    // and sand overlays (0.05), below every wheel — so they read
+    // crisp at 300 px thumbnail. All of them lie on the z = 240
+    // beach road in the cover camera's near field (camera at
+    // (7.8, 2.7, 245.8) looking WSW; hero car at (0, 240), staged
+    // cruisers at x -30/-42, traffic from x -68): nothing overlaps
+    // the hero car, the heli, the palms or any staged figure.
+    // Zebra crossing just ahead of the hero (x -11.6..-8.4): six
+    // pale bars, long in the traffic direction, spaced across the
+    // full 12 m road width.
+    for (const K15_z of [235.8, 237.5, 239.2, 240.9, 242.6, 244.3]) {
+      solid.add(-10, 0.09, K15_z, 3.2, 0.06, 0.55, '#f7f3e0');
+    }
+    // Yellow centre-line dashes, reinforcing the texture dashes:
+    // two mid-frame west of the zebra, one right by the camera
+    // east of the hero's rear.
+    for (const K15_x of [-24, -18, 4.5]) {
+      solid.add(K15_x, 0.09, 240, 3.0, 0.06, 0.3, '#e8c33c');
+    }
+    // Manhole in the south lane, two oil stains, and twin tyre-wear
+    // bands on the +/-1.8 m wheel tracks the texture already draws.
+    solid.add(-16, 0.09, 243.5, 1.3, 0.06, 1.3, '#1c1e22');
+    solid.add(-6, 0.09, 237.5, 2.2, 0.06, 1.4, '#14161a');
+    solid.add(2, 0.09, 243.8, 1.6, 0.06, 1.1, '#14161a');
+    solid.add(-14, 0.09, 238.2, 6.0, 0.06, 0.45, '#1a1a1e');
+    solid.add(-14, 0.09, 241.8, 6.0, 0.06, 0.45, '#1a1a1e');
+    // Pale curb highlights on both road edges, running through the
+    // near foreground: south edge under the camera, north edge past
+    // the sidewalk peds.
+    solid.add(-4, 0.09, 246.1, 20, 0.06, 0.35, '#d8d2c0');
+    solid.add(-10, 0.09, 234, 20, 0.06, 0.35, '#d8d2c0');
     // the merged solid mesh carries the facade atlas: building bodies
     // map onto the window-bay tile, everything else samples the white
     // half
@@ -1718,10 +1765,20 @@ export class Renderer {
     const litUp = roll < 0.6;
     const shade = litUp ? (roll < 0.16 ? '#ffd98a' : '#ffb347') : '#2a3648';
     (litUp ? lit : dark).push({ x: px, y, z: pz, ry, color: shade });
-    if (b.h <= 20) {
-      const offX = (ry === 0 || ry === Math.PI) ? 0 : Math.sin(ry) * 0.1;
-      const offZ = ry === 0 ? 0.08 : ry === Math.PI ? -0.08 : 0;
-      mull.push({ x: px + offX, y, z: pz + offZ, ry });
+    // K15_ mullion thinning, rewritten from scratch. One thin proud
+    // bar per window pane on low-rise (h<=20): 3,980 bars x 12 tris =
+    // 47,760 tris, the biggest single low-value pool in the scene —
+    // a 0.09 m bar is sub-pixel at cover distance and under 2 px at
+    // street level, so it buys nothing the glass itself does not
+    // already give. K15 keeps a bar only when a fresh hash (salt 71,
+    // per pane position) falls under 0.95: 3,980 -> 3,808 bars,
+    // -2,064 tris, with 19 of 20 panes still barred and the strand
+    // row (cover-visible) effectively untouched. Window glass, lit
+    // colours and counts are unchanged.
+    if (b.h <= 20 && hash2(Math.round(px), Math.round(pz), 71) < 0.95) {
+      const K15_offX = (ry === 0 || ry === Math.PI) ? 0 : Math.sin(ry) * 0.1;
+      const K15_offZ = ry === 0 ? 0.08 : ry === Math.PI ? -0.08 : 0;
+      mull.push({ x: px + K15_offX, y, z: pz + K15_offZ, ry });
     }
   }
 

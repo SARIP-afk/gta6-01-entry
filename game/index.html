@@ -13,6 +13,17 @@
   .panel { background: rgba(12, 16, 24, 0.82); border: 1px solid rgba(242, 201, 76, 0.35);
     border-radius: 8px; padding: 8px 10px; backdrop-filter: blur(2px); }
   #hud { position: fixed; inset: 0; pointer-events: none; display: none; font-size: 13px; }
+  /* K19_ HUD scale (Builder B, ronde #14): the HUD is designed at
+     1280x720. On larger viewports the whole HUD is scaled up so the
+     mission panel, speed, minimap and cash keep the reference
+     proportions (at 2560x1440 the fixed-px HUD looked half-size).
+     Scale s = max(1, min(vw/1280, vh/720)), set by hud.js as --hud-s
+     on #hud; the wrapper is a 1280x720 box (or the viewport when
+     smaller, so the <=700px compact layout still anchors to the real
+     viewport edges) scaled from the top-left. At 1280x720 and below
+     s = 1: pixel-identical to before, playtest coordinates unchanged. */
+  #hud-scale { position: absolute; top: 0; left: 0; width: min(1280px, 100vw); height: min(720px, 100vh);
+    transform: scale(var(--hud-s, 1)); transform-origin: top left; }
   #hud .panel, #hud #minimap { pointer-events: auto; }
   /* top-left: mission */
   #mission { position: absolute; top: 12px; left: 12px; width: 300px; border-top: 3px solid #f2c94c; }
@@ -138,6 +149,7 @@
 <div id="status" aria-live="polite"></div>
 
 <div id="hud">
+<div id="hud-scale">
   <div id="mission" class="panel">
     <div id="mission-name">MISSION 1 · FIRST DROP</div>
     <div id="mission-stage">STAGE 1/2 · PICK UP THE PACKAGE DOWNTOWN</div>
@@ -188,6 +200,7 @@
     <div class="face">D</div>
     <div><div id="dialog-speaker">DANTE</div><div id="dialog-line"></div></div>
   </div>
+</div>
 </div>
 
 <div id="title-screen" class="screen">

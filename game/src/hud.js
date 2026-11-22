@@ -23,6 +23,28 @@ export class Hud {
     // screens. Set from main.js; gameplay and other shots never set it.
     this.coverClean = false;
     this.bindButtons();
+    // K19_ HUD scale (ronde #14): --hud-s on #hud scales #hud-scale so
+    // the HUD keeps reference proportions on viewports larger than the
+    // 1280x720 design size. The minimap canvas backing store is resized
+    // to cssSize * s so the scaled minimap stays sharp instead of an
+    // upscaled 132 px bitmap. Idempotent: only touches the DOM when the
+    // scale or the backing size actually changed.
+    this.hudScale = 0;
+    this.applyHudScale = () => {
+      const s = Math.max(1, Math.min(window.innerWidth / 1280, window.innerHeight / 720));
+      if (s !== this.hudScale) {
+        this.hudScale = s;
+        $('hud').style.setProperty('--hud-s', String(s));
+      }
+      const css = this.map.clientWidth || 132;
+      const px = Math.max(1, Math.round(css * s));
+      if (this.map.width !== px || this.map.height !== px) {
+        this.map.width = px; this.map.height = px;
+        this.drawMap(true);
+      }
+    };
+    window.addEventListener('resize', this.applyHudScale);
+    this.applyHudScale();
     this.drawMap(true);
   }
 
@@ -194,10 +216,20 @@ export class Hud {
       this.drawMap(false);
       if (this.bigmapCtx && $('pause-screen').style.display === 'flex') this.drawBigMap();
     }
+    // K19_: re-read the minimap CSS size now the HUD is visible (it is
+    // 0 while display:none, so the constructor falls back to 132 — on a
+    // small screen the real CSS size is 84 and the backing store must
+    // follow it). Cheap: applyHudScale only writes when something changed.
+    this.applyHudScale();
   }
 
   drawMap(big) {
-    this.drawMapOn(this.mapCtx, this.map.width, this.map.height, false);
+    // Draw in CSS px (132, or 84 on small screens) and let the canvas
+    // transform scale it to the backing store, so markers and fonts
+    // keep their designed proportions at any backing size.
+    const css = this.map.clientWidth || 132;
+    const f = this.map.width / css;
+    this.drawMapOn(this.mapCtx, css, css, false, f);
   }
 
   drawBigMap() {
@@ -205,7 +237,11 @@ export class Hud {
     this.drawMapOn(this.bigmapCtx, this.bigmap.width, this.bigmap.height, true);
   }
 
-  drawMapOn(ctx, W, H, big = false) {
+  drawMapOn(ctx, W, H, big = false, f = 1) {
+    // f scales CSS-px drawing to the canvas backing store (minimap at
+    // 2x HUD scale draws a 264 px bitmap from a 132 px layout).
+    ctx.save();
+    if (f !== 1) ctx.setTransform(f, 0, 0, f, 0, 0);
     const s = this.world.state;
     const L = this.world.layout;
     // World window: x -336..432 (768 m), z -336..384 (720 m). Markers are
@@ -383,6 +419,7 @@ export class Hud {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('N', 7, 9);
+    ctx.restore();
   }
   renderStory() {
     const s = this.world.state;

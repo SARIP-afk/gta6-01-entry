@@ -625,6 +625,10 @@ export function K17_facadeTexture() {
     ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fillRect(ox, oy, 128, 5);
     ctx.fillStyle = 'rgba(0,0,0,0.07)'; ctx.fillRect(ox, oy, 4, 256);
     ctx.fillStyle = 'rgba(0,0,0,0.20)'; ctx.fillRect(ox, oy + 244, 128, 12);
+    // K21_ pilaster: strip terang di tepi kiri + bayangan di tepi kanan
+    // tiap bay — dinding fasad dapat relief dangkal, bukan bidang rata.
+    ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.fillRect(ox + 4, oy, 6, 256);
+    ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(ox + 118, oy, 6, 256);
     // kusen
     ctx.fillStyle = '#2a2f38';
     ctx.fillRect(ox + 36, oy + 4, 56, 128);

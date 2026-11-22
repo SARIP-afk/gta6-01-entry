@@ -62,6 +62,10 @@ export function K18_facadeTextureB() {
     // bay edge + floor line + dark plinth strip at the base
     ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fillRect(ox, oy, 128, 5);
     ctx.fillStyle = 'rgba(0,0,0,0.07)'; ctx.fillRect(ox, oy, 4, 256);
+    // K21_ pilaster (sama seperti atlas A): strip terang kiri +
+    // bayangan kanan tiap bay — relief dangkal di dinding fasad.
+    ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.fillRect(ox + 4, oy, 6, 256);
+    ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(ox + 118, oy, 6, 256);
     ctx.fillStyle = 'rgba(0,0,0,0.20)'; ctx.fillRect(ox, oy + 244, 128, 12);
     ctx.fillStyle = '#6b5d4f'; ctx.fillRect(ox, oy + 226, 128, 18);
     ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(ox, oy + 226, 128, 2);

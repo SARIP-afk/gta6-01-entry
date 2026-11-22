@@ -27,6 +27,9 @@ import {
 import {
   K18_facadeTextureB, K18_beachToneTexture,
 } from './K18_detail.js';
+import {
+  K21_glassTexture,
+} from './K21_phase2.js';
 
 // Day parts. The sun disc, sky dome, sea tint and glitter all read from
 // here through paletteAt(hour), which blends between the keys.
@@ -381,7 +384,10 @@ function groundTexture(layout) {
   // diganti marka geometri K19 yang tajam di 2K.
   K19_paintSunBleach(ctx, px, pz, mpp);
   // sidewalk borders around each block
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 2;
+  // K21_ kontras border trotoar dinaikkan (alpha 0.25->0.38, lebar
+  // 2->3): nat trotoar + curb nyaris tak terbaca di 2K — trotoar
+  // terbaca sebagai hamparan cokelat rata. 0 tris / 0 draw call.
+  ctx.strokeStyle = 'rgba(0,0,0,0.38)'; ctx.lineWidth = 3;
   for (let bx = GRID_MIN; bx < GRID_MAX; bx += ROAD_STEP) {
     for (let bz = GRID_MIN; bz < GRID_MAX; bz += ROAD_STEP) {
       if (bz >= BEACH_Z) continue;
@@ -1585,14 +1591,22 @@ export class Renderer {
     const winGeo = new THREE.BoxGeometry(1.7, 1.5, 0.12);
     this.winDark = new THREE.InstancedMesh(winGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), Math.max(1, glassDark.length));
     this.winLit = new THREE.InstancedMesh(winGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), Math.max(1, glassLit.length));
-    glassDark.forEach((w, i) => { dummy.position.set(w.x, w.y, w.z); dummy.rotation.set(0, w.ry, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); this.winDark.setMatrixAt(i, dummy.matrix); this.winDark.setColorAt(i, tmpColor.set(w.color)); });
-    glassLit.forEach((w, i) => { dummy.position.set(w.x, w.y, w.z); dummy.rotation.set(0, w.ry, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); this.winLit.setMatrixAt(i, dummy.matrix); this.winLit.setColorAt(i, tmpColor.set(w.color)); });
+    // K21_ variasi ukuran jendela (Fase 2, Prioritas 3): jendela lama
+    // semua 1.7x1.5 identik sehingga fasad terbaca grid monoton; kini
+    // lebar/tinggi bervariasi +-12% per posisi (hash deterministik) —
+    // 0 tris, 0 draw call, hanya skala matriks instans.
+    const K21_winScale = (w) => [0.88 + hash2(Math.round(w.x), Math.round(w.y), 81) * 0.24, 0.88 + hash2(Math.round(w.x), Math.round(w.z), 82) * 0.24];
+    glassDark.forEach((w, i) => { const [K21_ws, K21_hs] = K21_winScale(w); dummy.position.set(w.x, w.y, w.z); dummy.rotation.set(0, w.ry, 0); dummy.scale.set(K21_ws, K21_hs, 1); dummy.updateMatrix(); this.winDark.setMatrixAt(i, dummy.matrix); this.winDark.setColorAt(i, tmpColor.set(w.color)); });
+    glassLit.forEach((w, i) => { const [K21_ws, K21_hs] = K21_winScale(w); dummy.position.set(w.x, w.y, w.z); dummy.rotation.set(0, w.ry, 0); dummy.scale.set(K21_ws, K21_hs, 1); dummy.updateMatrix(); this.winLit.setMatrixAt(i, dummy.matrix); this.winLit.setColorAt(i, tmpColor.set(w.color)); });
     this.winDark.count = glassDark.length; this.winLit.count = glassLit.length;
     scene.add(this.winDark, this.winLit);
     // mullions: one thin proud bar per pane, short buildings first
     const mulGeo = new THREE.BoxGeometry(0.09, 1.5, 0.2);
     this.mull = new THREE.InstancedMesh(mulGeo, new THREE.MeshLambertMaterial({ color: 0x2a2f38 }), Math.max(1, mullions.length));
-    mullions.forEach((w, i) => { dummy.position.set(w.x, w.y, w.z); dummy.rotation.set(0, w.ry, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); this.mull.setMatrixAt(i, dummy.matrix); });
+    // K21_ mullion mengikuti tinggi jendela yang sama (hash posisi
+    // yang sama) supaya palang tidak menjorok keluar jendela kecil
+    // atau tenggelam di jendela besar.
+    mullions.forEach((w, i) => { const [, K21_hs] = K21_winScale(w); dummy.position.set(w.x, w.y, w.z); dummy.rotation.set(0, w.ry, 0); dummy.scale.set(1, K21_hs, 1); dummy.updateMatrix(); this.mull.setMatrixAt(i, dummy.matrix); });
     this.mull.count = mullions.length;
     scene.add(this.mull);
 
@@ -2284,7 +2298,13 @@ export class Renderer {
     const NS = 12; // scooter bodies
     const NW = 320; // wheels + hubs, 4 per car
     const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const darkGlass = new THREE.MeshLambertMaterial({ color: 0x16202c });
+    // K21_ kaca reflektif senja (Fase 2, Prioritas 1): tekstur gradien
+    // emas-biru + kilau diagonal + siluet headrest menggantikan kaca
+    // datar 0x16202c yang terbaca sebagai slab hitam dari belakang.
+    // Material dasar PUTIH supaya map tampil benar (Lambert mengalikan
+    // map x warna). Dipakai armada traffic + mobil hero (0 tris).
+    const glassTex = K21_glassTexture();
+    const darkGlass = new THREE.MeshLambertMaterial({ color: 0xffffff, map: glassTex });
     const mk = (geo, mat, count) => {
       const m = new THREE.InstancedMesh(geo, mat, count);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -2338,20 +2358,32 @@ export class Renderer {
     // K19_ ORANYE (dulu merah 0xe74c3c): mobil hero referensi oranye
     // terang — merah gelap + cahaya senja = nyaris hitam dari belakang.
     this.heroCar = new THREE.Group();
-    const heroMat = new THREE.MeshLambertMaterial({ color: 0xef6a1a });
+    // K21_ oranye sedikit lebih terang (0xf0751a, dulu 0xef6a1a): di
+    // bawah ACES + cahaya senja, oranye lama jatuh ke merah gelap dari
+    // belakang; identitas warna dipertahankan, hanya lightness naik.
+    const heroMat = new THREE.MeshLambertMaterial({ color: 0xf0751a });
     const body = new THREE.Mesh(taperedBody(4.6, 2.0, 0.72, 0.78), heroMat);
     body.position.y = 0.62;
     this.heroCar.add(body);
     const hood = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.1, 1.7), new THREE.MeshLambertMaterial({ color: 0xb34a10 }));
     hood.position.set(1.55, 0.95, 0);
     this.heroCar.add(hood);
-    const glassMat = new THREE.MeshLambertMaterial({ color: 0x101c28 });
+    // K21_ kaca hero pakai tekstur refleksi senja yang sama dengan
+    // armada (bukan lagi flat 0x101c28): windshield + kaca belakang +
+    // kaca samping kini punya gradasi langit + kilau, bukan slab hitam.
+    const glassMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: glassTex });
     const shield = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 1.7), glassMat);
     shield.position.set(0.75, 1.15, 0); shield.rotation.z = -0.5;
     this.heroCar.add(shield);
     const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.55, 1.65), glassMat);
     rearGlass.position.set(-0.95, 1.12, 0); rearGlass.rotation.z = 0.45;
     this.heroCar.add(rearGlass);
+    // K21_ pilar tengah kaca belakang (warna bodi, sejajar kemiringan
+    // kaca): membelah slab hitam jadi dua panel kaca + menegaskan
+    // kabin sebagai jendela, bukan papan. +12 tris.
+    const rearPillar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.56, 0.12), heroMat);
+    rearPillar.position.set(-0.95, 1.12, 0); rearPillar.rotation.z = 0.45;
+    this.heroCar.add(rearPillar);
     const roof = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 1.6), heroMat);
     roof.position.set(-0.1, 1.42, 0);
     this.heroCar.add(roof);
@@ -2423,14 +2455,36 @@ export class Renderer {
     // update() — lampu kendaraan adalah bagian dari brief item 1.
     this.heroHeadMat = headMat;
     this.heroTailMat = tailMat;
-    // full-width LED light bars: the hero car reads at thumbnail size —
-    // a single red bar across the rear + a white bar across the nose
-    const rearBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 1.7), tailMat);
+    // K21_ lampu belakang (Fase 2, Prioritas 1): bar LED full-width
+    // dulu satu merah terang 0xff2a2a yang di bawah ACES terbaca pink
+    // lebar; kini bar pakai merah lebih dalam 0xc81e1e, dua klaster
+    // lampu tetap 0xff2a2a (kontras klaster vs bar), segmen sein amber
+    // di kedua ujung bar, dan strip trim gelap di bawah bar sebagai
+    // bezel — buritan terbaca sebagai lampu, bukan pita pink. +60 tris.
+    const rearBarMat = new THREE.MeshBasicMaterial({ color: 0xc81e1e });
+    const rearBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 1.7), rearBarMat);
     rearBar.position.set(-2.33, 0.82, 0);
     this.heroCar.add(rearBar);
     const frontBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 1.7), headMat);
     frontBar.position.set(2.33, 0.82, 0);
     this.heroCar.add(frontBar);
+    const amberMat = new THREE.MeshBasicMaterial({ color: 0xffa726 });
+    for (const az of [-0.72, 0.72]) {
+      const ind = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.14, 0.26), amberMat);
+      ind.position.set(-2.34, 0.82, az);
+      this.heroCar.add(ind);
+    }
+    const rearBezel = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 1.7), bumperMat);
+    rearBezel.position.set(-2.34, 0.68, 0);
+    this.heroCar.add(rearBezel);
+    // K21_ lis krom tipis di kedua flank (garis highlight horizontal):
+    // memecah sisi bodi yang polos tanpa mengubah siluet. +24 tris.
+    const trimMat = new THREE.MeshLambertMaterial({ color: 0xd8dde6 });
+    for (const tz of [-1.01, 1.01]) {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.06, 0.05), trimMat);
+      trim.position.set(0, 0.62, tz);
+      this.heroCar.add(trim);
+    }
     // K18_ hero side glass + plates + exhausts: the hero had windshield
     // and rear glass but no side glass, so the 3/4 view read as a solid
     // red slab; the tail was one flat red mass with no plate. Side
@@ -2480,14 +2534,16 @@ export class Renderer {
     };
     this.heroLegL = addBox(this.heroWalk, 0.17, 0.8, 0.17, pantsM, 0, 0.4, 0.11);
     this.heroLegR = addBox(this.heroWalk, 0.17, 0.8, 0.17, pantsM, 0, 0.4, -0.11);
-    addBox(this.heroWalk, 0.2, 0.1, 0.2, new THREE.MeshLambertMaterial({ color: 0xf5f0e6 }), 0, 0.05, 0.11);
-    addBox(this.heroWalk, 0.2, 0.1, 0.2, new THREE.MeshLambertMaterial({ color: 0xf5f0e6 }), 0, 0.05, -0.11);
+    // K21_ sepatu hero gelap (dulu putih 0xf5f0e6 — terbaca kaus kaki);
+    // kepala + lengan hero menyesuaikan proporsi NPC baru.
+    addBox(this.heroWalk, 0.2, 0.1, 0.2, new THREE.MeshLambertMaterial({ color: 0x2a2d33 }), 0, 0.05, 0.11);
+    addBox(this.heroWalk, 0.2, 0.1, 0.2, new THREE.MeshLambertMaterial({ color: 0x2a2d33 }), 0, 0.05, -0.11);
     addBox(this.heroWalk, 0.56, 0.72, 0.34, tee, 0, 1.16, 0);
     addBox(this.heroWalk, 0.58, 0.1, 0.36, new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), 0, 0.82, 0);
-    this.heroArmL = addBox(this.heroWalk, 0.15, 0.62, 0.15, skin, 0, 1.2, 0.26);
-    this.heroArmR = addBox(this.heroWalk, 0.15, 0.62, 0.15, skin, 0, 1.2, -0.26);
-    addBox(this.heroWalk, 0.34, 0.34, 0.32, skin, 0, 1.72, 0);
-    addBox(this.heroWalk, 0.36, 0.12, 0.34, new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), 0, 1.92, 0);
+    this.heroArmL = addBox(this.heroWalk, 0.13, 0.62, 0.13, skin, 0, 1.2, 0.26);
+    this.heroArmR = addBox(this.heroWalk, 0.13, 0.62, 0.13, skin, 0, 1.2, -0.26);
+    addBox(this.heroWalk, 0.30, 0.34, 0.30, skin, 0, 1.72, 0);
+    addBox(this.heroWalk, 0.32, 0.12, 0.32, new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), 0, 1.92, 0);
     scene.add(this.heroWalk);
 
     // peds: instanced pools, white materials so setColorAt shows.
@@ -2496,21 +2552,30 @@ export class Renderer {
     const pedWhite = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const P = this.world.state.peds.length;
     this.pedTorso = mk(new THREE.BoxGeometry(0.34, 0.68, 0.56), pedWhite.clone(), P);
-    this.pedHead = mk(new THREE.BoxGeometry(0.32, 0.32, 0.3), pedWhite.clone(), P);
-    this.pedHair = mk(new THREE.BoxGeometry(0.34, 0.13, 0.32), pedWhite.clone(), P);
-    const armGeo = new THREE.BoxGeometry(0.15, 0.6, 0.14);
+    // K21_ proporsi NPC (Fase 2, Prioritas 2): kepala lebih sempit +
+    // sedikit lebih tinggi (0.28x0.34, dulu kubus 0.32) — kepala lama
+    // selebar torso sehingga sosok terbaca balok; lengan/kaki lebih
+    // ramping (0.13/0.14, dulu 0.15/0.16); rambut + topi menyesuaikan
+    // lebar kepala baru. 0 tris baru (geometri yang sama, dimensi ubah).
+    this.pedHead = mk(new THREE.BoxGeometry(0.28, 0.34, 0.28), pedWhite.clone(), P);
+    this.pedHair = mk(new THREE.BoxGeometry(0.30, 0.13, 0.30), pedWhite.clone(), P);
+    const armGeo = new THREE.BoxGeometry(0.13, 0.6, 0.12);
     armGeo.translate(0, -0.3, 0);
     this.pedArmL = mk(armGeo, pedWhite.clone(), P);
     this.pedArmR = mk(armGeo, pedWhite.clone(), P);
-    const legGeo = new THREE.BoxGeometry(0.16, 0.74, 0.16);
+    const legGeo = new THREE.BoxGeometry(0.14, 0.74, 0.14);
     legGeo.translate(0, -0.37, 0);
     this.pedLegL = mk(legGeo, pedWhite.clone(), P);
     this.pedLegR = mk(legGeo, pedWhite.clone(), P);
-    // K19_ topi + ikat pinggang NPC (pooled): torso polos satu warna
+    // K21_ topi + ikat pinggang NPC (pooled): torso polos satu warna
     // membuat pejalan kaki terbaca sebagai siluet; topi warna-warni
     // (~40% NPC) + sabuk gelap memecah siluet itu. +2 draw call.
-    this.pedCap = mk(new THREE.BoxGeometry(0.34, 0.14, 0.32), pedWhite.clone(), P);
+    this.pedCap = mk(new THREE.BoxGeometry(0.30, 0.14, 0.30), pedWhite.clone(), P);
     this.pedBelt = mk(new THREE.BoxGeometry(0.36, 0.1, 0.58), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), P);
+    // K21_ sepatu NPC (pooled, 2 per NPC): kaki tanpa sepatu membuat
+    // tungkai terbaca sebagai tiang polos; sepatu gelap menutup ujung
+    // kaki dan memecah siluet balok. +1 draw call, +2.592 tris.
+    this.pedShoe = mk(new THREE.BoxGeometry(0.16, 0.1, 0.28), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), P * 2);
     this.pedColorsSet = false;
 
     // Helicopter — built as a machine, not a speck: a slim body, a long
@@ -3161,8 +3226,21 @@ export class Renderer {
       setPart(this.pedArmR, pd.x - Math.sin(pd.heading) * 0.26, 1.48, pd.z - Math.cos(pd.heading) * 0.26, 0, -swing);
       setPart(this.pedLegL, pd.x + Math.sin(pd.heading) * 0.1, 0.78, pd.z + Math.cos(pd.heading) * 0.1, 0, -swing);
       setPart(this.pedLegR, pd.x - Math.sin(pd.heading) * 0.1, 0.78, pd.z - Math.cos(pd.heading) * 0.1, 0, swing);
+      // K21_ sepatu mengikuti ujung kaki: kaki berputar di pivot 0.78
+      // dengan rx; ujung kaki (0.74 m di bawah pivot) bergeser lokal z
+      // sebesar -0.74*sin(rx), dipetakan ke dunia lewat heading.
+      const K21_shoe = (idx, lat, rx) => {
+        const fz = -0.74 * Math.sin(rx);
+        dummy.position.set(pd.x + Math.sin(pd.heading) * (lat + fz), 0.08 * sc, pd.z + Math.cos(pd.heading) * (lat + fz));
+        dummy.rotation.set(0, pd.heading, 0);
+        dummy.scale.set(sc, sc, sc);
+        dummy.updateMatrix();
+        this.pedShoe.setMatrixAt(idx, dummy.matrix);
+      };
+      K21_shoe(i * 2, 0.1, -swing);
+      K21_shoe(i * 2 + 1, -0.1, swing);
     });
-    for (const m of [this.pedTorso, this.pedHead, this.pedHair, this.pedArmL, this.pedArmR, this.pedLegL, this.pedLegR, this.pedCap, this.pedBelt]) {
+    for (const m of [this.pedTorso, this.pedHead, this.pedHair, this.pedArmL, this.pedArmR, this.pedLegL, this.pedLegR, this.pedCap, this.pedBelt, this.pedShoe]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }

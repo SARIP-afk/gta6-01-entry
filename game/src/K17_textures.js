@@ -405,3 +405,280 @@ export function K17_buildClouds(scene) {
   }
   return { groups, materials };
 }
+// DRAFT — K17_ urban textures (aspal / fasad). Disalin ke game/src/K17_textures.js
+// setelah baseline driver-2k selesai. Ditulis baru; bukan salinan verbatim.
+
+// ---- 4. ASPAL ----------------------------------------------------------
+// K17_asphaltDetailTexture: 512 px tile, latar transparan — hanya speckle
+// dan bercak tonal halus, tanpa retak panjang (retak panjang akan
+// mengulang tiap 6 m dan terbaca sebagai pola). Dipakai sebagai overlay
+// Lambert di atas grid kota (tile ~6 m), opacity ~0.25, jadi aspal
+// close-up berbutir tanpa menutup marka jalan di bawahnya.
+export function K17_asphaltDetailTexture() {
+  const S = 512;
+  const cv = K17_canvas(S, S);
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const data = img.data;
+  const lattices = [K17_lattice(32, 17121), K17_lattice(32, 17122), K17_lattice(32, 17123)];
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const u = x / S, v = y / S;
+      const tone = K17_fbm(lattices, u, v, 4, 2); // bercak tonal lembut
+      const grain = hash2(x, y, 17131);
+      const i = (y * S + x) * 4;
+      // dasar: transparan; hanya butir + bercak yang menulis alpha
+      let a = 0, r = 0, g = 0, b = 0;
+      if (grain < 0.09) { r = 12; g = 12; b = 14; a = 52 + tone * 40; }
+      else if (grain > 0.93) { r = 225; g = 222; b = 210; a = 42 + tone * 34; }
+      else if (tone < 0.32) { r = 20; g = 20; b = 24; a = 14; }   // bercak gelap
+      else if (tone > 0.72) { r = 200; g = 196; b = 182; a = 12; } // bercak pucat aus
+      data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = Math.round(a);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // retak pendek (8-30 px ~ 10-35 cm di tile 6 m): cukup pendek untuk
+  // tidak membentuk pola saat tile mengulang
+  const draw = mulberry32(17141);
+  ctx.strokeStyle = 'rgba(12,12,15,0.5)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 26; i++) {
+    let cx = draw() * S, cy = draw() * S;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    for (let k = 0; k < 3; k++) {
+      cx += (draw() - 0.5) * 26; cy += (draw() - 0.5) * 26;
+      ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  }
+  return K17_texture(cv);
+}
+
+// K17_paintAsphaltWear: aus jalan + trotoar, dilukis LANGSUNG ke kanvas
+// ground 4096 px (5,3 px/m) — di bawah marka jalan R7, jadi zebra/garis
+// tengah tetap terbaca. Dipanggil dari groundTexture() di gfx.js setelah
+// speckle lama, sebelum lane furniture. Semua posisi dari hash2, jadi
+// deterministik; tidak ada alokasi tekstur baru, 0 draw call, 0 tris.
+// Argumen: ctx kanvas ground, px/pz pemeta dunia->kanvas, mpp px per
+// meter, roadLines garis jalan, roadHalf setengah lebar jalan.
+export function K17_paintAsphaltWear(ctx, px, pz, mpp, roadLines, roadHalf, gridMin, gridMax, roadStep, beachZ) {
+  const roadPoint = (i, salt) => {
+    const line = roadLines[Math.floor(hash2(i, salt, 1) * roadLines.length) % roadLines.length];
+    const along = gridMin + hash2(i, salt + 1, 1) * (gridMax - gridMin);
+    const off = (hash2(i, salt + 2, 1) - 0.5) * 2 * (roadHalf - 0.5);
+    return hash2(i, salt + 3, 1) < 0.5
+      ? { x: along, z: line + off }
+      : { x: line + off, z: along };
+  };
+  // 170 bercak tonal ekstra: gelap (basah/aus) + pucat (terbakar matahari)
+  for (let i = 0; i < 170; i++) {
+    const p = roadPoint(i, 201);
+    const pale = hash2(i, 202, 1) < 0.38;
+    ctx.fillStyle = pale
+      ? `rgba(210,205,190,${0.05 + hash2(i, 203, 1) * 0.09})`
+      : `rgba(18,18,22,${0.08 + hash2(i, 204, 1) * 0.13})`;
+    ctx.beginPath();
+    ctx.ellipse(px(p.x), pz(p.z), (3 + hash2(i, 205, 1) * 15) * mpp, (2 + hash2(i, 206, 1) * 8) * mpp, hash2(i, 207, 1) * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 110 retak bergerigi, sebagian bercabang dari titik tengahnya
+  ctx.strokeStyle = 'rgba(12,12,15,0.42)';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 110; i++) {
+    const p = roadPoint(i, 211);
+    let cx = px(p.x), cz = pz(p.z);
+    const pts = [[cx, cz]];
+    ctx.beginPath(); ctx.moveTo(cx, cz);
+    for (let k = 0; k < 6; k++) {
+      cx += (hash2(i, 212 + k, 1) - 0.5) * 9 * mpp;
+      cz += (hash2(i, 217 + k, 1) - 0.5) * 9 * mpp;
+      pts.push([cx, cz]);
+      ctx.lineTo(cx, cz);
+    }
+    ctx.stroke();
+    if (hash2(i, 223, 1) < 0.45) {
+      const [bx, bz] = pts[2 + Math.floor(hash2(i, 224, 1) * 3)];
+      ctx.beginPath(); ctx.moveTo(bx, bz);
+      let dx = bx, dz = bz;
+      for (let k = 0; k < 3; k++) {
+        dx += (hash2(i, 225 + k, 1) - 0.5) * 7 * mpp;
+        dz += (hash2(i, 228 + k, 1) - 0.5) * 7 * mpp;
+        ctx.lineTo(dx, dz);
+      }
+      ctx.stroke();
+    }
+  }
+  // 60 tar snake: garis aspal cair bergelombang menutup retak lama
+  ctx.strokeStyle = 'rgba(10,10,12,0.4)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 60; i++) {
+    const p = roadPoint(i, 231);
+    const horiz = hash2(i, 232, 1) < 0.5;
+    const len = (6 + hash2(i, 233, 1) * 14) * mpp;
+    const x0 = px(p.x), z0 = pz(p.z);
+    const wob = (hash2(i, 234, 1) - 0.5) * 3 * mpp;
+    ctx.beginPath();
+    ctx.moveTo(x0, z0);
+    if (horiz) ctx.quadraticCurveTo(x0 + len / 2, z0 + wob, x0 + len, z0 + (hash2(i, 235, 1) - 0.5) * 2 * mpp);
+    else ctx.quadraticCurveTo(x0 + wob, z0 + len / 2, x0 + (hash2(i, 235, 1) - 0.5) * 2 * mpp, z0 + len);
+    ctx.stroke();
+  }
+  // 36 tambalan perbaikan, abu-abu bervariasi + jahitan pucat
+  for (let i = 0; i < 36; i++) {
+    const p = roadPoint(i, 241);
+    const w = (2 + hash2(i, 242, 1) * 3) * mpp, d = (1.5 + hash2(i, 243, 1) * 2) * mpp;
+    const tone = 24 + Math.floor(hash2(i, 244, 1) * 22);
+    ctx.fillStyle = `rgba(${tone},${tone},${tone + 3},0.5)`;
+    ctx.fillRect(px(p.x) - w / 2, pz(p.z) - d / 2, w, d);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px(p.x) - w / 2, pz(p.z) - d / 2, w, d);
+  }
+  // 18 noda oli ekstra dengan kilau tipis
+  for (let i = 0; i < 18; i++) {
+    const p = roadPoint(i, 251);
+    const r = (0.7 + hash2(i, 252, 1) * 1.3) * mpp;
+    const grad = ctx.createRadialGradient(px(p.x), pz(p.z), 0, px(p.x), pz(p.z), r);
+    grad.addColorStop(0, 'rgba(8,8,12,0.55)');
+    grad.addColorStop(0.6, 'rgba(20,16,30,0.3)');
+    grad.addColorStop(1, 'rgba(12,12,16,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(px(p.x), pz(p.z), r, 0, Math.PI * 2); ctx.fill();
+  }
+  // ---- trotoar: sabuk 1,5 m di tepi dalam tiap blok, pelat 2 m + nat ----
+  // Digambar di atas isi lot (rumput/beton/tanah) tapi di bawah marka:
+  // trotoar akhirnya terbaca sebagai beton berpelat di tepi jalan.
+  // Blok plaza market (gx -96, gz -120) dan stadion (gx -216, gz 120)
+  // dilewati supaya ubin plaza / mangkuk stadion tidak tertutup.
+  const slab = 2 * mpp, band = 1.5 * mpp;
+  for (let bx = gridMin; bx < gridMax; bx += roadStep) {
+    for (let bz = gridMin; bz < gridMax; bz += roadStep) {
+      if (bz >= beachZ) continue;
+      if (bx === -96 && bz === -120) continue;
+      if (bx === -216 && bz === 120) continue;
+      const x0 = px(bx + roadHalf), z0 = pz(bz + roadHalf);
+      const w = (roadStep - 2 * roadHalf) * mpp, d = (roadStep - 2 * roadHalf) * mpp;
+      const strips = [
+        { x: x0, y: z0, ww: w, hh: band, horiz: true },
+        { x: x0, y: z0 + d - band, ww: w, hh: band, horiz: true },
+        { x: x0, y: z0, ww: band, hh: d, horiz: false },
+        { x: x0 + w - band, y: z0, ww: band, hh: d, horiz: false },
+      ];
+      for (const s of strips) {
+        const n = Math.floor((s.horiz ? s.ww : s.hh) / slab);
+        for (let k = 0; k < n; k++) {
+          const h = hash2(bx + k, bz + (s.horiz ? 1 : 2), 261);
+          ctx.fillStyle = h < 0.5
+            ? `rgba(0,0,0,${0.04 + h * 0.12})`
+            : `rgba(255,255,255,${0.03 + (h - 0.5) * 0.10})`;
+          if (s.horiz) ctx.fillRect(s.x + k * slab, s.y, slab, s.hh);
+          else ctx.fillRect(s.x, s.y + k * slab, s.ww, slab);
+        }
+        ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        ctx.lineWidth = 1;
+        for (let k = 0; k <= n; k++) {
+          ctx.beginPath();
+          if (s.horiz) { ctx.moveTo(s.x + k * slab, s.y); ctx.lineTo(s.x + k * slab, s.y + s.hh); }
+          else { ctx.moveTo(s.x, s.y + k * slab); ctx.lineTo(s.x + s.ww, s.y + k * slab); }
+          ctx.stroke();
+        }
+      }
+    }
+  }
+}
+
+// ---- 5. FASAD ----------------------------------------------------------
+// K17_facadeTexture: atlas 512x512 pengganti facadeTexture() lama.
+// Separuh kiri (x 0..256) memuat 2 bay x 2 lantai — 4 jendela BERBEDA —
+// bukan 1 bay yang mengulang ke seluruh kota: bay A lantai ganjil =
+// kaca terang + tirai putih, bay B lantai ganjil = kaca gelap, bay A
+// lantai genap = kaca hangat menyala + tirai krem, bay B lantai genap =
+// kaca gelap + kerai. Separuh kanan tetap putih polos (semua kotak
+// non-fasad mengambilnya, warna vertex lolos utuh). Dinding tiap
+// kuadran nyaris putih dengan tint + kotoran berbeda, jadi warna fasad
+// jenuh Kumala per bangunan tetap dominan. BoxSoup memakai
+// uvOpts.tileBays=2 / tileFloors=2 untuk atlas ini.
+export function K17_facadeTexture() {
+  const cv = K17_canvas(512, 512);
+  const ctx = cv.getContext('2d');
+  const paintBay = (ox, oy, kind) => {
+    const wall = { bright: '#f6f2e8', dark: '#f0ebe0', lit: '#f7f1e4', blinds: '#eee8db' }[kind];
+    ctx.fillStyle = wall;
+    ctx.fillRect(ox, oy, 128, 256);
+    // bintik plester
+    for (let i = 0; i < 46; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${0.03 + hash2(ox + i, oy, 271) * 0.05})`;
+      ctx.fillRect(ox + 4 + hash2(i, oy, 272) * 120, oy + 150 + hash2(ox, i, 273) * 90, 2, 2);
+    }
+    // kotoran: gradasi bawah lantai + coreng di bawah ambang jendela
+    const grime = ctx.createLinearGradient(0, oy + 200, 0, oy + 256);
+    grime.addColorStop(0, 'rgba(60,50,40,0)');
+    grime.addColorStop(1, 'rgba(60,50,40,0.16)');
+    ctx.fillStyle = grime;
+    ctx.fillRect(ox, oy + 200, 128, 56);
+    for (let s = 0; s < 4; s++) {
+      const sx = ox + 40 + hash2(s, oy, 274) * 48;
+      ctx.fillStyle = `rgba(70,60,50,${0.05 + hash2(ox, s, 275) * 0.06})`;
+      ctx.fillRect(sx, oy + 140, 3 + hash2(s, ox, 276) * 3, 40 + hash2(oy, s, 277) * 30);
+    }
+    // garis tepi kuadran + garis lantai bawah
+    ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fillRect(ox, oy, 128, 5);
+    ctx.fillStyle = 'rgba(0,0,0,0.07)'; ctx.fillRect(ox, oy, 4, 256);
+    ctx.fillStyle = 'rgba(0,0,0,0.20)'; ctx.fillRect(ox, oy + 244, 128, 12);
+    // kusen
+    ctx.fillStyle = '#2a2f38';
+    ctx.fillRect(ox + 36, oy + 4, 56, 128);
+    // kaca per varian
+    const glass = ctx.createLinearGradient(0, oy + 12, 0, oy + 124);
+    if (kind === 'bright') { glass.addColorStop(0, '#8fa8bc'); glass.addColorStop(1, '#54748c'); }
+    else if (kind === 'lit') { glass.addColorStop(0, '#ffcf7a'); glass.addColorStop(1, '#e89b3c'); }
+    else if (kind === 'blinds') { glass.addColorStop(0, '#2c3644'); glass.addColorStop(1, '#1a2230'); }
+    else { glass.addColorStop(0, '#232c3a'); glass.addColorStop(1, '#161d29'); }
+    ctx.fillStyle = glass;
+    ctx.fillRect(ox + 40, oy + 12, 48, 112);
+    // kilau diagonal (dua untuk terang, satu samar untuk lainnya)
+    const slash = (x0, x1, alpha) => {
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(ox + x0, oy + 124); ctx.lineTo(ox + x0 + 12, oy + 12);
+      ctx.lineTo(ox + x1, oy + 12); ctx.lineTo(ox + x1 - 12, oy + 124);
+      ctx.closePath(); ctx.fill();
+    };
+    if (kind === 'bright') { slash(8, 20, 0.30); slash(34, 42, 0.18); }
+    else if (kind === 'lit') { slash(10, 20, 0.14); }
+    else if (kind === 'dark') { slash(12, 20, 0.10); }
+    else { slash(14, 22, 0.08); }
+    // tirai / kerai
+    if (kind === 'bright') {
+      ctx.fillStyle = 'rgba(246,243,232,0.88)';
+      ctx.fillRect(ox + 40, oy + 12, 22, 112);
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      ctx.fillRect(ox + 48, oy + 12, 2, 112);
+      ctx.fillRect(ox + 56, oy + 12, 2, 112);
+    } else if (kind === 'lit') {
+      ctx.fillStyle = 'rgba(250,240,210,0.90)';
+      ctx.fillRect(ox + 64, oy + 12, 24, 112);
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      ctx.fillRect(ox + 72, oy + 12, 2, 112);
+      ctx.fillRect(ox + 80, oy + 12, 2, 112);
+    } else if (kind === 'blinds') {
+      ctx.fillStyle = 'rgba(232,230,222,0.55)';
+      for (const by of [30, 55, 80]) ctx.fillRect(ox + 40, oy + by, 48, 5);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      for (const by of [35, 60, 85]) ctx.fillRect(ox + 40, oy + by, 48, 1);
+    }
+    // mullion + ambang
+    ctx.fillStyle = '#2a2f38';
+    ctx.fillRect(ox + 62, oy + 12, 4, 112);
+    ctx.fillRect(ox + 40, oy + 64, 48, 4);
+    ctx.fillStyle = '#ddd5c0';
+    ctx.fillRect(ox + 34, oy + 132, 60, 8);
+  };
+  paintBay(0, 0, 'bright');
+  paintBay(128, 0, 'dark');
+  paintBay(0, 256, 'lit');
+  paintBay(128, 256, 'blinds');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(256, 0, 256, 512);
+  return K17_texture(cv);
+}

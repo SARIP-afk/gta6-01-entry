@@ -15,6 +15,7 @@ import {
 import {
   K17_sandDetailTexture, K17_sandToneTexture, K17_wetSandTexture,
   K17_seaTexture, K17_foamTexture, K17_buildClouds,
+  K17_asphaltDetailTexture, K17_paintAsphaltWear, K17_facadeTexture,
 } from './K17_textures.js';
 
 // Day parts. The sun disc, sky dome, sea tint and glitter all read from
@@ -82,8 +83,12 @@ export class BoxSoup {
       const alongX = Math.abs(n[i]) > 0.5;
       const span = alongX ? sz : sx;
       const bay = alongX ? uvOpts.bz : uvOpts.bx;
-      const repeats = tuv[(i / 3) * 2] * (span / bay);
-      const floorsUp = (p[i + 1] - uvOpts.y0) / uvOpts.floorH;
+      // K17_ atlas 2x2: satu tile memuat 2 bay x 2 lantai, jadi u per bay
+      // dan v per lantai dibagi jumlah tile itu (atlas 1x1 lama: /1).
+      const tileBays = uvOpts.tileBays || 1;
+      const tileFloors = uvOpts.tileFloors || 1;
+      const repeats = tuv[(i / 3) * 2] * (span / bay) / tileBays;
+      const floorsUp = (p[i + 1] - uvOpts.y0) / uvOpts.floorH / tileFloors;
       this.uv.push(0.5 * repeats, floorsUp);
     }
     for (let i = 0; i < ix.length; i++) this.idx.push(ix[i] + this.v);
@@ -286,6 +291,10 @@ function groundTexture(layout) {
     ctx.fillStyle = light ? `rgba(220,220,210,${0.05 + hash2(i, 143, 1) * 0.08})` : `rgba(0,0,0,${0.05 + hash2(i, 144, 1) * 0.09})`;
     ctx.fillRect(px(p.x), pz(p.z), 2, 2);
   }
+  // K17_ aus aspal + trotoar, dilukis ke kanvas ground di bawah marka
+  // (marka digambar sesudahnya, jadi zebra/garis tetap terbaca).
+  // 0 draw call / 0 tris: murni cat ekstra di tekstur yang sudah ada.
+  K17_paintAsphaltWear(ctx, px, pz, mpp, roadLines, ROAD_HALF, GRID_MIN, GRID_MAX, ROAD_STEP, BEACH_Z);
   // lane furniture: edge lines, yellow centre dashes, crosswalks
   ctx.fillStyle = '#f7f3e0';
   for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
@@ -1104,6 +1113,20 @@ export class Renderer {
     grain.position.set((WORLD.x0 + WORLD.x1) / 2, 0.03, (WORLD.z0 + WORLD.z1) / 2);
     grain.renderOrder = 2;
     scene.add(grain);
+    // K17_ butir aspal close-up: satu overlay Lambert transparan di atas
+    // grid kota saja (x -288..288, z -288..234 — berhenti sebelum pantai
+    // supaya tidak menabrak overlay pasir di z>=240). Tile 512 px / 6 m,
+    // 1 draw call, 2 tris; marka R7 di y=0.06 tetap di atasnya.
+    const K17_asphTile = K17_asphaltDetailTexture();
+    K17_asphTile.repeat.set(96, 87);
+    const K17_asph = new THREE.Mesh(
+      new THREE.PlaneGeometry(576, 522),
+      new THREE.MeshLambertMaterial({ map: K17_asphTile, transparent: true, opacity: 0.25, depthWrite: false }),
+    );
+    K17_asph.rotation.x = -Math.PI / 2;
+    K17_asph.position.set(0, 0.04, -27);
+    K17_asph.renderOrder = 2;
+    scene.add(K17_asph);
     // K17_ sand: two procedural layers replace the old faint grain
     // overlays (opacity 0.14 / 0.10 — invisible at 2K). The tone layer
     // is big soft blotches at ~128 m/tile so mid-distance sand is not
@@ -1211,10 +1234,13 @@ export class Renderer {
       };
       const K9_facadeIdx = Math.floor(hash2(bxr, bzr, 41) * K9_FACADE_COLORS.length) % K9_FACADE_COLORS.length;
       const K16_towerFix = K16_BROWN_TOWERS[bxr + ',' + bzr] || null;
+      // K17_ sebaran warna antar bangunan dilebarkan (0.85..1.15, dulu
+      // 0.9..1.1): satu blok yang sama tidak lagi bernuansa seragam,
+      // tetap dalam palet jenuh Kumala — tanpa kotak/tris tambahan.
       const facade = K16_towerFix
-        ? tinted(K16_towerFix.face, 0.9 + f * 0.2)
-        : tinted(K9_FACADE_COLORS[K9_facadeIdx], 0.9 + f * 0.2);
-      solid.add(b.x, b.h / 2, b.z, b.w, b.h, b.d, facade, 0, 0, 0, { bx: b.w / colsX, bz: b.d / colsZ, floorH: 3.4, y0: 0 });
+        ? tinted(K16_towerFix.face, 0.85 + f * 0.3)
+        : tinted(K9_FACADE_COLORS[K9_facadeIdx], 0.85 + f * 0.3);
+      solid.add(b.x, b.h / 2, b.z, b.w, b.h, b.d, facade, 0, 0, 0, { bx: b.w / colsX, bz: b.d / colsZ, floorH: 3.4, y0: 0, tileBays: 2, tileFloors: 2 });
       // Cornice accent band just under the roofline, one accent colour
       // per building (teal / brick / gold / navy / cream), picked by
       // hash — the roofline finally has a colour edge instead of a
@@ -1398,10 +1424,10 @@ export class Renderer {
     // the sidewalk peds.
     solid.add(-4, 0.09, 246.1, 20, 0.06, 0.35, '#d8d2c0');
     solid.add(-10, 0.09, 234, 20, 0.06, 0.35, '#d8d2c0');
-    // the merged solid mesh carries the facade atlas: building bodies
-    // map onto the window-bay tile, everything else samples the white
-    // half
-    scene.add(solid.build(new THREE.MeshLambertMaterial({ vertexColors: true, map: facadeTexture() })));
+    // K17_ atlas fasad 2 bay x 2 lantai (K17_facadeTexture): jendela
+    // bervariasi per bay/lantai — terang+tirai, gelap, hangat menyala,
+    // gelap+kerai — plus kotoran di dinding. 0 draw call / 0 tris.
+    scene.add(solid.build(new THREE.MeshLambertMaterial({ vertexColors: true, map: K17_facadeTexture() })));
     scene.add(glow.build(basicVertex()));
 
     // windows: two instanced pools (dark glass lambert, lit warm basic)
@@ -1492,11 +1518,19 @@ export class Renderer {
     };
     for (const pl of L.palms) {
       const h = 5.2 * pl.s;
+      // K17_ kulit batang: tiap palem dapat pasangan cokelatnya sendiri
+      // (gelap / standar / terang, dari hash posisi) — batang tidak lagi
+      // seragam, 0 tris. Alur cincin ketiga di 0.62h (+1 kotak/palem,
+      // ~+1.150 tris) supaya ruas batang terbaca dari jalan.
+      const K17_trunkTone = hash2(Math.round(pl.x), Math.round(pl.z), 171);
+      const K17_trunkA = K17_trunkTone < 0.33 ? '#7d5f3a' : K17_trunkTone < 0.66 ? '#8a6a42' : '#96744a';
+      const K17_trunkB = K17_trunkTone < 0.33 ? '#6d4f30' : K17_trunkTone < 0.66 ? '#7a5a38' : '#84643e';
       for (let seg = 0; seg < 5; seg++) {
         const y = (seg + 0.5) * (h / 5);
-        palmSoup.add(pl.x + Math.sin(seg * 1.7) * 0.12, y, pl.z, 0.34, h / 5 + 0.1, 0.34, seg % 2 ? '#8a6a42' : '#7a5a38');
+        palmSoup.add(pl.x + Math.sin(seg * 1.7) * 0.12, y, pl.z, 0.34, h / 5 + 0.1, 0.34, seg % 2 ? K17_trunkA : K17_trunkB);
       }
       palmSoup.add(pl.x, h * 0.45, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
+      palmSoup.add(pl.x, h * 0.62, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
       palmSoup.add(pl.x, h * 0.8, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
       for (let nI = 0; nI < 3; nI++) nuts.push({ x: pl.x + Math.cos(nI * 2.1) * 0.4, y: h - 0.3, z: pl.z + Math.sin(nI * 2.1) * 0.4 });
       frondRing(pl, h + 0.15, 6, 3, 0.45, 3.4, '#3f9e4d');
@@ -1513,7 +1547,12 @@ export class Renderer {
       dummy.scale.set(f.len, 1, 1);
       dummy.updateMatrix();
       this.fronds.setMatrixAt(i, dummy.matrix);
-      this.fronds.setColorAt(i, tmpColor.set(f.col));
+      // K17_ daun: ~18% pelepah kering kuning-hijau, sisanya hijau dengan
+      // kecerahan bergetar per pelepah — tajuk tidak lagi satu hijau
+      // datar. 0 tris, 0 draw call (warna per instance).
+      const K17_fj = hash2(i, 3, 173);
+      const K17_fcol = K17_fj < 0.18 ? '#b5a642' : f.col;
+      this.fronds.setColorAt(i, tmpColor.set(K17_fcol).multiplyScalar(0.92 + hash2(i, 5, 173) * 0.2));
     });
     scene.add(this.fronds);
     const nutGeo = new THREE.BoxGeometry(0.28, 0.28, 0.28);

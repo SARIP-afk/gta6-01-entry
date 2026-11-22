@@ -21,13 +21,22 @@ import {
   K18_paintAsphaltWear, K18_asphaltCoarseTexture, K18_dressRoads,
 } from './K18_asphalt.js';
 import {
+  K19_ASPHALT_BASE, K19_paintSunBleach, K19_eraseR7Markings,
+  K19_dressRoads, K19_fineAsphaltTexture, K19_bentFrondGeometry,
+} from './K19_golden.js';
+import {
   K18_facadeTextureB, K18_beachToneTexture,
 } from './K18_detail.js';
 
 // Day parts. The sun disc, sky dome, sea tint and glitter all read from
 // here through paletteAt(hour), which blends between the keys.
 const DAY = { sun: 0xffdf9e, hemiSky: 0xbfd9ff, hemiGround: 0x8a7a5a, fog: 0xcfe0ee, bg: 0x87b5d9, sunI: 1.25, hemiI: 0.85 };
-const SUNSET = { sun: 0xff8a2e, hemiSky: 0xe8905e, hemiGround: 0x4a382a, fog: 0xef9a55, bg: 0xf59a4e, sunI: 1.45, hemiI: 0.8 };
+const SUNSET = { sun: 0xff8a2e, hemiSky: 0xe8905e, hemiGround: 0x7d5f42, fog: 0xf2a468, bg: 0xf7a45c, sunI: 1.6, hemiI: 1.05 };
+// K19_ golden hour lebih terang/hangat (ronde #14, bar realistis):
+// matahari lebih kuat (sunI 1.45 -> 1.6), ambient naik (hemiI 0.8 ->
+// 1.05) + ground bounce lebih terang/hangat (0x4a382a -> 0x6b4f36)
+// supaya foreground TIDAK gelap — referensi chase: aspal + mobil
+// diterangi matahari sore, bukan redup. DAY/NIGHT tak berubah.
 // K18_ sunset (ronde #13, brief 13:50 WIB item 1): senja lebih dalam +
 // kontras lebih tinggi — matahari lebih oranye + 21% lebih kuat
 // (sunI 1.2 -> 1.45), ambient lebih redup (hemiI 0.95 -> 0.8) supaya
@@ -36,9 +45,9 @@ const K18_LAMP_HOT = new THREE.Color(0xffe9b0); // lampu jalan saat senja
 const K18_HEAD_HOT = new THREE.Color(0xfffbe8); // lampu depan saat senja
 const K18_TAIL_HOT = new THREE.Color(0xff4040); // lampu belakang saat senja
 const NIGHT = { sun: 0x8fa8ff, hemiSky: 0x1c2440, hemiGround: 0x0e0c10, fog: 0x141a2e, bg: 0x0d1226, sunI: 0.4, hemiI: 0.5 };
-const SUNSET_ZENITH = new THREE.Color(0x4a2358); // purple top of a sunset sky
-const SUNSET_MID = new THREE.Color(0xa83a68);    // pink mid-sky
-const SUNSET_SEA = new THREE.Color(0xff8a4d);    // orange band at the horizon
+const SUNSET_ZENITH = new THREE.Color(0x9c6a70); // dusty-rose top (K19b: dulu ungu gelap 0x4a2358, lalu 0x7c4a63 — langit referensi oranye-pink HANGAT, ungu hanya di ujung atas)
+const SUNSET_MID = new THREE.Color(0xef825f);    // warm orange-pink mid-sky (K19b: dulu magenta 0xa83a68, lalu 0xe0705e)
+const SUNSET_SEA = new THREE.Color(0xff9a45);    // bright orange band at the horizon
 const AWN_ACCENTS = ['#f28482', '#81b29a', '#f4a261', '#a78bfa', '#4fc3f7', '#f2c94c'];
 const CORNICE_ACCENTS = ['#3fa8a0', '#b3402e', '#d4af37', '#2c4a6b', '#e8e0cc'];
 // K9_ saturated facades: one loud colour per building (pink / teal /
@@ -229,7 +238,10 @@ function groundTexture(layout) {
     ctx.stroke();
   }
   // --- roads: asphalt + edge lines + centre dashes + crosswalks ---
-  ctx.fillStyle = '#45484d';
+  // K19_ alas aspal lebih terang (K19_ASPHALT_BASE #5f6063, dulu
+  // #45484d): aspal referensi abu hangat terang di bawah matahari
+  // sore — alas gelap + cahaya senja = foreground hitam.
+  ctx.fillStyle = K19_ASPHALT_BASE;
   for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
     ctx.fillRect(0, pz(v - ROAD_HALF), S, 2 * ROAD_HALF * mpp);
     ctx.fillRect(px(v - ROAD_HALF), 0, 2 * ROAD_HALF * mpp, S);
@@ -337,6 +349,10 @@ function groundTexture(layout) {
       }
     }
   }
+  // K19_ sun-bleach + hapus marka tekstur di koridor kamera (di atas
+  // K18_, di bawah sidewalk borders): dash kuning + zebra tekstur
+  // diganti marka geometri K19 yang tajam di 2K.
+  K19_paintSunBleach(ctx, px, pz, mpp);
   // sidewalk borders around each block
   ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 2;
   for (let bx = GRID_MIN; bx < GRID_MAX; bx += ROAD_STEP) {
@@ -672,6 +688,10 @@ function R7_asphaltTexture() {
     }
     g.stroke();
   }
+  // K19_ hapus marka R7 di koridor kamera (garis kuning ganda, dash
+  // putih, zebra): diganti marka geometri K19 — garis tekstur 2,7 px/m
+  // yang blur tidak boleh mengintip di samping garis geometri tajam.
+  K19_eraseR7Markings(g, px, py);
   return R7_canvasTexture(c);
 }
 function R7_seaTexture() {
@@ -1045,6 +1065,18 @@ function R7_dressing(scene, L) {
     R7_finish(mastMesh);
     R7_finish(flagMesh);
   }
+  // K19_ layar kapal marina: tiang + bendera saja membuat kapal terbaca
+  // seperti rakit; satu layar putih tipis per kapal, condong ke buritan.
+  // +1 draw call, +36 tris.
+  const sailMesh = R7_soup(scene, R7_unitBox, new THREE.MeshLambertMaterial({ color: 0xf7f2e6 }), 3);
+  if (sailMesh) {
+    boatSpots.forEach((sp, i) => {
+      const co = Math.cos(sp.yaw);
+      const si = Math.sin(sp.yaw);
+      R7_put(sailMesh, i, sp.x + 0.6 * co, 4.4, sp.z - 0.6 * si, 0, sp.yaw, 0.1, 1.7, 2.6, 0.06);
+    });
+    R7_finish(sailMesh);
+  }
   const grain = new THREE.Mesh(
     new THREE.PlaneGeometry(768, 72),
     new THREE.MeshLambertMaterial({ map: R7_sandGrainTexture(), transparent: true, opacity: 0.3, depthWrite: false })
@@ -1142,17 +1174,20 @@ export class Renderer {
     grain.renderOrder = 2;
     scene.add(grain);
     // K17_ butir aspal close-up: satu overlay Lambert transparan di atas
-    // grid kota saja (x -288..288, z -288..234 — berhenti sebelum pantai
-    // supaya tidak menabrak overlay pasir di z>=240). Tile 512 px / 6 m,
-    // 1 draw call, 2 tris; marka R7 di y=0.06 tetap di atasnya.
+    // grid kota saja (x -288..288, z -288..246 — K19b: dulu berhenti di
+    // 234, tepat di tepi utara jalan z=240, sehingga boulevard hero
+    // TIDAK dapat overlay dan hanya mengandalkan kanvas 5,3 px/m yang
+    // blur; overlay pasir mulai z=246, jadi 246 adalah batas aman).
+    // Tile 512 px / 6 m, 1 draw call, 2 tris; marka R7 di y=0.06 tetap
+    // di atasnya.
     const K17_asphTile = K17_asphaltDetailTexture();
-    K17_asphTile.repeat.set(96, 87);
+    K17_asphTile.repeat.set(96, 89);
     const K17_asph = new THREE.Mesh(
-      new THREE.PlaneGeometry(576, 522),
-      new THREE.MeshLambertMaterial({ map: K17_asphTile, transparent: true, opacity: 0.25, depthWrite: false }),
+      new THREE.PlaneGeometry(576, 534),
+      new THREE.MeshLambertMaterial({ map: K17_asphTile, transparent: true, opacity: 0.4, depthWrite: false }),
     );
     K17_asph.rotation.x = -Math.PI / 2;
-    K17_asph.position.set(0, 0.04, -27);
+    K17_asph.position.set(0, 0.04, -21);
     K17_asph.renderOrder = 2;
     scene.add(K17_asph);
     // K18_ overlay aspal kasar: bercak besar 24 m/tile + speckle tegas
@@ -1162,13 +1197,27 @@ export class Renderer {
     const K18_asphTile = K18_asphaltCoarseTexture();
     K18_asphTile.repeat.set(24, 22);
     const K18_asph = new THREE.Mesh(
-      new THREE.PlaneGeometry(576, 522),
-      new THREE.MeshLambertMaterial({ map: K18_asphTile, transparent: true, opacity: 0.4, depthWrite: false }),
+      new THREE.PlaneGeometry(576, 534),
+      new THREE.MeshLambertMaterial({ map: K18_asphTile, transparent: true, opacity: 0.3, depthWrite: false }),
     );
     K18_asph.rotation.x = -Math.PI / 2;
-    K18_asph.position.set(0, 0.045, -27);
+    K18_asph.position.set(0, 0.045, -21);
     K18_asph.renderOrder = 2;
     scene.add(K18_asph);
+    // K19_ butir aspal halus (tile 3 m, 170 px/m, opasitas 0,5, y 0,052
+    // — di atas overlay K17/K18, di bawah plane R7 0,06): inilah yang
+    // membuat aspal terbaca TAJAM di foreground 2K, bukan blotch lembut
+    // 24 m. +1 draw call, +2 tris.
+    const K19_asphTile = K19_fineAsphaltTexture();
+    K19_asphTile.repeat.set(192, 178);
+    const K19_asph = new THREE.Mesh(
+      new THREE.PlaneGeometry(576, 534),
+      new THREE.MeshLambertMaterial({ map: K19_asphTile, transparent: true, opacity: 0.6, depthWrite: false }),
+    );
+    K19_asph.rotation.x = -Math.PI / 2;
+    K19_asph.position.set(0, 0.052, -21);
+    K19_asph.renderOrder = 2;
+    scene.add(K19_asph);
     // K17_ sand: two procedural layers replace the old faint grain
     // overlays (opacity 0.14 / 0.10 — invisible at 2K). The tone layer
     // is big soft blotches at ~128 m/tile so mid-distance sand is not
@@ -1489,6 +1538,10 @@ export class Renderer {
     // (jalan z=-144, x 30..230), causeway z=24, dan jalan cover z=240.
     // Masuk solid soup yang sama: 0 draw call baru, ~864 tris.
     K18_dressRoads(solid);
+    // K19_ marka jalan geometri (garis kuning ganda + dash putih +
+    // zebra) di koridor kamera z=240 dan z=-144 — tajam di 2K, tidak
+    // blur seperti cat kanvas. 0 draw call, ~1.430 tris.
+    K19_dressRoads(solid);
     // K17_ atlas fasad 2 bay x 2 lantai (K17_facadeTexture): jendela
     // bervariasi per bay/lantai — terang+tirai, gelap, hangat menyala,
     // gelap+kerai — plus kotoran di dinding. 0 draw call / 0 tris.
@@ -1591,26 +1644,35 @@ export class Renderer {
       const K17_trunkTone = hash2(Math.round(pl.x), Math.round(pl.z), 171);
       const K17_trunkA = K17_trunkTone < 0.33 ? '#7d5f3a' : K17_trunkTone < 0.66 ? '#8a6a42' : '#96744a';
       const K17_trunkB = K17_trunkTone < 0.33 ? '#6d4f30' : K17_trunkTone < 0.66 ? '#7a5a38' : '#84643e';
+      // K19_ batang meruncing + segmen bertumpang tindih (bukan balok
+      // bertumpuk): lebar 0,46 -> 0,26, overlap +0,35 m, cincin
+      // menyempit mengikuti batang, + pangkal melebar di tanah.
+      palmSoup.add(pl.x, 0.25, pl.z, 0.56, 0.5, 0.56, K17_trunkB);
       for (let seg = 0; seg < 5; seg++) {
         const y = (seg + 0.5) * (h / 5);
-        palmSoup.add(pl.x + Math.sin(seg * 1.7) * 0.12, y, pl.z, 0.34, h / 5 + 0.1, 0.34, seg % 2 ? K17_trunkA : K17_trunkB);
+        const K19_tw = 0.46 - seg * 0.05;
+        palmSoup.add(pl.x + Math.sin(seg * 1.7) * 0.12, y, pl.z, K19_tw, h / 5 + 0.35, K19_tw, seg % 2 ? K17_trunkA : K17_trunkB);
       }
       palmSoup.add(pl.x, h * 0.45, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
-      palmSoup.add(pl.x, h * 0.62, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
-      palmSoup.add(pl.x, h * 0.8, pl.z, 0.44, 0.3, 0.44, '#6b4a2f');
+      palmSoup.add(pl.x, h * 0.62, pl.z, 0.4, 0.3, 0.4, '#6b4a2f');
+      palmSoup.add(pl.x, h * 0.8, pl.z, 0.36, 0.3, 0.36, '#6b4a2f');
       for (let nI = 0; nI < 3; nI++) nuts.push({ x: pl.x + Math.cos(nI * 2.1) * 0.4, y: h - 0.3, z: pl.z + Math.sin(nI * 2.1) * 0.4 });
-      frondRing(pl, h + 0.15, 6, 3, 0.45, 3.4, '#3f9e4d');
-      frondRing(pl, h + 0.05, 6, 5, 0.05, 3.2, '#35873f');
-      frondRing(pl, h - 0.1, 8, 4, -0.5, 3.0, '#2f8f3e');
+      // K19_ pitch diringankan — lengkung sudah ada di geometri pelepah
+      frondRing(pl, h + 0.15, 6, 3, 0.25, 3.4, '#3f9e4d');
+      frondRing(pl, h + 0.05, 6, 5, 0.0, 3.2, '#35873f');
+      frondRing(pl, h - 0.1, 8, 4, -0.3, 3.0, '#2f8f3e');
     }
     scene.add(palmSoup.build(lambertVertex()));
-    const frondGeo = new THREE.BoxGeometry(1, 0.05, 0.62);
-    frondGeo.translate(0.5, 0, 0); // pivot at the crown
-    this.fronds = new THREE.InstancedMesh(frondGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), fronds.length);
+    // K19_ pelepah melengkung (ribbon 3 segmen, 6 tris — LEBIH MURAH
+    // dari kotak 12 tris): naik sedikit dari pucuk lalu menjuntai,
+    // meruncing ke ujung. Geometri memanjang +X dari pucuk (panjang
+    // 3,2 m — skala x dibagi 3,2), lebar di Z bervariasi per pelepah.
+    const frondGeo = K19_bentFrondGeometry();
+    this.fronds = new THREE.InstancedMesh(frondGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }), fronds.length);
     fronds.forEach((f, i) => {
       dummy.position.set(f.x, f.y, f.z);
       dummy.rotation.set(0, -f.yaw, f.pitch, 'YXZ');
-      dummy.scale.set(f.len, 1, 1);
+      dummy.scale.set(f.len / 3.2, 1, 0.85 + hash2(i, 7, 173) * 0.3);
       dummy.updateMatrix();
       this.fronds.setMatrixAt(i, dummy.matrix);
       // K17_ daun: ~18% pelepah kering kuning-hijau, sisanya hijau dengan
@@ -1618,7 +1680,9 @@ export class Renderer {
       // datar. 0 tris, 0 draw call (warna per instance).
       const K17_fj = hash2(i, 3, 173);
       const K17_fcol = K17_fj < 0.18 ? '#b5a642' : f.col;
-      this.fronds.setColorAt(i, tmpColor.set(K17_fcol).multiplyScalar(0.92 + hash2(i, 5, 173) * 0.2));
+      // K19_ pelepah lebih terang (1,0-1,25x): kena matahari sore harus
+      // menyala kuning-hijau, bukan hitam backlit seperti di cover #13.
+      this.fronds.setColorAt(i, tmpColor.set(K17_fcol).multiplyScalar(1.0 + hash2(i, 5, 173) * 0.25));
     });
     scene.add(this.fronds);
     const nutGeo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
@@ -1861,9 +1925,14 @@ export class Renderer {
     };
     const K10_trunkMat = new THREE.MeshLambertMaterial({ color: 0x8a6a42 });
     const K10_bandMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2f });
-    const K10_frondMat = new THREE.MeshLambertMaterial({ color: 0x2f7a2e });
-    const K10_frondGeo = new THREE.BoxGeometry(2.4, 0.07, 0.55);
-    K10_frondGeo.translate(1.2, 0, 0);
+    // K19_ pelepah melengkung + 3 warna (seperti K17): satu material
+    // hijau datar membuat keenam palem boulevard terbaca seragam.
+    const K10_frondMats = [
+      new THREE.MeshLambertMaterial({ color: 0x2f7a2e, side: THREE.DoubleSide }),
+      new THREE.MeshLambertMaterial({ color: 0x3a8f3a, side: THREE.DoubleSide }),
+      new THREE.MeshLambertMaterial({ color: 0x6a8f2e, side: THREE.DoubleSide }),
+    ];
+    const K10_frondGeo = K19_bentFrondGeometry();
     const K10_spots = [
       [-35, 234, 9.2], [-60, 234, 8.6], [-85, 234, 9.5],
       [-20, 247, 8.9], [-50, 247, 9.4], [-80, 247, 8.7],
@@ -1886,9 +1955,10 @@ export class Renderer {
         this.scene.add(K10_band);
       }
       for (let f = 0; f < 5; f++) {
-        const K10_frond = new THREE.Mesh(K10_frondGeo, K10_frondMat);
+        const K10_frond = new THREE.Mesh(K10_frondGeo, K10_frondMats[Math.floor(K10_hash(i * 11 + f) * 3) % 3]);
         K10_frond.position.set(K10_px + K10_lean * 2, K10_ph, K10_pz);
-        K10_frond.rotation.set(0, (f / 5) * Math.PI * 2 + K10_hash(i * 7 + f) * 0.5, -0.45 - K10_hash(i + f * 3) * 0.15);
+        K10_frond.rotation.set(0, (f / 5) * Math.PI * 2 + K10_hash(i * 7 + f) * 0.5, -0.25 - K10_hash(i + f * 3) * 0.15);
+        K10_frond.scale.set(0.75, 1, 1); // geometri 3,2 m -> 2,4 m seperti dulu
         this.scene.add(K10_frond);
       }
     }
@@ -2029,8 +2099,21 @@ export class Renderer {
     gctx.restore();
     const glareTex = new THREE.CanvasTexture(glareC);
     glareTex.colorSpace = THREE.SRGBColorSpace;
+    // K19b_ glare diperkecil (720 -> 420) + dipudarkan paruh bawahnya:
+    // plane 720 m di matahari rendah menutupi setengah bawah frame
+    // termasuk jalan — itulah "garis cahaya aneh" diagonal di foreground
+    // cover #13. Cahaya tetap di langit, tidak turun ke aspal.
+    gctx.save();
+    gctx.globalCompositeOperation = 'destination-out';
+    const K19_glareFade = gctx.createLinearGradient(0, 256, 0, 512);
+    K19_glareFade.addColorStop(0, 'rgba(0,0,0,0)');
+    K19_glareFade.addColorStop(1, 'rgba(0,0,0,0.85)');
+    gctx.fillStyle = K19_glareFade;
+    gctx.fillRect(0, 256, 512, 256);
+    gctx.restore();
+    glareTex.needsUpdate = true;
     this.sunGlare = new THREE.Mesh(
-      new THREE.PlaneGeometry(720, 720),
+      new THREE.PlaneGeometry(420, 420),
       new THREE.MeshBasicMaterial({ map: glareTex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending })
     );
     this.sunGlare.renderOrder = 6;
@@ -2203,14 +2286,23 @@ export class Renderer {
     // 2 bumpers) + 3 per van (2 side glass + windshield). White base
     // material so setColorAt shows; instances set in update().
     this.carSide = mk(new THREE.BoxGeometry(1, 1, 1), white.clone(), N * 6 + NV * 3);
+    // K19_ plat nomor + louver dek belakang (pooled): dari sudut chase
+    // (belakang mobil) traffic tidak punya plat dan deknya polos —
+    // dua pool ini yang membuat sedan terbaca sebagai mobil, bukan
+    // balok warna. Plat depan+belakang sedan + van; louver 2 slat
+    // per sedan di dek belakang. +2 draw call.
+    this.carPlate = mk(new THREE.BoxGeometry(0.06, 0.18, 0.5), new THREE.MeshBasicMaterial({ color: 0xf5f0e6 }), N * 2 + NV * 2);
+    this.carLouver = mk(new THREE.BoxGeometry(0.35, 0.06, 0.22), new THREE.MeshLambertMaterial({ color: 0x1c1f24 }), N * 2);
 
     // hero sports car — one detailed group, not an instance
+    // K19_ ORANYE (dulu merah 0xe74c3c): mobil hero referensi oranye
+    // terang — merah gelap + cahaya senja = nyaris hitam dari belakang.
     this.heroCar = new THREE.Group();
-    const heroMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
+    const heroMat = new THREE.MeshLambertMaterial({ color: 0xef6a1a });
     const body = new THREE.Mesh(taperedBody(4.6, 2.0, 0.72, 0.78), heroMat);
     body.position.y = 0.62;
     this.heroCar.add(body);
-    const hood = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.1, 1.7), new THREE.MeshLambertMaterial({ color: 0xc0392b }));
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.1, 1.7), new THREE.MeshLambertMaterial({ color: 0xb34a10 }));
     hood.position.set(1.55, 0.95, 0);
     this.heroCar.add(hood);
     const glassMat = new THREE.MeshLambertMaterial({ color: 0x101c28 });
@@ -2242,6 +2334,14 @@ export class Renderer {
       K10_slat.position.set(-2.0, 1.05, -0.48 + li * 0.24);
       K10_slat.rotation.z = 0.1;
       this.heroCar.add(K10_slat);
+    }
+    // K19_ ventilasi kap: 4 slat gelap di atas kap (cermin louver dek
+    // K10 di belakang) — kap polos membuat hero terbaca seperti balok
+    // dari depan/tiga-perempat.
+    for (let li = 0; li < 4; li++) {
+      const K19_vent = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.05, 0.22), spoiler.material);
+      K19_vent.position.set(1.55, 1.02, -0.45 + li * 0.3);
+      this.heroCar.add(K19_vent);
     }
     // grille, bumpers, mirrors, skirts, lights
     const bumperMat = new THREE.MeshLambertMaterial({ color: 0x22262c });
@@ -2366,6 +2466,11 @@ export class Renderer {
     legGeo.translate(0, -0.37, 0);
     this.pedLegL = mk(legGeo, pedWhite.clone(), P);
     this.pedLegR = mk(legGeo, pedWhite.clone(), P);
+    // K19_ topi + ikat pinggang NPC (pooled): torso polos satu warna
+    // membuat pejalan kaki terbaca sebagai siluet; topi warna-warni
+    // (~40% NPC) + sabuk gelap memecah siluet itu. +2 draw call.
+    this.pedCap = mk(new THREE.BoxGeometry(0.34, 0.14, 0.32), pedWhite.clone(), P);
+    this.pedBelt = mk(new THREE.BoxGeometry(0.36, 0.1, 0.58), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), P);
     this.pedColorsSet = false;
 
     // Helicopter — built as a machine, not a speck: a slim body, a long
@@ -2381,13 +2486,39 @@ export class Renderer {
       return m;
     };
     const heliBox = (w, h, d, mat, x, y, z) => heliPart(new THREE.BoxGeometry(w, h, d), mat, x, y, z);
-    const heliBody = heliPart(taperedBody(3.6, 1.7, 1.5, 0.85), heliWhite, 0, 0, 0);
-    heliBody.position.y = 0;
-    heliBox(1.3, 1.0, 1.7, new THREE.MeshLambertMaterial({ color: 0x101c28 }), 1.4, 0.1, 0);
-    heliBox(0.08, 1.0, 0.1, heliWhite, 1.4, 0.1, 0);
-    heliBox(3.7, 0.22, 1.72, new THREE.MeshLambertMaterial({ color: 0xd4af37 }), 0, 0.55, 0);
-    heliBox(4.2, 0.4, 0.4, heliWhite, -3.6, 0.35, 0);
-    heliBox(1.1, 1.6, 0.12, heliWhite, -5.5, 1.0, 0);
+    // K19_ REBUILD kabin (15:34 WIB — "masa helikopter kotak"): kabin
+    // ellipsoid membulat (bukan taperedBody balok), kaca hidung
+    // menggembung, kaca samping melengkung membungkus kabin, boom
+    // silinder meruncing + cincin emas, tiang rotor + kubah hub.
+    // Fin, stabilizer, skid, rotor, tail rotor K18 dan beam K16
+    // dipertahankan. +2 draw call bersih.
+    const heliCabinGeo = new THREE.SphereGeometry(1, 14, 10);
+    const heliCabin = heliPart(heliCabinGeo, heliWhite, 0.1, 0, 0);
+    heliCabin.scale.set(1.9, 0.95, 0.95);
+    const heliNoseGeo = new THREE.SphereGeometry(1, 12, 8);
+    // K19b_ hidung lebih kecil + biru-kaca (dulu gumpalan hitam besar
+    // 0,85x0,6x0,8 warna 0x101c28 — terbaca seperti bongkahan, bukan kaca).
+    // K19d_ biru lebih terang (0x16324a -> 0x2a4a66): kaca harus membaca
+    // sebagai kaca (pantul langit), bukan lubang hitam.
+    const heliNose = heliPart(heliNoseGeo, new THREE.MeshLambertMaterial({ color: 0x2a4a66 }), 1.4, 0.28, 0);
+    heliNose.scale.set(0.62, 0.42, 0.65);
+    const heliSideGlassGeo = new THREE.SphereGeometry(1, 12, 8);
+    // K19b_ kaca samping lebih besar + menonjol + biru-kaca (dulu hanya
+    // 0,02 m di luar kabin — terbaca sebagai celah hitam kecil).
+    const heliSideGlass = heliPart(heliSideGlassGeo, new THREE.MeshLambertMaterial({ color: 0x16324a }), -0.15, 0.18, 0);
+    heliSideGlass.scale.set(1.15, 0.6, 1.0);
+    const heliBoomGeo = new THREE.CylinderGeometry(0.16, 0.28, 4.0, 8);
+    heliBoomGeo.rotateZ(Math.PI / 2); // sumbu Y -> X, ujung runcing ke ekor (-X)
+    heliPart(heliBoomGeo, heliWhite, -3.4, 0.3, 0);
+    const heliBandGeo = new THREE.CylinderGeometry(0.29, 0.29, 0.25, 8);
+    heliBandGeo.rotateZ(Math.PI / 2);
+    heliPart(heliBandGeo, new THREE.MeshLambertMaterial({ color: 0xd4af37 }), -2.2, 0.3, 0);
+    const heliMastGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.5, 6);
+    heliPart(heliMastGeo, heliDark, 0, 0.95, 0);
+    const heliHubGeo = new THREE.SphereGeometry(0.22, 8, 6);
+    heliPart(heliHubGeo, heliDark, 0, 1.15, 0);
+    const K19_fin = heliBox(1.1, 1.6, 0.12, heliWhite, -5.5, 1.0, 0);
+    K19_fin.rotation.z = -0.18; // fin menyapu ke belakang, bukan papan tegak
     heliBox(0.7, 0.1, 2.2, heliWhite, -4.6, 0.4, 0);
     for (const sz of [-0.8, 0.8]) {
       heliBox(3.0, 0.08, 0.08, heliDark, 0, -1.0, sz);
@@ -2395,7 +2526,9 @@ export class Renderer {
     }
     this.rotor = new THREE.Group();
     for (const a of [0, Math.PI / 2]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 7.6), new THREE.MeshLambertMaterial({ color: 0x1c1f24 }));
+      // K19b_ bilah sedikit lebih terang (0x1c1f24 -> 0x33383f): tanpa
+      // cakram pucat, bilah gelap hilang di langit senja.
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 7.6), new THREE.MeshLambertMaterial({ color: 0x33383f }));
       bar.rotation.y = a;
       this.rotor.add(bar);
     }
@@ -2403,7 +2536,11 @@ export class Renderer {
     this.heli.add(this.rotor);
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(3.8, 24),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, side: THREE.DoubleSide }),
+      // K19_ cakram rotor lebih tipis (0,16 -> 0,08): di cover #13 cakram
+      // pucatnya terbaca seperti piring raksasa di atas balok.
+      // K19b_ 0,08 -> 0,05: piringan harus nyaris tak terlihat, bilah
+      // yang membawa rotor.
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.05, side: THREE.DoubleSide }),
     );
     disc.rotation.x = -Math.PI / 2;
     disc.position.y = 1.15;
@@ -2411,13 +2548,10 @@ export class Renderer {
     this.rotorDisc = disc; // cover staging brightens it (bigger rotor blur)
     heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), -5.5, 0.2, -0.3);
     heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0x2aff5a }), -5.5, 0.2, 0.3);
-    // K18_ cabin side windows + tail rotor + nose sensor: the cabin
-    // flanks behind the cockpit glass were plain white, and the fin
-    // had no rotor — the heli read as a white box with a boom. The
-    // tail rotor spins in the fin plane (XY), hub + two blades.
-    heliBox(1.2, 0.7, 0.06, new THREE.MeshLambertMaterial({ color: 0x101c28 }), -0.6, 0.15, 0.87);
-    heliBox(1.2, 0.7, 0.06, new THREE.MeshLambertMaterial({ color: 0x101c28 }), -0.6, 0.15, -0.87);
-    heliBox(0.3, 0.3, 0.3, heliDark, 1.8, -0.75, 0);
+    // K19_ jendela samping kotak K18 dihapus — diganti kaca samping
+    // ellipsoid yang membungkus kabin (di atas, heliSideGlass).
+    // Sensor hidung menempel di bawah kaca hidung yang menggembung.
+    heliBox(0.3, 0.3, 0.3, heliDark, 1.5, -0.35, 0);
     heliBox(0.16, 0.16, 0.12, heliDark, -5.5, 1.0, 0.14);
     const K18_tailBlade1 = heliPart(new THREE.BoxGeometry(0.06, 1.4, 0.08), heliDark, -5.5, 1.0, 0.14);
     const K18_tailBlade2 = heliPart(new THREE.BoxGeometry(0.06, 1.4, 0.08), heliDark, -5.5, 1.0, 0.14);
@@ -2629,7 +2763,9 @@ export class Renderer {
     const nightAmt = hour < 5.5 || hour > 19.5 ? 1 : hour > 18.5 ? (hour - 18.5) : hour < 6.5 ? (6.5 - hour) : 0;
     // K18_ outer glare lebih kuat saat senja (0.15 + 0.65, dulu
     // 0.12 + 0.5) — matahari terbenam harus menyala, bukan pucat.
-    this.sunGlare.material.opacity = (0.15 + 0.65 * sunsetF) * (1 - nightAmt);
+    // K19b_ diturunkan lagi (0.10 + 0.45): plane glare yang lebih kecil
+    // + fade bawah tidak butuh opacity setinggi dulu.
+    this.sunGlare.material.opacity = (0.10 + 0.45 * sunsetF) * (1 - nightAmt);
     // K18_ dusk factor: 0 di siang hari, 1 saat senja/malam penuh —
     // satu angka yang menggerakkan semua glow-up lampu di bawah ini.
     const K18_duskF = clamp(sunsetF + nightAmt, 0, 1);
@@ -2690,7 +2826,12 @@ export class Renderer {
       grad.addColorStop(0.55, `#${groundHex}`);
       grad.addColorStop(1, `#${groundHex}`);
       ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 4, 256);
+      // K19c_ BUG LANGIT: dulu fillRect(0, 0, 4, 256) — hanya strip
+      // 4 px di tepi kanvas yang dicat ulang, sisanya TETAP gradien
+      // ungu awal K8_buildSky. Itulah kenapa langit tetap magenta-ungu
+      // meski SUNSET_ZENITH/MID sudah dihangatkan di K19/K19b (piksel
+      // ukur cover: #7a2b63, bukan 0x9c6a70). Cat SELURUH kanvas.
+      ctx.fillRect(0, 0, 512, 256);
       this.skyTex.needsUpdate = true;
     }
     // Long shadows rebuild on the same 15-minute bucket.
@@ -2770,7 +2911,7 @@ export class Renderer {
     for (const c of s.traffic) cars.push({ x: c.x, z: c.z, h: c.heading, kind: c.kind, color: c.color, police: false });
     for (const pc of s.police) cars.push({ x: pc.x, z: pc.z, h: pc.heading, kind: 'sedan', color: '#e8e8e8', police: true });
     cars.push({ x: s.van.x, z: s.van.z, h: s.van.heading, kind: 'van', color: '#d4af37', police: false });
-    let nSedan = 0, nVan = 0, nScoot = 0, nBar = 0, nSide = 0;
+    let nSedan = 0, nVan = 0, nScoot = 0, nBar = 0, nSide = 0, nPlate = 0, nLouver = 0;
     for (const c of cars) {
       const isVan = c.kind === 'van', isScoot = c.kind === 'scooter';
       dummy.rotation.set(0, c.h, 0);
@@ -2797,6 +2938,9 @@ export class Renderer {
         }
         setM(this.carSide, nSide, c.x + Math.cos(c.h) * 2.55, 1.35, c.z - Math.sin(c.h) * 2.55, 0.06, 0.7, 1.8);
         this.carSide.setColorAt(nSide++, tmpColor.set('#16202c'));
+        // K19_ plat depan + belakang van (di luar muka bodi ±2,6 m)
+        setM(this.carPlate, nPlate++, c.x + Math.cos(c.h) * 2.62, 0.5, c.z - Math.sin(c.h) * 2.62);
+        setM(this.carPlate, nPlate++, c.x - Math.cos(c.h) * 2.62, 0.5, c.z + Math.sin(c.h) * 2.62);
       } else if (isScoot) {
         const i = nScoot++;
         setM(this.carBodyScooter, i, c.x, 0.55, c.z);
@@ -2869,6 +3013,14 @@ export class Renderer {
           setM(this.carSide, nSide, c.x + Math.cos(c.h) * end, 0.45, c.z - Math.sin(c.h) * end, 0.22, 0.3, 1.9);
           this.carSide.setColorAt(nSide++, tmpColor.set('#1c1f24'));
         }
+        // K19_ plat depan + belakang (di luar muka bumper ±2,35 m) +
+        // 2 louver di dek belakang (di belakang kaca belakang, di luar
+        // atap) — yang paling terbaca dari sudut chase.
+        setM(this.carPlate, nPlate++, c.x + Math.cos(c.h) * 2.38, 0.45, c.z - Math.sin(c.h) * 2.38);
+        setM(this.carPlate, nPlate++, c.x - Math.cos(c.h) * 2.38, 0.45, c.z + Math.sin(c.h) * 2.38);
+        for (const lz of [-0.3, 0.3]) {
+          setM(this.carLouver, nLouver++, c.x - Math.cos(c.h) * 1.75 - Math.sin(c.h) * lz, 1.0, c.z + Math.sin(c.h) * 1.75 - Math.cos(c.h) * lz);
+        }
         if (c.police) {
           const bi = nBar++;
           dummy.position.set(c.x - Math.cos(c.h) * 0.1, 1.56, c.z + Math.sin(c.h) * 0.1);
@@ -2912,7 +3064,9 @@ export class Renderer {
     this.carBar.count = nBar;
     this.carPush.count = nBar;
     this.carSide.count = nSide;
-    for (const m of [this.carBodySedan, this.carBodyVan, this.carBodyScooter, this.carGlass, this.carGlassRear, this.carRoof, this.carGrille, this.carMirror, this.carWheels, this.carHubs, this.carHead, this.carTail, this.carTaxi, this.carBar, this.carPush, this.carSide]) {
+    this.carPlate.count = nPlate;
+    this.carLouver.count = nLouver;
+    for (const m of [this.carBodySedan, this.carBodyVan, this.carBodyScooter, this.carGlass, this.carGlassRear, this.carRoof, this.carGrille, this.carMirror, this.carWheels, this.carHubs, this.carHead, this.carTail, this.carTaxi, this.carBar, this.carPush, this.carSide, this.carPlate, this.carLouver]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
@@ -2927,6 +3081,9 @@ export class Renderer {
         this.pedArmR.setColorAt(i, tmpColor.set(pd.skin));
         this.pedLegL.setColorAt(i, tmpColor.set(pd.pants));
         this.pedLegR.setColorAt(i, tmpColor.set(pd.pants));
+        // K19_ topi: ~40% NPC bertopi warna cerah (hash id, deterministik)
+        const K19_capCols = ['#f2c94c', '#e07a5f', '#4fc3f7', '#f28482', '#90be6d', '#e8e8e8'];
+        this.pedCap.setColorAt(i, tmpColor.set(K19_capCols[Math.floor(hash2(pd.id, 7, 1) * K19_capCols.length) % K19_capCols.length]));
       });
       this.pedColorsSet = true;
     }
@@ -2944,12 +3101,20 @@ export class Renderer {
       setPart(this.pedTorso, pd.x, 1.14, pd.z);
       setPart(this.pedHead, pd.x, 1.68, pd.z);
       setPart(this.pedHair, pd.x, 1.88, pd.z);
+      // K19_ topi (skala 0,001 = tidak bertopi) + sabuk di pinggang
+      const K19_wearsCap = hash2(pd.id, 7, 1) < 0.4 ? 1 : 0.001;
+      dummy.position.set(pd.x, 1.96 * sc, pd.z);
+      dummy.rotation.set(0, pd.heading, 0);
+      dummy.scale.set(sc * K19_wearsCap, sc * K19_wearsCap, sc * K19_wearsCap);
+      dummy.updateMatrix();
+      this.pedCap.setMatrixAt(i, dummy.matrix);
+      setPart(this.pedBelt, pd.x, 0.84, pd.z);
       setPart(this.pedArmL, pd.x + Math.sin(pd.heading) * 0.26, 1.48, pd.z + Math.cos(pd.heading) * 0.26, 0, swing);
       setPart(this.pedArmR, pd.x - Math.sin(pd.heading) * 0.26, 1.48, pd.z - Math.cos(pd.heading) * 0.26, 0, -swing);
       setPart(this.pedLegL, pd.x + Math.sin(pd.heading) * 0.1, 0.78, pd.z + Math.cos(pd.heading) * 0.1, 0, -swing);
       setPart(this.pedLegR, pd.x - Math.sin(pd.heading) * 0.1, 0.78, pd.z - Math.cos(pd.heading) * 0.1, 0, swing);
     });
-    for (const m of [this.pedTorso, this.pedHead, this.pedHair, this.pedArmL, this.pedArmR, this.pedLegL, this.pedLegR]) {
+    for (const m of [this.pedTorso, this.pedHead, this.pedHair, this.pedArmL, this.pedArmR, this.pedLegL, this.pedLegR, this.pedCap, this.pedBelt]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }

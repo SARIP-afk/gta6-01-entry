@@ -77,7 +77,7 @@ export function K18_paintAsphaltWear(ctx, px, pz, mpp, roadLines, roadHalf, grid
     const p = i < 70 ? corridorPoint(i, 301) : roadPoint(i, 301);
     const pale = hash2(i, 302, 1) < 0.36;
     ctx.fillStyle = pale
-      ? `rgba(208,202,186,${0.10 + hash2(i, 303, 1) * 0.14})`
+      ? `rgba(196,198,202,${0.10 + hash2(i, 303, 1) * 0.14})` // K20_ didinginkan (dulu 208,202,186 krem)
       : `rgba(14,14,18,${0.14 + hash2(i, 304, 1) * 0.18})`;
     ctx.beginPath();
     ctx.ellipse(px(p.x), pz(p.z), (3 + hash2(i, 305, 1) * 12) * mpp, (2 + hash2(i, 306, 1) * 7) * mpp, hash2(i, 307, 1) * Math.PI, 0, Math.PI * 2);
@@ -255,7 +255,7 @@ export function K18_asphaltCoarseTexture() {
     const pale = draw() < 0.38;
     const a = pale ? 0.08 + draw() * 0.12 : 0.10 + draw() * 0.18;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, pale ? `rgba(210,204,188,${a})` : `rgba(12,12,16,${a})`);
+    g.addColorStop(0, pale ? `rgba(198,200,204,${a})` : `rgba(12,12,16,${a})`); // K20_ didinginkan (dulu 210,204,188)
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
@@ -264,7 +264,7 @@ export function K18_asphaltCoarseTexture() {
   for (let i = 0; i < 520; i++) {
     const light = draw() < 0.42;
     ctx.fillStyle = light
-      ? `rgba(228,226,214,${0.15 + draw() * 0.2})`
+      ? `rgba(222,224,226,${0.15 + draw() * 0.2})` // K20_ didinginkan (dulu 228,226,214)
       : `rgba(10,10,12,${0.15 + draw() * 0.22})`;
     ctx.fillRect(draw() * S, draw() * S, 1 + Math.floor(draw() * 2), 1 + Math.floor(draw() * 2));
   }

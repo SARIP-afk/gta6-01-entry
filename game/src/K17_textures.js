@@ -430,9 +430,9 @@ export function K17_asphaltDetailTexture() {
       // dasar: transparan; hanya butir + bercak yang menulis alpha
       let a = 0, r = 0, g = 0, b = 0;
       if (grain < 0.09) { r = 12; g = 12; b = 14; a = 52 + tone * 40; }
-      else if (grain > 0.93) { r = 225; g = 222; b = 210; a = 42 + tone * 34; }
+      else if (grain > 0.93) { r = 218; g = 220; b = 222; a = 42 + tone * 34; } // K20_ didinginkan (dulu 225,222,210)
       else if (tone < 0.32) { r = 20; g = 20; b = 24; a = 14; }   // bercak gelap
-      else if (tone > 0.72) { r = 200; g = 196; b = 182; a = 12; } // bercak pucat aus
+      else if (tone > 0.72) { r = 196; g = 198; b = 202; a = 12; } // bercak pucat aus — K20_ didinginkan (dulu 200,196,182)
       data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = Math.round(a);
     }
   }
@@ -475,7 +475,7 @@ export function K17_paintAsphaltWear(ctx, px, pz, mpp, roadLines, roadHalf, grid
     const p = roadPoint(i, 201);
     const pale = hash2(i, 202, 1) < 0.38;
     ctx.fillStyle = pale
-      ? `rgba(210,205,190,${0.05 + hash2(i, 203, 1) * 0.09})`
+      ? `rgba(198,200,202,${0.05 + hash2(i, 203, 1) * 0.09})` // K20_ didinginkan (dulu 210,205,190)
       : `rgba(18,18,22,${0.08 + hash2(i, 204, 1) * 0.13})`;
     ctx.beginPath();
     ctx.ellipse(px(p.x), pz(p.z), (3 + hash2(i, 205, 1) * 15) * mpp, (2 + hash2(i, 206, 1) * 8) * mpp, hash2(i, 207, 1) * Math.PI, 0, Math.PI * 2);

@@ -31,7 +31,13 @@ import {
 // Day parts. The sun disc, sky dome, sea tint and glitter all read from
 // here through paletteAt(hour), which blends between the keys.
 const DAY = { sun: 0xffdf9e, hemiSky: 0xbfd9ff, hemiGround: 0x8a7a5a, fog: 0xcfe0ee, bg: 0x87b5d9, sunI: 1.25, hemiI: 0.85 };
-const SUNSET = { sun: 0xff8a2e, hemiSky: 0xe8905e, hemiGround: 0x7d5f42, fog: 0xf2a468, bg: 0xf7a45c, sunI: 1.6, hemiI: 1.05 };
+const SUNSET = { sun: 0xff8a2e, hemiSky: 0xdd9377, hemiGround: 0x7d5f42, fog: 0xeaa87c, bg: 0xefa06e, sunI: 1.6, hemiI: 1.05 };
+// K20_ Fase 1 (ronde #15): fog/bg/hemiSky didinginkan — fog 0xf2a468 ->
+// 0xeaa87c (kurang oranye, lebih netral-hangat), bg 0xf7a45c -> 0xefa06e
+// (lebih lembut), hemiSky 0xe8905e -> 0xdd9377 (lebih dingin) supaya
+// warna fasad K9 terbaca, tidak dibasuh oranye. DAY/NIGHT tak berubah.
+// K20_EXPOSURE: ACES exposure — diuji 0.9 / 1.0 / 1.1, pilih paling aman.
+const K20_EXPOSURE = 1.1;
 // K19_ golden hour lebih terang/hangat (ronde #14, bar realistis):
 // matahari lebih kuat (sunI 1.45 -> 1.6), ambient naik (hemiI 0.8 ->
 // 1.05) + ground bounce lebih terang/hangat (0x4a382a -> 0x6b4f36)
@@ -45,8 +51,8 @@ const K18_LAMP_HOT = new THREE.Color(0xffe9b0); // lampu jalan saat senja
 const K18_HEAD_HOT = new THREE.Color(0xfffbe8); // lampu depan saat senja
 const K18_TAIL_HOT = new THREE.Color(0xff4040); // lampu belakang saat senja
 const NIGHT = { sun: 0x8fa8ff, hemiSky: 0x1c2440, hemiGround: 0x0e0c10, fog: 0x141a2e, bg: 0x0d1226, sunI: 0.4, hemiI: 0.5 };
-const SUNSET_ZENITH = new THREE.Color(0x9c6a70); // dusty-rose top (K19b: dulu ungu gelap 0x4a2358, lalu 0x7c4a63 — langit referensi oranye-pink HANGAT, ungu hanya di ujung atas)
-const SUNSET_MID = new THREE.Color(0xef825f);    // warm orange-pink mid-sky (K19b: dulu magenta 0xa83a68, lalu 0xe0705e)
+const SUNSET_ZENITH = new THREE.Color(0x91567a); // K20b_ magenta-ungu KAYA (klarifikasi Kumala: ungu-magenta di atas, bukan mauve pucat 0xa87b80 — luminositas tetap menengah, tidak gelap)
+const SUNSET_MID = new THREE.Color(0xea7a68);    // K20b_ warm orange-pink mid-sky, sedikit lebih pink (dulu 0xef825f) — pita pink antara ungu atas dan oranye horizon ala Kumala
 const SUNSET_SEA = new THREE.Color(0xff9a45);    // bright orange band at the horizon
 const AWN_ACCENTS = ['#f28482', '#81b29a', '#f4a261', '#a78bfa', '#4fc3f7', '#f2c94c'];
 const CORNICE_ACCENTS = ['#3fa8a0', '#b3402e', '#d4af37', '#2c4a6b', '#e8e0cc'];
@@ -164,6 +170,27 @@ function groundTexture(layout) {
         ctx.fillRect(x0 + hash2(i, bz, 6) * w, z0 + hash2(bx, i, 7) * d, 3, 3);
       }
     }
+  }
+  // K20_ AO murah: gradien gelap LEMBUT di dasar tiap gedung, dilukis ke
+  // kanvas ground (0 draw call, 0 tris). Elips radial LEBAR mengikuti
+  // footprint + margin (bukan lingkaran keras/bintik), alpha 0.10-0.16,
+  // tepi sangat lembut (falloff 0 -> 0.55 -> 1). Dilukis di atas interior
+  // blok, SEBELUM jalan — jadi aspal + marka tetap menutup bila elips
+  // menyentuh tepi jalan. Gedung tinggi = AO sedikit lebih kuat.
+  for (const b of layout.buildings) {
+    const aoM = 2 + Math.min(b.h * 0.04, 2.5);
+    const aoRx = (b.w / 2 + aoM) * mpp, aoRz = (b.d / 2 + aoM) * mpp;
+    const aoA = 0.10 + Math.min(b.h / 68, 1) * 0.06;
+    ctx.save();
+    ctx.translate(px(b.x), pz(b.z));
+    ctx.scale(aoRx, aoRz);
+    const aoG = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    aoG.addColorStop(0, `rgba(24,18,12,${aoA.toFixed(3)})`);
+    aoG.addColorStop(0.55, `rgba(24,18,12,${(aoA * 0.55).toFixed(3)})`);
+    aoG.addColorStop(1, 'rgba(24,18,12,0)');
+    ctx.fillStyle = aoG;
+    ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
   // --- market plaza: 4 m tiles, grout + per-tile shade ---
   const tx0 = px(MARKET.x - 24), tz0 = pz(MARKET.z - 24);
@@ -1132,8 +1159,13 @@ export class Renderer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(cw, ch, false);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * scale);
-    this.renderer.shadowMap.enabled = false;
+    this.renderer.shadowMap.enabled = false; // K20_ tetap false — JANGAN aktifkan shadow mapping nyata
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // K20_ Fase 1 item 3: ACES filmic tone mapping — kompresi highlight
+    // lembut ala film, bukan klip keras NoToneMapping. Exposure diuji
+    // 0.9 / 1.0 / 1.1 (lihat K20_EXPOSURE di atas).
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = K20_EXPOSURE;
     this.hemi = new THREE.HemisphereLight(0xbfd9ff, 0x8a7a5a, 0.85);
     this.sun = new THREE.DirectionalLight(0xffdf9e, 1.25);
     this.scene.add(this.hemi, this.sun);
@@ -2015,15 +2047,18 @@ export class Renderer {
     // repaints this same canvas per 0.25h bucket with the live palette.
     this.skyCanvas = K8_canvas(512, 256);
     const sctx = this.skyCanvas.getContext('2d');
+    // K20_ gradien multi-stop (ronde #15): kuning pucat dekat matahari
+    // -> oranye hangat -> pink-ungu LEMBUT di atas, bukan ungu gelap
+    // jenuh. Konsisten dengan repaint update() (zenith lembut, horizon
+    // oranye, ground di bawah v=0.5).
     const sgrad = sctx.createLinearGradient(0, 0, 0, 256);
-    sgrad.addColorStop(0.0, '#3a1c58');
-    sgrad.addColorStop(0.22, '#5e2560');
-    sgrad.addColorStop(0.42, '#8f2f66');
-    sgrad.addColorStop(0.58, '#c14a63');
-    sgrad.addColorStop(0.72, '#ef7a4e');
-    sgrad.addColorStop(0.84, '#ffb347');
-    sgrad.addColorStop(0.93, '#ffd27a');
-    sgrad.addColorStop(1.0, '#ff9e57');
+    sgrad.addColorStop(0.0, '#7e5578');
+    sgrad.addColorStop(0.22, '#b26a76');
+    sgrad.addColorStop(0.30, '#dd7a68');
+    sgrad.addColorStop(0.42, '#ff9a45');
+    sgrad.addColorStop(0.5, '#ff9a45');
+    sgrad.addColorStop(0.55, '#7d5f42');
+    sgrad.addColorStop(1.0, '#7d5f42');
     sctx.fillStyle = sgrad;
     sctx.fillRect(0, 0, 512, 256);
     this.skyTex = new THREE.CanvasTexture(this.skyCanvas);
@@ -2036,7 +2071,10 @@ export class Renderer {
     this.skyTex.minFilter = THREE.LinearFilter;
     this.skyBucket = -1;
     const domeGeo = new THREE.SphereGeometry(1200, 32, 18);
-    const domeMat = new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false, depthWrite: false });
+    // K20_ toneMapped:false — kubah langit adalah lukisan kanvas yang
+    // warnanya sudah dituning exact di sRGB; ACES akan memudarkan pita
+    // horizon oranye. Diputuskan lewat uji visual (lihat laporan Fase 1).
+    const domeMat = new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false, depthWrite: false, toneMapped: false });
     this.skyDome = new THREE.Mesh(domeGeo, domeMat);
     // Turn the UV seam to the east, behind the city, away from the sunset.
     this.skyDome.rotation.y = Math.PI;
@@ -2045,18 +2083,20 @@ export class Renderer {
     // ---- sun: bigger solid disc, wide warm halo, huge anamorphic glare.
     const discC = K8_canvas(256, 256);
     const dctx = discC.getContext('2d');
+    // K20_ disc dilunakkan: inti solid 0.42 -> 0.28, falloff diperpanjang
+    // (0.55/0.8) supaya jadi glow radial lembut, bukan cakram keras.
     K8_radial(dctx, 128, 128, 128, [
       [0, 'rgba(255,253,244,1)'],
-      [0.42, 'rgba(255,232,176,1)'],
-      [0.68, 'rgba(255,178,92,1)'],
-      [0.86, 'rgba(255,138,58,0.55)'],
+      [0.28, 'rgba(255,236,190,1)'],
+      [0.55, 'rgba(255,190,110,0.9)'],
+      [0.8, 'rgba(255,150,70,0.38)'],
       [1, 'rgba(255,120,40,0)'],
     ]);
     const discTex = new THREE.CanvasTexture(discC);
     discTex.colorSpace = THREE.SRGBColorSpace;
     this.sunDisc = new THREE.Mesh(
       new THREE.PlaneGeometry(118, 118),
-      new THREE.MeshBasicMaterial({ map: discTex, transparent: true, depthWrite: false, fog: false })
+      new THREE.MeshBasicMaterial({ map: discTex, transparent: true, depthWrite: false, fog: false, toneMapped: false })
     );
     this.sunDisc.renderOrder = 4;
     this.scene.add(this.sunDisc);
@@ -2073,7 +2113,7 @@ export class Renderer {
     haloTex.colorSpace = THREE.SRGBColorSpace;
     this.sunHalo = new THREE.Mesh(
       new THREE.PlaneGeometry(390, 390),
-      new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.9, depthWrite: false, fog: false })
+      new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, opacity: 0.9, depthWrite: false, fog: false, toneMapped: false })
     );
     this.sunHalo.renderOrder = 5;
     this.scene.add(this.sunHalo);
@@ -2114,7 +2154,7 @@ export class Renderer {
     glareTex.needsUpdate = true;
     this.sunGlare = new THREE.Mesh(
       new THREE.PlaneGeometry(420, 420),
-      new THREE.MeshBasicMaterial({ map: glareTex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending })
+      new THREE.MeshBasicMaterial({ map: glareTex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, toneMapped: false })
     );
     this.sunGlare.renderOrder = 6;
     this.scene.add(this.sunGlare);
@@ -2816,14 +2856,22 @@ export class Renderer {
       horizon.lerp(SUNSET_SEA, sunsetF);
       const gold = pal.fog.clone().lerp(new THREE.Color(0xffc46b), sunsetF);
       const upper = zenith.clone().lerp(middle, 0.55);
-      grad.addColorStop(0.34, '#' + upper.getHexString());
-      grad.addColorStop(0.86, '#' + gold.getHexString());
+      // K20_ gradien multi-stop + haze: kuning pucat dekat matahari ->
+      // oranye hangat -> pink-ungu lembut di atas. Haze = pita pucat
+      // lembut tepat di atas horizon (0.42-0.5), horizon oranye terang
+      // dicampur krem pucat 45%. Stop diurut menaik.
+      const haze = horizon.clone().lerp(new THREE.Color(0xffe3b8), 0.45);
+      const upperMid = zenith.clone().lerp(middle, 0.28);
       const groundHex = pal.hemiGround.getHexString();
       grad.addColorStop(0, `#${zenith.getHexString()}`);
+      grad.addColorStop(0.18, `#${upperMid.getHexString()}`);
       grad.addColorStop(0.3, `#${middle.getHexString()}`);
+      grad.addColorStop(0.34, '#' + upper.getHexString());
       grad.addColorStop(0.42, `#${horizon.getHexString()}`);
+      grad.addColorStop(0.46, `#${haze.getHexString()}`);
       grad.addColorStop(0.5, `#${horizon.getHexString()}`);
       grad.addColorStop(0.55, `#${groundHex}`);
+      grad.addColorStop(0.86, '#' + gold.getHexString());
       grad.addColorStop(1, `#${groundHex}`);
       ctx.fillStyle = grad;
       // K19c_ BUG LANGIT: dulu fillRect(0, 0, 4, 256) — hanya strip

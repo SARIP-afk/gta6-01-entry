@@ -20,7 +20,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { mulberry32, hash2, clamp } from './util.js';
 
-export const K19_ASPHALT_BASE = '#98948c'; // abu-beige TERANG (K19d: #6f6f73 masih cokelat gelap — permukaan horizontal nyaris tak kena matahari langsung + cahaya hemi oranye, jadi alas harus jauh lebih terang supaya jalan terbaca abu hangat seperti referensi, bukan cokelat tua)
+export const K19_ASPHALT_BASE = '#93969c'; // K20b_ abu dingin SEDIKIT lebih terang (dulu #8a8e94 — uji vs referensi Kumala: aspal Kumala abu medium, bukan gelap; tetap dingin, bukan beige)
 
 // Koridor kamera: jalan boulevard z=240 (shot play + cover, hero
 // menghadap barat) dan jalan z=-144 (rute autopilot/default play).
@@ -59,7 +59,7 @@ export function K19_paintSunBleach(ctx, px, pz, mpp) {
         : c.z + (hash2(i, 502, 1) - 0.5) * 1.0;
       const light = hash2(i, 503, 1) < 0.45;
       ctx.fillStyle = light
-        ? `rgba(228,226,214,${0.10 + hash2(i, 504, 1) * 0.14})`
+        ? `rgba(222,224,226,${0.10 + hash2(i, 504, 1) * 0.14})` // K20_ speckle terang didinginkan (dulu 228,226,214 krem)
         : `rgba(10,10,12,${0.10 + hash2(i, 505, 1) * 0.16})`;
       ctx.fillRect(px(along), pz(z), 2, 2);
     }
@@ -71,7 +71,7 @@ export function K19_paintSunBleach(ctx, px, pz, mpp) {
       const z = c.z + (hash2(i, 512, 1) - 0.5) * 9;
       const rx = (4 + hash2(i, 513, 1) * 7) * mpp;
       const rz = (2 + hash2(i, 514, 1) * 3) * mpp;
-      ctx.fillStyle = `rgba(216,202,170,${0.05 + hash2(i, 515, 1) * 0.06})`;
+      ctx.fillStyle = `rgba(204,205,202,${0.05 + hash2(i, 515, 1) * 0.06})`; // K20_ sun-bleach pucat NETRAL (dulu 216,202,170 hangat-krem)
       ctx.beginPath();
       ctx.ellipse(px(x), pz(z), rx, rz, hash2(i, 516, 1) * Math.PI, 0, Math.PI * 2);
       ctx.fill();
@@ -211,7 +211,7 @@ export function K19_fineAsphaltTexture() {
   for (let i = 0; i < 2600; i++) {
     const light = draw() < 0.45;
     ctx.fillStyle = light
-      ? `rgba(228,226,214,${0.3 + draw() * 0.3})`
+      ? `rgba(222,224,226,${0.3 + draw() * 0.3})` // K20_ didinginkan (dulu 228,226,214)
       : `rgba(10,10,12,${0.3 + draw() * 0.32})`;
     ctx.fillRect(draw() * S, draw() * S, 1 + Math.floor(draw() * 2), 1 + Math.floor(draw() * 2));
   }
@@ -223,15 +223,17 @@ export function K19_fineAsphaltTexture() {
     const rx = 8 + draw() * 22, ry = 6 + draw() * 14;
     const pale = draw() < 0.42;
     ctx.fillStyle = pale
-      ? `rgba(214,206,190,${0.32 + draw() * 0.22})`
+      ? `rgba(198,200,206,${0.32 + draw() * 0.22})` // K20_ didinginkan (dulu 214,206,190 krem)
       : `rgba(12,12,16,${0.34 + draw() * 0.22})`;
     ctx.beginPath();
     ctx.ellipse(x, y, rx, ry, draw() * Math.PI, 0, Math.PI * 2);
     ctx.fill();
   }
   // agregat pucat: batu 3-5 px, kontras kuat, memantulkan senja
+  // K20_ alpha dinaikkan (0.35 -> 0.45) + didinginkan — ACES meredupkan
+  // agregat, kontras harus dipertahankan.
   for (let i = 0; i < 160; i++) {
-    ctx.fillStyle = `rgba(210,205,190,${0.35 + draw() * 0.25})`;
+    ctx.fillStyle = `rgba(198,200,206,${0.45 + draw() * 0.25})`;
     const s = 3 + Math.floor(draw() * 3);
     ctx.fillRect(draw() * S, draw() * S, s, s);
   }
@@ -259,7 +261,7 @@ export function K19_fineAsphaltTexture() {
     const pale = draw() < 0.4;
     const a = 0.06 + draw() * 0.06;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, pale ? `rgba(212,204,188,${a})` : `rgba(12,12,16,${a})`);
+    g.addColorStop(0, pale ? `rgba(198,200,204,${a})` : `rgba(12,12,16,${a})`); // K20_ didinginkan (dulu 212,204,188)
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();

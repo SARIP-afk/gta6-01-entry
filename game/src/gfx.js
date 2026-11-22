@@ -12,6 +12,10 @@ import {
   ROAD_STEP, GRID_MIN, GRID_MAX, ROAD_HALF, BEACH_Z, SEA_Z, PIER,
   CAUSEWAY_Z, MARKET, STADIUM, WORLD,
 } from './layout.js';
+import {
+  K17_sandDetailTexture, K17_sandToneTexture, K17_wetSandTexture,
+  K17_seaTexture, K17_foamTexture, K17_buildClouds,
+} from './K17_textures.js';
 
 // Day parts. The sun disc, sky dome, sea tint and glitter all read from
 // here through paletteAt(hour), which blends between the keys.
@@ -1100,20 +1104,48 @@ export class Renderer {
     grain.position.set((WORLD.x0 + WORLD.x1) / 2, 0.03, (WORLD.z0 + WORLD.z1) / 2);
     grain.renderOrder = 2;
     scene.add(grain);
-    // Two sand-grain overlays over the beach strip, different repeats,
-    // so the foreground sand stays granular at 2K.
-    for (const [repX, repZ, y, op, seed] of [[96, 9, 0.04, 0.14, 20261121], [64, 6, 0.05, 0.10, 20261128]]) {
-      const tile = sandGrainCanvas(seed);
+    // K17_ sand: two procedural layers replace the old faint grain
+    // overlays (opacity 0.14 / 0.10 — invisible at 2K). The tone layer
+    // is big soft blotches at ~128 m/tile so mid-distance sand is not
+    // one flat wash; the detail layer is per-pixel grain + ripples at
+    // ~6 m/tile so close sand reads granular. Lambert, so both stay
+    // lit like the ground beneath instead of glowing flat.
+    for (const [make, repX, repZ, y, op] of [
+      [K17_sandToneTexture, 6, 1, 0.04, 0.50],
+      [K17_sandDetailTexture, 128, 12, 0.05, 0.55],
+    ]) {
+      const tile = make();
       tile.repeat.set(repX, repZ);
       const sg = new THREE.Mesh(
         new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, SEA_Z - BEACH_Z),
-        new THREE.MeshBasicMaterial({ map: tile, transparent: true, opacity: op, depthWrite: false }),
+        new THREE.MeshLambertMaterial({ map: tile, transparent: true, opacity: op, depthWrite: false }),
       );
       sg.rotation.x = -Math.PI / 2;
       sg.position.set((WORLD.x0 + WORLD.x1) / 2, y, (BEACH_Z + SEA_Z) / 2);
       sg.renderOrder = 2;
       scene.add(sg);
     }
+    // K17_ wet band: dark damp sand hugging the waterline (10 m deep,
+    // wavy dry edge), + a scrolling foam wash right at the waterline.
+    // Two planes, 2 draw calls, 4 triangles total.
+    const K17_wet = new THREE.Mesh(
+      new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, 10),
+      new THREE.MeshLambertMaterial({ map: K17_wetSandTexture(), transparent: true, depthWrite: false }),
+    );
+    K17_wet.rotation.x = -Math.PI / 2;
+    K17_wet.position.set((WORLD.x0 + WORLD.x1) / 2, 0.06, SEA_Z - 5);
+    K17_wet.renderOrder = 2;
+    scene.add(K17_wet);
+    this.K17_foamTex = K17_foamTexture();
+    this.K17_foamTex.repeat.set(8, 1);
+    const K17_foam = new THREE.Mesh(
+      new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, 7),
+      new THREE.MeshBasicMaterial({ map: this.K17_foamTex, transparent: true, opacity: 0.85, depthWrite: false }),
+    );
+    K17_foam.rotation.x = -Math.PI / 2;
+    K17_foam.position.set((WORLD.x0 + WORLD.x1) / 2, 0.5, SEA_Z + 1.5);
+    K17_foam.renderOrder = 3;
+    scene.add(K17_foam);
     // Procedural long shadows: one merged mesh, rebuilt when the hour
     // bucket moves (see rebuildShadows). Starts hidden until update().
     this.shadowMesh = new THREE.Mesh(
@@ -1127,7 +1159,7 @@ export class Renderer {
     // The sea is unlit (Basic): under the low sunset sun a Lambert sea
     // went black and read as a dark slit. Colour is driven by time of
     // day in update() — warm at sunset, dark at night.
-    this.seaMat = new THREE.MeshBasicMaterial({ map: seaTexture(), transparent: true, opacity: 0.92 });
+    this.seaMat = new THREE.MeshBasicMaterial({ map: K17_seaTexture(), transparent: true, opacity: 0.92 });
     // the sea plane runs out to the sky dome (dome radius 950): the old
     // 260 m-deep plane ended at z = 572, so most of the "water" in a
     // beach frame was the dome's dark below-horizon half, not sea
@@ -1945,59 +1977,15 @@ export class Renderer {
     this.glitter.renderOrder = 3;
     this.scene.add(this.glitter);
 
-    // ---- K16_ clouds: layered THIN strata, not balloon balls. Each of
-    // the 12 clusters is a wide flat sheet: 9-14 puffs, spread wide
-    // horizontally (+-95 m), squeezed flat vertically (psy 0.15-0.30),
-    // radii varied 8-26 m, so clusters read as layered cloud bands.
-    // Puffs use a low-segment sphere (8x5, 64 tris) to keep the triangle
-    // budget flat despite the higher puff count. Vertex colours are cool
-    // lavender-grey at the base to bright near-white at the top — the
-    // old warm pink base is what made them read as balloons.
-    this.cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false, fog: false, vertexColors: true });
-    this.clouds = [];
-    const K16_h = (n) => {
-      const s = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
-      return s - Math.floor(s);
-    };
-    const K16_puffBase = new THREE.SphereGeometry(1, 8, 5).toNonIndexed();
-    const K16_puffPos = K16_puffBase.attributes.position.array;
-    const K16_puffCount = K16_puffPos.length / 3;
-    for (let c = 0; c < 12; c++) {
-      const K16_az = (c / 12) * Math.PI * 2 + (K16_h(c * 13 + 5) - 0.5) * 0.55;
-      const K16_rad = 520 + K16_h(c * 17 + 2) * 180;
-      const K16_cy = 105 + K16_h(c * 19 + 3) * 175;
-      const K16_cs = 0.85 + K16_h(c * 23 + 7) * 0.95;
-      const K16_nPuff = 9 + Math.floor(K16_h(c * 29 + 11) * 6);
-      const K16_merged = new Float32Array(K16_nPuff * K16_puffCount * 3);
-      const K16_mergedC = new Float32Array(K16_nPuff * K16_puffCount * 3);
-      for (let p = 0; p < K16_nPuff; p++) {
-        const K16_px = (K16_h(c * 101 + p * 7 + 1) - 0.5) * 190 * K16_cs;
-        const K16_py = (K16_h(c * 101 + p * 7 + 2) - 0.5) * 12 * K16_cs;
-        const K16_pz = (K16_h(c * 101 + p * 7 + 3) - 0.5) * 90 * K16_cs;
-        const K16_pr = (8 + K16_h(c * 101 + p * 7 + 4) * 18) * K16_cs;
-        const K16_psy = 0.15 + K16_h(c * 101 + p * 7 + 6) * 0.15;
-        const K16_off = p * K16_puffCount * 3;
-        for (let v = 0; v < K16_puffCount; v++) {
-          const K16_ly = K16_puffPos[v * 3 + 1];
-          const K16_t = K16_ly * 0.5 + 0.5;
-          K16_merged[K16_off + v * 3] = K16_puffPos[v * 3] * K16_pr + K16_px;
-          K16_merged[K16_off + v * 3 + 1] = K16_ly * K16_pr * K16_psy + K16_py;
-          K16_merged[K16_off + v * 3 + 2] = K16_puffPos[v * 3 + 2] * K16_pr * 0.85 + K16_pz;
-          K16_mergedC[K16_off + v * 3] = 0.60 + 0.35 * K16_t;
-          K16_mergedC[K16_off + v * 3 + 1] = 0.60 + 0.35 * K16_t;
-          K16_mergedC[K16_off + v * 3 + 2] = 0.68 + 0.30 * K16_t;
-        }
-      }
-      const cGeo = new THREE.BufferGeometry();
-      cGeo.setAttribute('position', new THREE.BufferAttribute(K16_merged, 3));
-      cGeo.setAttribute('color', new THREE.BufferAttribute(K16_mergedC, 3));
-      const cMesh = new THREE.Mesh(cGeo, this.cloudMat);
-      const cGroup = new THREE.Group();
-      cGroup.position.set(Math.cos(K16_az) * K16_rad, K16_cy, Math.sin(K16_az) * K16_rad);
-      cGroup.add(cMesh);
-      this.clouds.push(cGroup);
-      this.scene.add(cGroup);
-    }
+    // ---- K17_ clouds: soft wispy strata, not faceted spheres. The
+    // K16_ low-segment spheres read as pale hexagons at 2K, so the
+    // clusters are rebuilt here as merged soft-alpha planes facing the
+    // city (K17_buildClouds, same 12 clusters / 12 draw calls, ~290
+    // triangles instead of ~9,200). Tint/opacity still driven in
+    // update() via this.K17_cloudMats.
+    const K17_clouds = K17_buildClouds(this.scene);
+    this.clouds = K17_clouds.groups;
+    this.K17_cloudMats = K17_clouds.materials;
 
     // ---- stars: upper hemisphere, invisible by day (update() fades in).
     const starN = 340;
@@ -2524,14 +2512,17 @@ export class Renderer {
       this.rebuildShadows(hour);
     }
     this.skyDome.position.set(hx, 0, hz);
-    // K16_ clouds: cooler sunset tint (less pink — the old warm wash is
+    // K17_ clouds: cooler sunset tint (less pink — the old warm wash is
     // what made the balls read as balloons) and lower opacity, so the
-    // thin strata stay translucent instead of solid.
+    // thin strata stay translucent instead of solid. Same tint on all
+    // three K17_ wisp materials.
     tmpColor.set(0xffffff).lerp(pal.fog, sunsetF * 0.45);
     tmpColor.lerp(SUNSET_SEA, sunsetF * 0.10);
     tmpColor.multiplyScalar((1 - nightAmt * 0.7) * (1 - sunsetF * 0.10));
-    this.cloudMat.color.copy(tmpColor);
-    this.cloudMat.opacity = (0.38 - nightAmt * 0.15) * (1 - sunsetF * 0.2);
+    for (const K17_m of this.K17_cloudMats) {
+      K17_m.color.copy(tmpColor);
+      K17_m.opacity = (0.38 - nightAmt * 0.15) * (1 - sunsetF * 0.2);
+    }
     // The sea warms toward the sunset so it is a lit band, not a dark slit.
     tmpColor.set(0xffffff).lerp(SUNSET_SEA, sunsetF * 0.6);
     tmpColor.multiplyScalar(1 - nightAmt * 0.75);
@@ -2555,6 +2546,9 @@ export class Renderer {
     this.glitter.material.opacity = glit;
     this.stars.material.opacity = hour < 5.5 || hour > 19 ? 0.9 : hour > 18 ? 0.5 : 0;
     this.seaMat.map.offset.x = (this.time * 0.004) % 1;
+    // K17_ foam wash drifts slowly along the waterline; the sea scrolls
+    // with it so the two never shear apart.
+    this.K17_foamTex.offset.x = (this.time * 0.008) % 1;
     for (const c of this.clouds) {
       c.position.x += dt * 1.2;
       if (c.position.x > 380) c.position.x = -380;

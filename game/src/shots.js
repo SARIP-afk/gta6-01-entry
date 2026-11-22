@@ -209,8 +209,55 @@ export function stageShot(name, world, renderer) {
     return 'play';
   }
   if (name === 'play') {
-    world.pinClock(17.5);
-    advance(world, 20);
+    // K18_ boulevard chase (ronde #13, brief 13:50 WIB): the play shot
+    // must read like syarif's reference photos — a BUSY Strand
+    // Boulevard at sunset, shot from the chase angle behind the hero
+    // car, palms lining the road, beach + lighthouse + sea to the left
+    // (south), skyline to the right (north). The old play shot just
+    // autopiloted 20 s from the start and usually landed on an empty
+    // stretch, so the frame read deserted even though 60 traffic +
+    // 108 peds exist. Now: drive 3 s west down the beach road, then
+    // re-pin the hero into the westbound lane and stage 6 traffic cars
+    // in frame (4 westbound ahead, 2 oncoming with headlights toward
+    // the camera) + 4 walkers on the north sidewalk, clear police and
+    // the roadblock, park the heli (no heli in the reference), and
+    // freeze the sim — snapFollow gives the dead-behind chase camera
+    // the reference uses. Clock 18.0 is peak sunset.
+    world.pinClock(18.0);
+    s.player.mode = 'car';
+    s.heroCar.x = 0; s.heroCar.z = 237; s.heroCar.heading = Math.PI; s.heroCar.speed = 28;
+    s.player.x = 0; s.player.z = 237; s.player.heading = Math.PI;
+    s.objective = { x: -240, z: 240, label: 'Head west down the Strand' };
+    s.wanted = 0;
+    advance(world, 3, () => driveToward(world, -200, 240));
+    // Re-pin everything the sim moved, then stage the busy boulevard.
+    const heroSpot = { x: -40, z: 237, heading: Math.PI, speed: 28 };
+    Object.assign(s.heroCar, heroSpot);
+    s.player.x = -40; s.player.z = 237; s.player.heading = Math.PI;
+    s.roadblock = null; s.roadblockCooldown = 45;
+    s.police.length = 0;
+    s.heli.active = false;
+    s.traffic.push(
+      { x: -55, z: 239.5, heading: Math.PI, speed: 0, kind: 'sedan', color: '#8e44ad' },
+      { x: -68, z: 237.5, heading: Math.PI, speed: 0, kind: 'taxi', color: '#f1c40f' },
+      { x: -95, z: 237, heading: Math.PI, speed: 0, kind: 'sedan', color: '#2980b9' },
+      { x: -110, z: 239.5, heading: Math.PI, speed: 0, kind: 'van', color: '#2e86c1' },
+      { x: -75, z: 243.5, heading: 0, speed: 0, kind: 'sedan', color: '#ecf0f1' },
+      { x: -105, z: 243, heading: 0, speed: 0, kind: 'sedan', color: '#27ae60' },
+    );
+    // Walkers on the north sidewalk (right of frame): four seeded peds
+    // repositioned to fixed spots (indices 5-8, clear of the
+    // beach-hero goers at 0-4) so the boulevard reads inhabited.
+    const walkers = [
+      [-55, 232.5, Math.PI, 0.3],
+      [-70, 233, Math.PI, 0.4],
+      [-85, 232.5, Math.PI, 0.3],
+      [-100, 233, Math.PI, 0.4],
+    ];
+    walkers.forEach(([x, z, h, sp], i) => {
+      const pd = s.peds[i + 5];
+      pd.x = x; pd.z = z; pd.heading = h; pd.speed = sp; pd.alive = true;
+    });
     renderer.setCamOverride(null);
     renderer.snapFollow();
     return 'play';

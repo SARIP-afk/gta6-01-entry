@@ -17,11 +17,24 @@ import {
   K17_seaTexture, K17_foamTexture, K17_buildClouds,
   K17_asphaltDetailTexture, K17_paintAsphaltWear, K17_facadeTexture,
 } from './K17_textures.js';
+import {
+  K18_paintAsphaltWear, K18_asphaltCoarseTexture, K18_dressRoads,
+} from './K18_asphalt.js';
+import {
+  K18_facadeTextureB, K18_beachToneTexture,
+} from './K18_detail.js';
 
 // Day parts. The sun disc, sky dome, sea tint and glitter all read from
 // here through paletteAt(hour), which blends between the keys.
 const DAY = { sun: 0xffdf9e, hemiSky: 0xbfd9ff, hemiGround: 0x8a7a5a, fog: 0xcfe0ee, bg: 0x87b5d9, sunI: 1.25, hemiI: 0.85 };
-const SUNSET = { sun: 0xff9a4d, hemiSky: 0xe8a06a, hemiGround: 0x5a4a3a, fog: 0xe8a06a, bg: 0xf2a35e, sunI: 1.2, hemiI: 0.95 };
+const SUNSET = { sun: 0xff8a2e, hemiSky: 0xe8905e, hemiGround: 0x4a382a, fog: 0xef9a55, bg: 0xf59a4e, sunI: 1.45, hemiI: 0.8 };
+// K18_ sunset (ronde #13, brief 13:50 WIB item 1): senja lebih dalam +
+// kontras lebih tinggi — matahari lebih oranye + 21% lebih kuat
+// (sunI 1.2 -> 1.45), ambient lebih redup (hemiI 0.95 -> 0.8) supaya
+// fasad tidak rata, ground bounce lebih gelap. DAY/NIGHT tak berubah.
+const K18_LAMP_HOT = new THREE.Color(0xffe9b0); // lampu jalan saat senja
+const K18_HEAD_HOT = new THREE.Color(0xfffbe8); // lampu depan saat senja
+const K18_TAIL_HOT = new THREE.Color(0xff4040); // lampu belakang saat senja
 const NIGHT = { sun: 0x8fa8ff, hemiSky: 0x1c2440, hemiGround: 0x0e0c10, fog: 0x141a2e, bg: 0x0d1226, sunI: 0.4, hemiI: 0.5 };
 const SUNSET_ZENITH = new THREE.Color(0x4a2358); // purple top of a sunset sky
 const SUNSET_MID = new THREE.Color(0xa83a68);    // pink mid-sky
@@ -295,6 +308,11 @@ function groundTexture(layout) {
   // (marka digambar sesudahnya, jadi zebra/garis tetap terbaca).
   // 0 draw call / 0 tris: murni cat ekstra di tekstur yang sudah ada.
   K17_paintAsphaltWear(ctx, px, pz, mpp, roadLines, ROAD_HALF, GRID_MIN, GRID_MAX, ROAD_STEP, BEACH_Z);
+  // K18_ aus aspal kontras tinggi (di atas K17_, tetap di bawah marka):
+  // bercak besar, retak tebal, tar snake panjang, tambalan, noda oli,
+  // alligator-cracking, jejak roda putus-putus, nat trotoar + curb —
+  // dikonsentrasikan ke koridor kamera play (jalan z=-144). 0 draw call.
+  K18_paintAsphaltWear(ctx, px, pz, mpp, roadLines, ROAD_HALF, GRID_MIN, GRID_MAX, ROAD_STEP, CAUSEWAY_Z);
   // lane furniture: edge lines, yellow centre dashes, crosswalks
   ctx.fillStyle = '#f7f3e0';
   for (let v = GRID_MIN; v <= GRID_MAX; v += ROAD_STEP) {
@@ -882,6 +900,16 @@ function K12_heroBeach(scene) {
   K12_put(K12_boat, K12_box(new THREE.MeshLambertMaterial({ color: 0xf2c200 }), 1.1, 0.7, 0.06), 2.75, 5.3, 0, 0, 0, 0);
   K12_put(K12_boat, K12_box(K12_red, 0.8, 0.7, 1.4), 3.4, 0.9, 0, 0, 0, 0);
   K12_put(K12_boat, K12_box(K12_wood, 1.0, 0.5, 2.0), -2.6, 1.5, 0, 0, 0, 0);
+  // K18_ portholes on both flanks + outboard motor: the hull flanks
+  // were blank white, so the boat read as a plain tub at beach-hero
+  // distance. Portholes sit below the red stripe; the motor caps the
+  // stern.
+  for (const K18_pz of [-1.22, 1.22]) {
+    for (const K18_px of [-1.6, 0, 1.6]) {
+      K12_put(K12_boat, K12_box(K12_navy, 0.35, 0.35, 0.06), K18_px, 0.55, K18_pz, 0, 0, 0);
+    }
+  }
+  K12_put(K12_boat, K12_box(K12_dark, 0.3, 0.7, 0.5), -3.35, 0.7, 0, 0, 0, 0);
 }
 function R7_dressing(scene, L) {
   const asphalt = new THREE.Mesh(
@@ -1127,24 +1155,49 @@ export class Renderer {
     K17_asph.position.set(0, 0.04, -27);
     K17_asph.renderOrder = 2;
     scene.add(K17_asph);
+    // K18_ overlay aspal kasar: bercak besar 24 m/tile + speckle tegas
+    // di atas overlay butir K17_ (6 m), satu skala lebih kasar supaya
+    // aus terbaca di jarak menengah sudut play. y 0.045 — di atas
+    // ground, di bawah marka R7 (0.06). +1 draw call, +2 tris.
+    const K18_asphTile = K18_asphaltCoarseTexture();
+    K18_asphTile.repeat.set(24, 22);
+    const K18_asph = new THREE.Mesh(
+      new THREE.PlaneGeometry(576, 522),
+      new THREE.MeshLambertMaterial({ map: K18_asphTile, transparent: true, opacity: 0.4, depthWrite: false }),
+    );
+    K18_asph.rotation.x = -Math.PI / 2;
+    K18_asph.position.set(0, 0.045, -27);
+    K18_asph.renderOrder = 2;
+    scene.add(K18_asph);
     // K17_ sand: two procedural layers replace the old faint grain
     // overlays (opacity 0.14 / 0.10 — invisible at 2K). The tone layer
     // is big soft blotches at ~128 m/tile so mid-distance sand is not
     // one flat wash; the detail layer is per-pixel grain + ripples at
     // ~6 m/tile so close sand reads granular. Lambert, so both stay
     // lit like the ground beneath instead of glowing flat.
+    // K18_ sand overlays start AFTER the boulevard's south lane
+    // (road z=240, half-width 6 → lane ends z=246) so the boulevard
+    // reads as asphalt, not dirt: the overlays used to start at
+    // BEACH_Z and tint the south lane sandy. 0 draw calls / 0 tris
+    // changed — same 3 planes, just shifted 6 m seaward.
+    const K18_SAND_Z0 = BEACH_Z + ROAD_HALF; // 246
     for (const [make, repX, repZ, y, op] of [
       [K17_sandToneTexture, 6, 1, 0.04, 0.50],
       [K17_sandDetailTexture, 128, 12, 0.05, 0.55],
+      // K18_ third tone overlay: a warm large-scale (256 m/tile) fbm
+      // wash — gold / pale cream / pink-grey + shell flecks — breaking
+      // the flat beige band of the beach so it reads as sand, not a
+      // solid strip. +1 draw call, +2 tris.
+      [K18_beachToneTexture, 3, 1, 0.045, 0.50],
     ]) {
       const tile = make();
       tile.repeat.set(repX, repZ);
       const sg = new THREE.Mesh(
-        new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, SEA_Z - BEACH_Z),
+        new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, SEA_Z - K18_SAND_Z0),
         new THREE.MeshLambertMaterial({ map: tile, transparent: true, opacity: op, depthWrite: false }),
       );
       sg.rotation.x = -Math.PI / 2;
-      sg.position.set((WORLD.x0 + WORLD.x1) / 2, y, (BEACH_Z + SEA_Z) / 2);
+      sg.position.set((WORLD.x0 + WORLD.x1) / 2, y, (K18_SAND_Z0 + SEA_Z) / 2);
       sg.renderOrder = 2;
       scene.add(sg);
     }
@@ -1201,6 +1254,7 @@ export class Renderer {
 
     const solid = new BoxSoup();   // lambert, vertex colours
     const glow = new BoxSoup();    // basic, vertex colours — reads at night
+    const K18_solidB = new BoxSoup(); // K18_ second facade atlas (body split below)
     const glassDark = [];
     const glassLit = [];
     const mullions = [];
@@ -1240,7 +1294,13 @@ export class Renderer {
       const facade = K16_towerFix
         ? tinted(K16_towerFix.face, 0.85 + f * 0.3)
         : tinted(K9_FACADE_COLORS[K9_facadeIdx], 0.85 + f * 0.3);
-      solid.add(b.x, b.h / 2, b.z, b.w, b.h, b.d, facade, 0, 0, 0, { bx: b.w / colsX, bz: b.d / colsZ, floorH: 3.4, y0: 0, tileBays: 2, tileFloors: 2 });
+      // K18_ facade atlas B: half the buildings (hash salt 49) get the
+      // second atlas — bigger glass, shutters, a lit bay with an AC
+      // grille, a railed bay, a darker plinth — so the skyline stops
+      // repeating one window. Same 512x512 / 2x2 layout, so the UV
+      // math is unchanged; 0 extra tris, +1 draw call for the soup.
+      const K18_bodySoup = hash2(bxr, bzr, 49) < 0.5 ? K18_solidB : solid;
+      K18_bodySoup.add(b.x, b.h / 2, b.z, b.w, b.h, b.d, facade, 0, 0, 0, { bx: b.w / colsX, bz: b.d / colsZ, floorH: 3.4, y0: 0, tileBays: 2, tileFloors: 2 });
       // Cornice accent band just under the roofline, one accent colour
       // per building (teal / brick / gold / navy / cream), picked by
       // hash — the roofline finally has a colour edge instead of a
@@ -1424,10 +1484,16 @@ export class Renderer {
     // the sidewalk peds.
     solid.add(-4, 0.09, 246.1, 20, 0.06, 0.35, '#d8d2c0');
     solid.add(-10, 0.09, 234, 20, 0.06, 0.35, '#d8d2c0');
+    // K18_ dressing aspal geometri (Builder A, ronde #13): tar snake,
+    // tambalan, manhole, noda oli, gugus retak — di koridor play
+    // (jalan z=-144, x 30..230), causeway z=24, dan jalan cover z=240.
+    // Masuk solid soup yang sama: 0 draw call baru, ~864 tris.
+    K18_dressRoads(solid);
     // K17_ atlas fasad 2 bay x 2 lantai (K17_facadeTexture): jendela
     // bervariasi per bay/lantai — terang+tirai, gelap, hangat menyala,
     // gelap+kerai — plus kotoran di dinding. 0 draw call / 0 tris.
     scene.add(solid.build(new THREE.MeshLambertMaterial({ vertexColors: true, map: K17_facadeTexture() })));
+    scene.add(K18_solidB.build(new THREE.MeshLambertMaterial({ vertexColors: true, map: K18_facadeTextureB() })));
     scene.add(glow.build(basicVertex()));
 
     // windows: two instanced pools (dark glass lambert, lit warm basic)
@@ -1692,6 +1758,7 @@ export class Renderer {
     this.lampGlows = new THREE.InstancedMesh(glowGeo, new THREE.MeshBasicMaterial({ color: 0xffd98a }), lampGlow.length);
     lampGlow.forEach((g, i) => { dummy.position.set(g.x, g.y, g.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); this.lampGlows.setMatrixAt(i, dummy.matrix); });
     scene.add(this.lampGlows);
+    this.lampGlowPos = lampGlow; // K18_: posisi disimpan untuk glow-up senja di update()
 
     // --- stadium bowl + floodlights ---
     const stSoup = new BoxSoup();
@@ -2128,6 +2195,14 @@ export class Renderer {
     // with a face instead of a smooth coloured wedge
     this.carGrille = mk(new THREE.BoxGeometry(0.1, 0.22, 1.1), new THREE.MeshLambertMaterial({ color: 0x22262c }), N);
     this.carMirror = mk(new THREE.BoxGeometry(0.22, 0.12, 0.16), new THREE.MeshLambertMaterial({ color: 0x22262c }), N * 2);
+    // K18_ side detailing, pooled: one unit-box InstancedMesh whose
+    // per-instance scale + colour becomes side glass, side skirt and
+    // bumpers, so a sedan reads as a car from the side instead of a
+    // smooth coloured slab (it had windshield + rear glass but no side
+    // glass at all). Capacity: 6 per sedan-kind (2 glass + 2 skirt +
+    // 2 bumpers) + 3 per van (2 side glass + windshield). White base
+    // material so setColorAt shows; instances set in update().
+    this.carSide = mk(new THREE.BoxGeometry(1, 1, 1), white.clone(), N * 6 + NV * 3);
 
     // hero sports car — one detailed group, not an instance
     this.heroCar = new THREE.Group();
@@ -2189,17 +2264,25 @@ export class Renderer {
       this.heroCar.add(skirt);
     }
     const headMat = new THREE.MeshBasicMaterial({ color: 0xfff6c8 });
+    this.heroHeadMeshes = [];
     for (const hz of [-0.62, 0.62]) {
       const h = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.4), headMat);
       h.position.set(2.32, 0.78, hz);
       this.heroCar.add(h);
+      this.heroHeadMeshes.push(h);
     }
     const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
+    this.heroTailMeshes = [];
     for (const tz of [-0.62, 0.62]) {
       const t = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.4), tailMat);
       t.position.set(-2.32, 0.78, tz);
       this.heroCar.add(t);
+      this.heroTailMeshes.push(t);
     }
+    // K18_: lampu hero disimpan (mesh + material) untuk glow-up senja di
+    // update() — lampu kendaraan adalah bagian dari brief item 1.
+    this.heroHeadMat = headMat;
+    this.heroTailMat = tailMat;
     // full-width LED light bars: the hero car reads at thumbnail size —
     // a single red bar across the rear + a white bar across the nose
     const rearBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 1.7), tailMat);
@@ -2208,6 +2291,28 @@ export class Renderer {
     const frontBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 1.7), headMat);
     frontBar.position.set(2.33, 0.82, 0);
     this.heroCar.add(frontBar);
+    // K18_ hero side glass + plates + exhausts: the hero had windshield
+    // and rear glass but no side glass, so the 3/4 view read as a solid
+    // red slab; the tail was one flat red mass with no plate. Side
+    // glass sits in the cabin band between shield and rear glass; the
+    // pale plates break the red nose/tail; twin exhaust tips ground
+    // the rear bumper.
+    for (const gz of [-0.98, 0.98]) {
+      const sg = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 0.06), glassMat);
+      sg.position.set(-0.1, 1.15, gz);
+      this.heroCar.add(sg);
+    }
+    const plateMat = new THREE.MeshBasicMaterial({ color: 0xf5f0e6 });
+    for (const px of [2.41, -2.41]) {
+      const pl = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 0.5), plateMat);
+      pl.position.set(px, 0.45, 0);
+      this.heroCar.add(pl);
+    }
+    for (const ez of [-0.5, 0.5]) {
+      const ex = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.14), bumperMat);
+      ex.position.set(-2.32, 0.3, ez);
+      this.heroCar.add(ex);
+    }
     const wheelG = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 12);
     wheelG.rotateX(Math.PI / 2);
     const wheelM = new THREE.MeshLambertMaterial({ color: 0x14161a });
@@ -2306,6 +2411,17 @@ export class Renderer {
     this.rotorDisc = disc; // cover staging brightens it (bigger rotor blur)
     heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), -5.5, 0.2, -0.3);
     heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0x2aff5a }), -5.5, 0.2, 0.3);
+    // K18_ cabin side windows + tail rotor + nose sensor: the cabin
+    // flanks behind the cockpit glass were plain white, and the fin
+    // had no rotor — the heli read as a white box with a boom. The
+    // tail rotor spins in the fin plane (XY), hub + two blades.
+    heliBox(1.2, 0.7, 0.06, new THREE.MeshLambertMaterial({ color: 0x101c28 }), -0.6, 0.15, 0.87);
+    heliBox(1.2, 0.7, 0.06, new THREE.MeshLambertMaterial({ color: 0x101c28 }), -0.6, 0.15, -0.87);
+    heliBox(0.3, 0.3, 0.3, heliDark, 1.8, -0.75, 0);
+    heliBox(0.16, 0.16, 0.12, heliDark, -5.5, 1.0, 0.14);
+    const K18_tailBlade1 = heliPart(new THREE.BoxGeometry(0.06, 1.4, 0.08), heliDark, -5.5, 1.0, 0.14);
+    const K18_tailBlade2 = heliPart(new THREE.BoxGeometry(0.06, 1.4, 0.08), heliDark, -5.5, 1.0, 0.14);
+    K18_tailBlade2.rotation.z = Math.PI / 2;
     // K16_ searchlight: two nested cones, apex UP at the heli, widening
     // toward the ground — a real searchlight, not the old inverted wedge
     // (wide at the heli, point at the road) that read as a solid white
@@ -2511,8 +2627,40 @@ export class Renderer {
     // sunset factor: 1 at 18.3, fading to 0 by ~15.8 / ~20.8
     const sunsetF = clamp(1 - Math.abs(hour - 18.3) / 2.5, 0, 1);
     const nightAmt = hour < 5.5 || hour > 19.5 ? 1 : hour > 18.5 ? (hour - 18.5) : hour < 6.5 ? (6.5 - hour) : 0;
-    // Outer glare: 0.12 base, +0.5 at full dusk, gone at night.
-    this.sunGlare.material.opacity = (0.12 + 0.5 * sunsetF) * (1 - nightAmt);
+    // K18_ outer glare lebih kuat saat senja (0.15 + 0.65, dulu
+    // 0.12 + 0.5) — matahari terbenam harus menyala, bukan pucat.
+    this.sunGlare.material.opacity = (0.15 + 0.65 * sunsetF) * (1 - nightAmt);
+    // K18_ dusk factor: 0 di siang hari, 1 saat senja/malam penuh —
+    // satu angka yang menggerakkan semua glow-up lampu di bawah ini.
+    const K18_duskF = clamp(sunsetF + nightAmt, 0, 1);
+    const K18_lightScale = 1 + 0.55 * K18_duskF;
+    // K18_ lampu jalan menyala saat senja: bola glow membesar (1 -> 1.9x)
+    // + memanas warnanya, supaya deretan lampu terbaca sebagai lampu
+    // menyala, bukan titik pucat. 0 draw call (InstancedMesh yang sama).
+    if (this.lampGlows && this.lampGlowPos) {
+      for (let li = 0; li < this.lampGlowPos.length; li++) {
+        const g = this.lampGlowPos[li];
+        dummy.position.set(g.x, g.y, g.z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(1 + 0.9 * K18_duskF);
+        dummy.updateMatrix();
+        this.lampGlows.setMatrixAt(li, dummy.matrix);
+      }
+      this.lampGlows.instanceMatrix.needsUpdate = true;
+      tmpColor.set(0xffd98a).lerp(K18_LAMP_HOT, K18_duskF);
+      this.lampGlows.material.color.copy(tmpColor);
+    }
+    // K18_ lampu mobil hero membesar + memanas saat senja (brief item 1:
+    // lampu kendaraan). Skala 1 -> 1.55x, warna menuju putih panas /
+    // merah panas.
+    if (this.heroHeadMeshes) {
+      for (const hm of this.heroHeadMeshes) hm.scale.setScalar(K18_lightScale);
+      for (const tm of this.heroTailMeshes) tm.scale.setScalar(K18_lightScale);
+      tmpColor.set(0xfff6c8).lerp(K18_HEAD_HOT, K18_duskF);
+      this.heroHeadMat.color.copy(tmpColor);
+      tmpColor.set(0xff2a2a).lerp(K18_TAIL_HOT, K18_duskF);
+      this.heroTailMat.color.copy(tmpColor);
+    }
     // The sky dome gradient, repainted only when the hour bucket moves.
     // A sunset wants a purple zenith, a pink mid-sky and a deep orange
     // band just above the horizon. The visible sky is the top half of
@@ -2622,7 +2770,7 @@ export class Renderer {
     for (const c of s.traffic) cars.push({ x: c.x, z: c.z, h: c.heading, kind: c.kind, color: c.color, police: false });
     for (const pc of s.police) cars.push({ x: pc.x, z: pc.z, h: pc.heading, kind: 'sedan', color: '#e8e8e8', police: true });
     cars.push({ x: s.van.x, z: s.van.z, h: s.van.heading, kind: 'van', color: '#d4af37', police: false });
-    let nSedan = 0, nVan = 0, nScoot = 0, nBar = 0;
+    let nSedan = 0, nVan = 0, nScoot = 0, nBar = 0, nSide = 0;
     for (const c of cars) {
       const isVan = c.kind === 'van', isScoot = c.kind === 'scooter';
       dummy.rotation.set(0, c.h, 0);
@@ -2638,6 +2786,17 @@ export class Renderer {
         const i = nVan++;
         setM(this.carBodyVan, i, c.x, 1.05, c.z);
         this.carBodyVan.setColorAt(i, tmpColor.set(c.color));
+        // K18_ van side glass + windshield: the van had neither, so it
+        // read as a plain slab from every angle but the front.
+        for (let k = 0; k < 2; k++) {
+          const side = k === 0 ? -1.01 : 1.01;
+          const vx = c.x + Math.cos(c.h) * 0.6 - Math.sin(c.h) * side;
+          const vz = c.z - Math.sin(c.h) * 0.6 - Math.cos(c.h) * side;
+          setM(this.carSide, nSide, vx, 1.3, vz, 2.6, 0.6, 0.06);
+          this.carSide.setColorAt(nSide++, tmpColor.set('#16202c'));
+        }
+        setM(this.carSide, nSide, c.x + Math.cos(c.h) * 2.55, 1.35, c.z - Math.sin(c.h) * 2.55, 0.06, 0.7, 1.8);
+        this.carSide.setColorAt(nSide++, tmpColor.set('#16202c'));
       } else if (isScoot) {
         const i = nScoot++;
         setM(this.carBodyScooter, i, c.x, 0.55, c.z);
@@ -2670,13 +2829,16 @@ export class Renderer {
           this.carMirror.setMatrixAt(i * 2 + k, dummy.matrix);
         }
         // headlights / taillights (two each)
+        // K18_: membesar saat senja (skala 1 -> 1.55x) — lampu kendaraan
+        // menyala di golden hour, bukan titik kecil. dummy dipakai ulang
+        // untuk tail di bawah, jadi skala yang sama berlaku untuk keduanya.
         for (let k = 0; k < 2; k++) {
           const side = k === 0 ? -0.62 : 0.62;
           const fx = Math.cos(c.h) * 2.24 - Math.sin(c.h) * side;
           const fz = -Math.sin(c.h) * 2.24 - Math.cos(c.h) * side;
           dummy.position.set(c.x + fx, 0.72, c.z + fz);
           dummy.rotation.set(0, c.h, 0);
-          dummy.scale.set(1, 1, 1);
+          dummy.scale.setScalar(K18_lightScale);
           dummy.updateMatrix();
           this.carHead.setMatrixAt(i * 2 + k, dummy.matrix);
           const bx = -Math.cos(c.h) * 2.24 - Math.sin(c.h) * side;
@@ -2691,6 +2853,22 @@ export class Renderer {
         dummy.scale.set(c.kind === 'taxi' ? 1 : 0.001, c.kind === 'taxi' ? 1 : 0.001, c.kind === 'taxi' ? 1 : 0.001);
         dummy.updateMatrix();
         this.carTaxi.setMatrixAt(i, dummy.matrix);
+        // K18_ side glass + rocker skirts + bumpers (pooled unit-box
+        // mesh): the sedan's side was one flat coloured slab — no side
+        // glass at all — and the nose/tail had no bumper edge. Glass
+        // panes sit just proud of the body flanks at cabin height;
+        // skirts run the lower flank; bumpers cap nose and tail.
+        for (let k = 0; k < 2; k++) {
+          const side = k === 0 ? -0.96 : 0.96;
+          const lx = -Math.sin(c.h) * side, lz = -Math.cos(c.h) * side;
+          setM(this.carSide, nSide, c.x + lx, 1.05, c.z + lz, 1.7, 0.5, 0.06);
+          this.carSide.setColorAt(nSide++, tmpColor.set('#16202c'));
+          setM(this.carSide, nSide, c.x + lx, 0.32, c.z + lz, 3.6, 0.14, 0.08);
+          this.carSide.setColorAt(nSide++, tmpColor.set('#1c1f24'));
+          const end = k === 0 ? 2.24 : -2.24;
+          setM(this.carSide, nSide, c.x + Math.cos(c.h) * end, 0.45, c.z - Math.sin(c.h) * end, 0.22, 0.3, 1.9);
+          this.carSide.setColorAt(nSide++, tmpColor.set('#1c1f24'));
+        }
         if (c.police) {
           const bi = nBar++;
           dummy.position.set(c.x - Math.cos(c.h) * 0.1, 1.56, c.z + Math.sin(c.h) * 0.1);
@@ -2733,7 +2911,8 @@ export class Renderer {
     this.carTaxi.count = nSedan;
     this.carBar.count = nBar;
     this.carPush.count = nBar;
-    for (const m of [this.carBodySedan, this.carBodyVan, this.carBodyScooter, this.carGlass, this.carGlassRear, this.carRoof, this.carGrille, this.carMirror, this.carWheels, this.carHubs, this.carHead, this.carTail, this.carTaxi, this.carBar, this.carPush]) {
+    this.carSide.count = nSide;
+    for (const m of [this.carBodySedan, this.carBodyVan, this.carBodyScooter, this.carGlass, this.carGlassRear, this.carRoof, this.carGrille, this.carMirror, this.carWheels, this.carHubs, this.carHead, this.carTail, this.carTaxi, this.carBar, this.carPush, this.carSide]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
@@ -2793,8 +2972,11 @@ export class Renderer {
       // K16_ beam staging (re-witnessed, values unchanged): outer
       // 0.06 staged / 0.04 play, inner core 0.10 staged / 0.07 play.
       this.heli.scale.setScalar(heli.scale || 1);
-      this.heliBeam.material.opacity = heli.staged ? 0.06 : 0.04;
-      this.heliBeamInner.material.opacity = heli.staged ? 0.10 : 0.07;
+      // K18_ beam staging: sorot heli 2x lebih terang (outer 0.12 staged /
+      // 0.08 play, inner 0.20 / 0.14 — dulu 0.06 / 0.04 dan 0.10 / 0.07) —
+      // sorot harus terbaca sebagai cahaya, bukan kabut tipis.
+      this.heliBeam.material.opacity = heli.staged ? 0.12 : 0.08;
+      this.heliBeamInner.material.opacity = heli.staged ? 0.20 : 0.14;
       this.rotorDisc.material.opacity = heli.staged ? 0.3 : 0.16;
     }
 

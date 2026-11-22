@@ -1852,40 +1852,47 @@ export class Renderer {
     this.glitter.renderOrder = 3;
     this.scene.add(this.glitter);
 
-    // ---- clouds: 12 tall multi-puff clusters at varied heights. Puffs
-    // overlap inside one merged mesh per cluster, so the shared material
-    // reads dense even at the low sunset opacity update() applies.
-    // Vertex colours shade each puff warm at the base and bright at the
-    // top, so the clusters read as volumes instead of flat cutouts.
-    this.cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false, fog: false, vertexColors: true });
+    // ---- K13_ clouds: layered THIN strata, not balloon balls. Each of
+    // the 12 clusters is a wide flat sheet: 9-14 puffs, spread wide
+    // horizontally (+-95 m), squeezed flat vertically (psy 0.15-0.30),
+    // radii varied 8-26 m, so clusters read as layered cloud bands.
+    // Puffs use a low-segment sphere (8x5, 64 tris) to keep the triangle
+    // budget flat despite the higher puff count. Vertex colours are cool
+    // lavender-grey at the base to bright near-white at the top — the
+    // old warm pink base is what made them read as balloons.
+    this.cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false, fog: false, vertexColors: true });
     this.clouds = [];
-    const puffBase = new THREE.SphereGeometry(1, 12, 8).toNonIndexed();
-    const puffPos = puffBase.attributes.position.array;
-    const puffCount = puffPos.length / 3;
+    const K13_h = (n) => {
+      const s = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+      return s - Math.floor(s);
+    };
+    const K13_puffBase = new THREE.SphereGeometry(1, 8, 5).toNonIndexed();
+    const K13_puffPos = K13_puffBase.attributes.position.array;
+    const K13_puffCount = K13_puffPos.length / 3;
     for (let c = 0; c < 12; c++) {
-      const az = (c / 12) * Math.PI * 2 + (K8_h(c * 13 + 5) - 0.5) * 0.55;
-      const rad = 520 + K8_h(c * 17 + 2) * 180;
-      const cy = 105 + K8_h(c * 19 + 3) * 175;
-      const cs = 0.85 + K8_h(c * 23 + 7) * 0.95;
-      const nPuff = 5 + Math.floor(K8_h(c * 29 + 11) * 3);
-      const merged = new Float32Array(nPuff * puffCount * 3);
-      const mergedC = new Float32Array(nPuff * puffCount * 3);
+      const az = (c / 12) * Math.PI * 2 + (K13_h(c * 13 + 5) - 0.5) * 0.55;
+      const rad = 520 + K13_h(c * 17 + 2) * 180;
+      const cy = 105 + K13_h(c * 19 + 3) * 175;
+      const cs = 0.85 + K13_h(c * 23 + 7) * 0.95;
+      const nPuff = 9 + Math.floor(K13_h(c * 29 + 11) * 6);
+      const merged = new Float32Array(nPuff * K13_puffCount * 3);
+      const mergedC = new Float32Array(nPuff * K13_puffCount * 3);
       for (let p = 0; p < nPuff; p++) {
-        const px = (K8_h(c * 101 + p * 7 + 1) - 0.5) * 66 * cs;
-        const py = (K8_h(c * 101 + p * 7 + 2) - 0.5) * 15 * cs;
-        const pz = (K8_h(c * 101 + p * 7 + 3) - 0.5) * 38 * cs;
-        const pr = (12 + K8_h(c * 101 + p * 7 + 4) * 12) * cs;
-        const psy = 0.4 + K8_h(c * 101 + p * 7 + 6) * 0.2;
-        const off = p * puffCount * 3;
-        for (let v = 0; v < puffCount; v++) {
-          const ly = puffPos[v * 3 + 1];
+        const px = (K13_h(c * 101 + p * 7 + 1) - 0.5) * 190 * cs;
+        const py = (K13_h(c * 101 + p * 7 + 2) - 0.5) * 12 * cs;
+        const pz = (K13_h(c * 101 + p * 7 + 3) - 0.5) * 90 * cs;
+        const pr = (8 + K13_h(c * 101 + p * 7 + 4) * 18) * cs;
+        const psy = 0.15 + K13_h(c * 101 + p * 7 + 6) * 0.15;
+        const off = p * K13_puffCount * 3;
+        for (let v = 0; v < K13_puffCount; v++) {
+          const ly = K13_puffPos[v * 3 + 1];
           const t = ly * 0.5 + 0.5;
-          merged[off + v * 3] = puffPos[v * 3] * pr + px;
+          merged[off + v * 3] = K13_puffPos[v * 3] * pr + px;
           merged[off + v * 3 + 1] = ly * pr * psy + py;
-          merged[off + v * 3 + 2] = puffPos[v * 3 + 2] * pr * 0.85 + pz;
-          mergedC[off + v * 3] = 0.66 + 0.34 * t;
-          mergedC[off + v * 3 + 1] = 0.52 + 0.45 * t;
-          mergedC[off + v * 3 + 2] = 0.5 + 0.43 * t;
+          merged[off + v * 3 + 2] = K13_puffPos[v * 3 + 2] * pr * 0.85 + pz;
+          mergedC[off + v * 3] = 0.60 + 0.35 * t;
+          mergedC[off + v * 3 + 1] = 0.60 + 0.35 * t;
+          mergedC[off + v * 3 + 2] = 0.68 + 0.30 * t;
         }
       }
       const cGeo = new THREE.BufferGeometry();
@@ -2179,14 +2186,42 @@ export class Renderer {
     this.rotorDisc = disc; // cover staging brightens it (bigger rotor blur)
     heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), -5.5, 0.2, -0.3);
     heliPart(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: 0x2aff5a }), -5.5, 0.2, 0.3);
-    const beam = new THREE.Mesh(
-      new THREE.ConeGeometry(2.2, 14, 12, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xfff6c8, transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
+    // K13_ searchlight: two nested cones, apex UP at the heli, widening
+    // toward the ground — a real searchlight, not the old inverted wedge
+    // (wide at the heli, point at the road) that read as a solid white
+    // triangle. Outer cone radius 1.0 at the ground, inner core 0.45;
+    // both carry a vertical alpha-gradient texture (bright at the heli,
+    // fading out before the ground) so the beam has soft edges and never
+    // dominates the frame. Staging opacities live in update().
+    const K13_beamGrad = (() => {
+      const c = document.createElement('canvas');
+      c.width = 4; c.height = 128;
+      const x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 0, 128);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.45, 'rgba(255,255,255,0.55)');
+      g.addColorStop(0.8, 'rgba(255,255,255,0.14)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g;
+      x.fillRect(0, 0, 4, 128);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    })();
+    const K13_beamOuter = new THREE.Mesh(
+      new THREE.ConeGeometry(1.0, 14, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xfff6c8, map: K13_beamGrad, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false }),
     );
-    beam.position.set(1.2, -7, 0);
-    beam.rotation.z = Math.PI;
-    this.heli.add(beam);
-    this.heliBeam = beam; // cover staging brightens it (visible searchlight)
+    K13_beamOuter.position.set(1.2, -7, 0);
+    this.heli.add(K13_beamOuter);
+    const K13_beamInner = new THREE.Mesh(
+      new THREE.ConeGeometry(0.45, 14, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xfffbe8, map: K13_beamGrad, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    K13_beamInner.position.set(1.2, -7, 0);
+    this.heli.add(K13_beamInner);
+    this.heliBeam = K13_beamOuter; // cover staging brightens it (visible searchlight)
+    this.heliBeamInner = K13_beamInner; // K13_: narrow bright core
     this.heli.visible = false;
     scene.add(this.heli);
 
@@ -2396,13 +2431,14 @@ export class Renderer {
       this.rebuildShadows(hour);
     }
     this.skyDome.position.set(hx, 0, hz);
-    // Clouds warm at sunset and darken at night; at sunset they are
-    // bigger and more opaque, so they read as volume, not faint haze.
-    tmpColor.set(0xffffff).lerp(pal.fog, sunsetF * 0.7);
-    tmpColor.lerp(SUNSET_SEA, sunsetF * 0.25);
-    tmpColor.multiplyScalar((1 - nightAmt * 0.7) * (1 - sunsetF * 0.15));
+    // K13_ clouds: cooler sunset tint (less pink — the old warm wash is
+    // what made the balls read as balloons) and lower opacity, so the
+    // thin strata stay translucent instead of solid.
+    tmpColor.set(0xffffff).lerp(pal.fog, sunsetF * 0.45);
+    tmpColor.lerp(SUNSET_SEA, sunsetF * 0.10);
+    tmpColor.multiplyScalar((1 - nightAmt * 0.7) * (1 - sunsetF * 0.10));
     this.cloudMat.color.copy(tmpColor);
-    this.cloudMat.opacity = (0.55 - nightAmt * 0.2) * (1 - sunsetF * 0.3);
+    this.cloudMat.opacity = (0.38 - nightAmt * 0.15) * (1 - sunsetF * 0.2);
     // The sea warms toward the sunset so it is a lit band, not a dark slit.
     tmpColor.set(0xffffff).lerp(SUNSET_SEA, sunsetF * 0.6);
     tmpColor.multiplyScalar(1 - nightAmt * 0.75);
@@ -2629,7 +2665,8 @@ export class Renderer {
       // rotor blur and the searchlight; real play carries neither field
       // in its reset state, so it is untouched.
       this.heli.scale.setScalar(heli.scale || 1);
-      this.heliBeam.material.opacity = heli.staged ? 0.21 : 0.12;
+      this.heliBeam.material.opacity = heli.staged ? 0.06 : 0.04;
+      this.heliBeamInner.material.opacity = heli.staged ? 0.10 : 0.07;
       this.rotorDisc.material.opacity = heli.staged ? 0.3 : 0.16;
     }
 

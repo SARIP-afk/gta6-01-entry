@@ -1156,15 +1156,32 @@ export class Renderer {
       const f = hash2(bxr, bzr, 13);
       const colsX = Math.max(2, Math.floor(b.w / 6.0));
       const colsZ = Math.max(2, Math.floor(b.d / 6.0));
-      // K9_ facade: the palette colour at FULL strength — the atlas
-      // tile ground is near-white, so the vertex colour passes through
-      // almost untouched, and the body still maps onto the tile (a
-      // framed window plus a floor line on every bay, lined up with
-      // the instanced window grid) at zero extra draw calls and zero
-      // extra triangles. Only a small brightness wobble (±10% via f)
-      // is kept, so no two neighbours read as the same flat swatch.
+      // K14_ facade: full rewrite of the K9 assignment. The K9 hash
+      // still picks the base palette entry, but the cover render
+      // proved the hash is not the whole story under sunset light:
+      // the three orange (#f4845f) strand towers that stack along
+      // the cover sightline — (-125.8, 215.9), (-76.9, 211.3) and
+      // (-76.7, 222.1), the last two on top of each other — read as
+      // ONE brown-terracotta mass mid-frame. Their south faces sit
+      // in shade (sun is due west at 18.3) and only get the warm
+      // brown hemisphere ground light, which drags orange to brown.
+      // The same render proves magenta survives: the #d81159 tower
+      // at (-19.4, 208.2) on the right edge stays vivid. So the
+      // three are reassigned by exact rounded coordinate to the
+      // saturated end of the K9 palette — magenta / pink — with a
+      // contrasting string-course band each. Nothing else changes:
+      // hash, brightness wobble and the K9 band rule are untouched
+      // for every other building.
+      const K14_BROWN_TOWERS = {
+        '-126,216': { face: '#d81159', band: '#2ec4b6' },
+        '-77,211': { face: '#d81159', band: '#2ec4b6' },
+        '-77,222': { face: '#e84393', band: '#06d6a0' },
+      };
       const K9_facadeIdx = Math.floor(hash2(bxr, bzr, 41) * K9_FACADE_COLORS.length) % K9_FACADE_COLORS.length;
-      const facade = tinted(K9_FACADE_COLORS[K9_facadeIdx], 0.9 + f * 0.2);
+      const K14_towerFix = K14_BROWN_TOWERS[bxr + ',' + bzr] || null;
+      const facade = K14_towerFix
+        ? tinted(K14_towerFix.face, 0.9 + f * 0.2)
+        : tinted(K9_FACADE_COLORS[K9_facadeIdx], 0.9 + f * 0.2);
       solid.add(b.x, b.h / 2, b.z, b.w, b.h, b.d, facade, 0, 0, 0, { bx: b.w / colsX, bz: b.d / colsZ, floorH: 3.4, y0: 0 });
       // Cornice accent band just under the roofline, one accent colour
       // per building (teal / brick / gold / navy / cream), picked by
@@ -1182,7 +1199,10 @@ export class Renderer {
       // 1,500-tri budget. Colour is the palette entry 3 steps from
       // the facade, so the band never matches its own wall.
       if (b.z >= 192) {
-        const K9_band = K9_FACADE_COLORS[(K9_facadeIdx + 3) % K9_FACADE_COLORS.length];
+        // K14_: a rescued tower keeps its contrasting band, now
+        // matched to its NEW face (teal on magenta, green on pink)
+        // instead of the band of the orange it used to be.
+        const K9_band = K14_towerFix ? K14_towerFix.band : K9_FACADE_COLORS[(K9_facadeIdx + 3) % K9_FACADE_COLORS.length];
         solid.add(b.x, b.h / 2, b.z, b.w + 0.3, 0.3, b.d + 0.3, K9_band);
       }
       // Parapet height varies per building and rooftop bulkheads vary
@@ -1274,15 +1294,31 @@ export class Renderer {
         solid.add(b.x - b.w * 0.25, b.h + 2.8, b.z + b.d * 0.2, 1.9, 0.25, 1.9, '#5a5548');
       }
     }
-    // lighthouse on the western headland, in the sea: rock base +
-    // banded tower + lamp that glows at dusk
-    solid.add(-280, 1.2, 348, 16, 2.4, 14, '#6b5a4a');
-    solid.add(-280, 3.2, 348, 11, 2, 10, '#7a6a58');
-    solid.add(-280, 6, 348, 5, 5, 5, '#e8e0d0');
-    solid.add(-280, 9.5, 348, 5, 3, 5, '#c0392b');
-    solid.add(-280, 12.5, 348, 5, 3, 5, '#e8e0d0');
-    solid.add(-280, 15, 348, 5.4, 1, 5.4, '#2f3540');
-    glow.add(-280, 16.2, 348, 1.6, 1.6, 1.6, '#ffe9a8');
+    // K14_ lighthouse, rewritten from scratch and moved. The old
+    // one at (-280, 348) sat 292 m from the beach-hero camera,
+    // 17 m tall, dead on the SOLMARINA sign axis — in the render it
+    // is hidden behind the sign posts, the beach hut and the big
+    // palm just right of the sign. It is also too far to read in
+    // the cover.
+    // New home (-150, 335), open sea, 170 m from the beach-hero
+    // camera and 181 m from the cover camera: in beach-hero it
+    // stands just right of the sign, clear of the palm fronds
+    // (which start ~50 px further right) and above the hut roof;
+    // in cover it stands in the sea left of the sun. Geometry note:
+    // no sea point is screen-left in beach-hero AND in the cover
+    // frame at once (the two cameras look ~28 deg apart, the sea
+    // is south of both) — this is the closest point that is
+    // clearly visible in both. The tower is taller (top ~24 m, was
+    // ~17 m) with four alternating bands, so it reads at 170 m.
+    const K14_LH = { x: -150, z: 335 };
+    solid.add(K14_LH.x, 1.2, K14_LH.z, 18, 2.4, 16, '#6b5a4a');
+    solid.add(K14_LH.x, 3.4, K14_LH.z, 12, 2.4, 11, '#7a6a58');
+    solid.add(K14_LH.x, 6.5, K14_LH.z, 5.5, 4.5, 5.5, '#f5efe0');
+    solid.add(K14_LH.x, 11, K14_LH.z, 5.5, 4.5, 5.5, '#c0392b');
+    solid.add(K14_LH.x, 15.5, K14_LH.z, 5.5, 4.5, 5.5, '#f5efe0');
+    solid.add(K14_LH.x, 20, K14_LH.z, 5.5, 4.5, 5.5, '#c0392b');
+    solid.add(K14_LH.x, 22.8, K14_LH.z, 6, 1.2, 6, '#2f3540');
+    glow.add(K14_LH.x, 24, K14_LH.z, 1.8, 1.8, 1.8, '#ffe9a8');
     // the merged solid mesh carries the facade atlas: building bodies
     // map onto the window-bay tile, everything else samples the white
     // half

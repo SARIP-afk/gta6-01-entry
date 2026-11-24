@@ -1,4 +1,6 @@
 [![gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/c/gta6-01)
+[![Rank](https://make.fun/badge/gta6-01/SARIP-afk/gta6-01-entry/rank.svg)](https://make.fun/bounty/gta6-01)
+[![Reward](https://make.fun/badge/gta6-01/SARIP-afk/gta6-01-entry/reward.svg)](https://make.fun/bounty/gta6-01)
 
 # Solmarina — open-world action-adventure (fresh build)
 

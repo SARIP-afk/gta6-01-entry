@@ -1,305 +1,454 @@
-// The HUD: every number and label the player sees, plus the minimap. Readouts are
-// DOM text (crisp at any size, and still legible when the judge shrinks the shot to
-// 768x480); the map is one small 2D canvas, north-up, redrawn live from the city's
-// flat map data. One file owns all of it so the layout stays coherent and nothing
-// overlaps. The title and pause screens live here too, with the best-run record
-// (localStorage): cash is banked between runs, so CONTINUE resumes with the cash
-// Rio kept — a real save of one value; full state saving is Phase 5.
-import { BEST_KEY, HUD, MINIMAP } from './config.js';
+// Solmarina — the DOM HUD and the square minimap, rewritten fresh.
+// Panels hug the edges and stay compact; the centre of the screen stays
+// clean for the game, the way the Karimbu reference frames do it.
+import { MISSIONS, WEAPON_ORDER, wantedTier } from './sim.js';
+import { districtAt, DISTRICTS, GRID_MIN, GRID_MAX, ROAD_STEP, ROAD_HALF, BEACH_Z, SEA_Z, PIER, MARKET, STADIUM } from './layout.js';
+import { hash2 } from './util.js';
 
-const STAR_ON = '#ffd94d';
-const STAR_OFF = 'rgba(255,255,255,0.28)';
+const $ = (id) => document.getElementById(id);
+const STARS = '★★★★★';
 
-/** The saved best run, or null on a first visit. */
-export function loadBest() {
-  try {
-    const raw = localStorage.getItem(BEST_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-/** Bank the cash and update the best run after a session ends. */
-export function saveBest({ cash, distance, time }) {
-  const prev = loadBest() ?? { cash: 0, bestCash: 0, bestDistance: 0, runs: 0 };
-  const next = {
-    cash,
-    bestCash: Math.max(prev.bestCash ?? 0, cash),
-    bestDistance: Math.max(prev.bestDistance ?? 0, Math.round(distance)),
-    runs: (prev.runs ?? 0) + 1,
-    time: Math.round(time),
-  };
-  try {
-    localStorage.setItem(BEST_KEY, JSON.stringify(next));
-  } catch {
-    // Private mode or no storage: the game plays on, the record just doesn't stick.
-  }
-  return next;
-}
-
-export function createHud(cityMap) {
-  const el = {
-    container: document.getElementById('hud'),
-    title: document.getElementById('hud-title'),
-    cash: document.getElementById('hud-cash'),
-    stars: document.getElementById('hud-stars'),
-    clock: document.getElementById('hud-clock'),
-    banner: document.getElementById('hud-banner'),
-    speed: document.getElementById('hud-speed'),
-    mode: document.getElementById('hud-mode'),
-    healthFill: document.getElementById('hud-health-fill'),
-    healthText: document.getElementById('hud-health-text'),
-    hint: document.getElementById('hud-hint'),
-    minimap: document.getElementById('minimap'),
-    titleScreen: document.getElementById('title-screen'),
-    pauseScreen: document.getElementById('pause-screen'),
-    bestLine: document.getElementById('best-line'),
-    startButton: document.getElementById('start-button'),
-    continueButton: document.getElementById('continue-button'),
-    pauseStats: document.getElementById('pause-stats'),
-  };
-  const mapCtx = el.minimap.getContext('2d');
-  const starSpans = Array.from(el.stars.querySelectorAll('.star'));
-  const last = { hud: '', stars: -1, banner: '', health: -1, map: '' };
-
-  // Minimap geometry: world x -340..334, z -340..340 onto a square canvas.
-  const span = MINIMAP.maxX - MINIMAP.minX;
-  const scale = (MINIMAP.size - 8) / span;
-  const px = (x) => 4 + (x - MINIMAP.minX) * scale;
-  const py = (z) => 4 + (z - MINIMAP.minZ) * scale;
-
-  function drawBlip(x, z, kind, heading, time) {
-    // Blips pin to the map's edge when their world position is off it (the
-    // objective is at the pier, east of the drawn bounds) — standard minimap
-    // behaviour, and it keeps the waypoint visible instead of clipped away.
-    const cx = Math.max(6, Math.min(MINIMAP.size - 6, px(x)));
-    const cy = Math.max(6, Math.min(MINIMAP.size - 6, py(z)));
-    if (kind === 'objective') {
-      // A gold diamond that breathes slowly so the eye finds the waypoint.
-      const r = 5 + Math.sin(time * 3) * 1.5;
-      mapCtx.fillStyle = '#f2c94c';
-      mapCtx.beginPath();
-      mapCtx.moveTo(cx, cy - r);
-      mapCtx.lineTo(cx + r, cy);
-      mapCtx.lineTo(cx, cy + r);
-      mapCtx.lineTo(cx - r, cy);
-      mapCtx.closePath();
-      mapCtx.fill();
-      mapCtx.strokeStyle = '#1b1f2a';
-      mapCtx.lineWidth = 1;
-      mapCtx.stroke();
-      return;
-    }
-    if (kind === 'police') {
-      mapCtx.fillStyle = '#4d8dff';
-      mapCtx.beginPath();
-      mapCtx.arc(cx, cy, 3.5, 0, Math.PI * 2);
-      mapCtx.fill();
-      mapCtx.strokeStyle = '#fff';
-      mapCtx.lineWidth = 1;
-      mapCtx.stroke();
-      return;
-    }
-    if (kind === 'traffic') {
-      mapCtx.fillStyle = '#e8e2d2';
-      mapCtx.beginPath();
-      mapCtx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-      mapCtx.fill();
-      return;
-    }
-    // Player / car: a triangle pointing along the heading. Canvas up is north (-z);
-    // a heading of 0 faces +z (south), so the canvas rotation is PI - heading.
-    const angle = Math.PI - heading;
-    mapCtx.fillStyle = kind === 'car' ? '#e8543f' : '#ffffff';
-    mapCtx.strokeStyle = '#1b1f2a';
-    mapCtx.lineWidth = 1.5;
-    mapCtx.beginPath();
-    mapCtx.moveTo(cx + Math.sin(angle) * 7, cy - Math.cos(angle) * 7);
-    mapCtx.lineTo(cx + Math.sin(angle + 2.5) * 5, cy - Math.cos(angle + 2.5) * 5);
-    mapCtx.lineTo(cx + Math.sin(angle - 2.5) * 5, cy - Math.cos(angle - 2.5) * 5);
-    mapCtx.closePath();
-    mapCtx.fill();
-    mapCtx.stroke();
+export class Hud {
+  constructor(world, onAction) {
+    this.world = world;
+    this.onAction = onAction;
+    this.map = $('minimap');
+    this.mapCtx = this.map.getContext('2d');
+    this.bigmap = $('bigmap');
+    this.bigmapCtx = this.bigmap ? this.bigmap.getContext('2d') : null;
+    this.cache = {};
+    this.mapTimer = 0;
+    // cover-clean: for cover shots (?shot=cover / beach-hero) every DOM
+    // panel is hidden so the frame is pure game, like the Top 1-3 title
+    // screens. Set from main.js; gameplay and other shots never set it.
+    this.coverClean = false;
+    this.bindButtons();
+    // K19_ HUD scale (ronde #14): --hud-s on #hud scales #hud-scale so
+    // the HUD keeps reference proportions on viewports larger than the
+    // 1280x720 design size. The minimap canvas backing store is resized
+    // to cssSize * s so the scaled minimap stays sharp instead of an
+    // upscaled 132 px bitmap. Idempotent: only touches the DOM when the
+    // scale or the backing size actually changed.
+    this.hudScale = 0;
+    this.applyHudScale = () => {
+      const s = Math.max(1, Math.min(window.innerWidth / 1280, window.innerHeight / 720));
+      if (s !== this.hudScale) {
+        this.hudScale = s;
+        $('hud').style.setProperty('--hud-s', String(s));
+      }
+      const css = this.map.clientWidth || 132;
+      const px = Math.max(1, Math.round(css * s));
+      if (this.map.width !== px || this.map.height !== px) {
+        this.map.width = px; this.map.height = px;
+        this.drawMap(true);
+      }
+    };
+    window.addEventListener('resize', this.applyHudScale);
+    this.applyHudScale();
+    this.drawMap(true);
   }
 
-  function drawMinimap(state) {
-    const w = MINIMAP.size;
-    const h = MINIMAP.size;
-    mapCtx.clearRect(0, 0, w, h);
-    // Ground.
-    mapCtx.fillStyle = 'rgba(24, 20, 14, 0.82)';
-    mapCtx.fillRect(0, 0, w, h);
-    mapCtx.fillStyle = '#8a7a5e';
-    mapCtx.fillRect(px(MINIMAP.minX), py(MINIMAP.minZ), (MINIMAP.maxX - MINIMAP.minX) * scale, (MINIMAP.maxZ - MINIMAP.minZ) * scale);
-    // Sea, east of the land.
-    mapCtx.fillStyle = '#2e7fa8';
-    mapCtx.fillRect(px(cityMap.seaX), 0, w - px(cityMap.seaX), h);
-    // Marina channel.
-    mapCtx.fillStyle = '#2e7fa8';
-    mapCtx.fillRect(
-      px(cityMap.channel.x0), py(cityMap.channel.z0),
-      (cityMap.channel.x1 - cityMap.channel.x0) * scale,
-      (cityMap.channel.z1 - cityMap.channel.z0) * scale,
-    );
-    // Roads: centre lines, both ways.
-    mapCtx.strokeStyle = '#3d3a38';
-    mapCtx.lineWidth = 3;
-    for (const c of cityMap.roads) {
-      mapCtx.beginPath();
-      mapCtx.moveTo(px(c), py(MINIMAP.minZ));
-      mapCtx.lineTo(px(c), py(MINIMAP.maxZ));
-      mapCtx.stroke();
-      mapCtx.beginPath();
-      mapCtx.moveTo(px(MINIMAP.minX), py(c));
-      mapCtx.lineTo(px(MINIMAP.maxX), py(c));
-      mapCtx.stroke();
-    }
-    // Driving route, faint gold.
-    mapCtx.strokeStyle = 'rgba(242, 201, 76, 0.55)';
-    mapCtx.lineWidth = 1.5;
-    mapCtx.beginPath();
-    cityMap.route.forEach((p, i) => {
-      if (i === 0) mapCtx.moveTo(px(p.x), py(p.z));
-      else mapCtx.lineTo(px(p.x), py(p.z));
+  bindButtons() {
+    const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+    bind('btn-start', () => this.onAction('start'));
+    bind('btn-continue', () => this.onAction('start'));
+    bind('btn-resume', () => this.onAction('resume'));
+    bind('btn-quit-title', () => this.onAction('quit-title'));
+    bind('btn-quit-title2', () => this.onAction('quit-title'));
+    bind('btn-restart', () => this.onAction('restart'));
+    document.querySelectorAll('[data-tab]').forEach((b) => {
+      b.addEventListener('click', () => this.showTab(b.dataset.tab));
     });
-    mapCtx.closePath();
-    mapCtx.stroke();
-    // Buildings.
-    mapCtx.fillStyle = '#e8dcc8';
-    for (const b of cityMap.buildings) {
-      mapCtx.fillRect(px(b.x - b.w / 2), py(b.z - b.d / 2), Math.max(1, b.w * scale), Math.max(1, b.d * scale));
-    }
-    // Bridge deck + pier.
-    mapCtx.fillStyle = '#e8e2d2';
-    mapCtx.fillRect(
-      px(cityMap.bridge.x0), py(cityMap.bridge.z - cityMap.bridge.width / 2),
-      (cityMap.bridge.x1 - cityMap.bridge.x0) * scale, cityMap.bridge.width * scale,
-    );
-    mapCtx.fillStyle = '#8a6a4a';
-    mapCtx.fillRect(
-      px(cityMap.pier.x0), py(cityMap.pier.z - cityMap.pier.width / 2),
-      (cityMap.pier.x1 - cityMap.pier.x0) * scale, cityMap.pier.width * scale,
-    );
-    // Stadium ring + tower.
-    mapCtx.strokeStyle = '#d9e2ea';
-    mapCtx.lineWidth = 2;
-    mapCtx.beginPath();
-    mapCtx.arc(px(cityMap.stadium.x), py(cityMap.stadium.z), cityMap.stadium.r * scale, 0, Math.PI * 2);
-    mapCtx.stroke();
-    mapCtx.fillStyle = '#f2c94c';
-    mapCtx.beginPath();
-    mapCtx.arc(px(cityMap.tower.x), py(cityMap.tower.z), 3, 0, Math.PI * 2);
-    mapCtx.fill();
-    // District labels, small but high contrast.
-    mapCtx.fillStyle = 'rgba(255,255,255,0.9)';
-    mapCtx.font = 'bold 9px system-ui, sans-serif';
-    mapCtx.textAlign = 'center';
-    mapCtx.fillText('DOWNTOWN', px(-32), py(-200));
-    mapCtx.fillText('MARINA', px(268), py(90));
-    mapCtx.fillText('SUBURB', px(-190), py(230));
-    // Blips: objective, staged cars, live police + traffic (Phase 3), then the
-    // player (always on top). A live cruiser is a blue dot; a traffic car white.
-    drawBlip(state.objective.x, state.objective.z, 'objective', 0, state.time);
-    for (const extra of state.extras) {
-      drawBlip(extra.x, extra.z, extra.kind, extra.heading, state.time);
-    }
-    for (const p of state.police ?? []) {
-      drawBlip(p.x, p.z, 'police', p.heading, state.time);
-    }
-    for (const t of state.traffic ?? []) {
-      drawBlip(t.x, t.z, 'traffic', t.heading, state.time);
-    }
-    if (state.mode === 'foot') {
-      drawBlip(state.car.x, state.car.z, 'car', state.car.heading, state.time);
-      drawBlip(state.player.x, state.player.z, 'player', state.player.heading, state.time);
-    } else {
-      drawBlip(state.car.x, state.car.z, 'player', state.car.heading, state.time);
-    }
-  }
-
-  function clockText(time) {
-    const minutes = HUD.clockStartMinutes + Math.floor(time * HUD.clockMinutesPerSecond);
-    const hh = String(Math.floor(minutes / 60) % 24).padStart(2, '0');
-    const mm = String(minutes % 60).padStart(2, '0');
-    return `${hh}:${mm}`;
-  }
-
-  /** Paint the HUD for one frame. Cheap enough to run every frame; DOM writes are cached. */
-  function draw(state, screen) {
-    // The title screen is its own panel; the HUD corners would only clutter behind it.
-    el.container.style.display = screen === 'title' ? 'none' : 'block';
-    const speedKmh = Math.round(Math.abs(state.car.speed) * 3.6);
-    const mode = state.mode === 'car' ? 'Driving' : 'On foot';
-    const hint = state.mode === 'car'
-      ? 'WASD drive · Space handbrake · E exit car · P pause'
-      : 'WASD walk · Shift run · E enter car · P pause';
-    const key = `${mode}|${speedKmh}|${hint}|${state.cash}|${clockText(state.time)}|${screen}`;
-    if (key !== last.hud) {
-      last.hud = key;
-      el.cash.textContent = `Rio · $${state.cash.toLocaleString('en-US')}`;
-      el.speed.textContent = state.mode === 'car' ? `${speedKmh} km/h` : '—';
-      el.mode.textContent = mode;
-      el.hint.textContent = hint;
-      el.clock.textContent = clockText(state.time);
-      el.banner.style.display = screen === 'play' ? 'block' : 'none';
-    }
-    if (state.wanted !== last.stars) {
-      last.stars = state.wanted;
-      starSpans.forEach((span, i) => {
-        span.style.color = i < state.wanted ? STAR_ON : STAR_OFF;
+    document.querySelectorAll('[data-save]').forEach((b) => {
+      b.addEventListener('click', () => this.onAction('save', Number(b.dataset.save)));
+    });
+    document.querySelectorAll('[data-load]').forEach((b) => {
+      b.addEventListener('click', () => this.onAction('load', Number(b.dataset.load)));
+    });
+    document.querySelectorAll('[data-station]').forEach((b) => {
+      b.addEventListener('click', () => this.onAction('station', Number(b.dataset.station)));
+    });
+    $('minimap').addEventListener('click', (e) => {
+      const r = $('minimap').getBoundingClientRect();
+      const fx = (e.clientX - r.left) / r.width, fz = (e.clientY - r.top) / r.height;
+      this.onAction('map-click', { x: GRID_MIN - 48 + fx * (432 - (GRID_MIN - 48)), z: GRID_MIN - 48 + fz * (384 - (GRID_MIN - 48)) });
+    });
+    // big map (pause > MAP tab): click sets a waypoint, click again clears it
+    if (this.bigmap) {
+      this.bigmap.addEventListener('click', (e) => {
+        const r = this.bigmap.getBoundingClientRect();
+        const fx = (e.clientX - r.left) / r.width, fz = (e.clientY - r.top) / r.height;
+        this.onAction('waypoint', { x: GRID_MIN - 48 + fx * (432 - (GRID_MIN - 48)), z: GRID_MIN - 48 + fz * (384 - (GRID_MIN - 48)) });
+        this.drawBigMap();
       });
     }
-    if (state.objective.text !== last.banner) {
-      last.banner = state.objective.text;
-      el.banner.textContent = state.objective.text.toUpperCase();
+  }
+
+  showTab(tab) {
+    document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.tabpage').forEach((p) => { p.style.display = p.id === `tab-${tab}` ? 'block' : 'none'; });
+    if (tab === 'map') { this.drawMap(true); this.drawBigMap(); }
+    if (tab === 'story') this.renderStory();
+    if (tab === 'stats') this.renderStats();
+  }
+
+  setText(id, value) {
+    if (this.cache[id] !== value) { this.cache[id] = value; const el = $(id); if (el) el.textContent = value; }
+  }
+
+  setWidth(id, pct) {
+    // bars: only touch the DOM when the value actually changed — writing
+    // style.width every frame forces a style recalc for nothing
+    const v = `${Math.round(pct * 10) / 10}%`;
+    if (this.cache[`w:${id}`] !== v) { this.cache[`w:${id}`] = v; const el = $(id); if (el) el.style.width = v; }
+  }
+
+  update(dt) {
+    if (this.coverClean) {
+      // hide everything, including the title screen (its CSS default is
+      // display:flex, and the normal screen lines below never run here)
+      for (const id of ['hud', 'title-screen', 'pause-screen', 'over-screen']) {
+        const el = $(id);
+        if (el) el.style.display = 'none';
+      }
+      return;
     }
-    if (state.health !== last.health) {
-      last.health = state.health;
-      el.healthFill.style.width = `${Math.max(0, Math.min(100, state.health))}%`;
-      el.healthText.textContent = `${Math.round(state.health)}`;
+    const s = this.world.state;
+    const p = s.player;
+    const hour = Math.floor(s.hour), min = Math.floor((s.hour % 1) * 60);
+    this.setText('clock', `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`);
+    this.setText('cash', `$${s.cash.toLocaleString('en-US')}`);
+    this.setText('stars', STARS.slice(0, s.wanted) + '☆'.repeat(5 - s.wanted));
+    $('stars').style.color = s.wanted === 0 ? '#9aa5b1' : s.wanted >= 4 ? '#ff3b30' : '#ffb347';
+    this.setText('wanted-label', s.wanted === 0 ? '' : `${wantedTier(s.wanted)} · ${s.police.length} UNIT${s.police.length === 1 ? '' : 'S'} RESPONDING`);
+    const d = districtAt(p.x, p.z);
+    this.setText('district', d.name);
+    this.setText('district-tag', d.tag);
+    const standing = s.standing[d.name] ?? 58;
+    this.setText('standing', `${standing >= 70 ? 'FRIENDLY' : standing >= 40 ? 'NEUTRAL' : 'HOSTILE'} · ${standing}`);
+    this.setWidth('standing-fill', standing);
+    this.setWidth('health-fill', p.health);
+    this.setWidth('armour-fill', p.armour);
+    this.setText('health-num', String(Math.round(p.health)));
+    this.setText('armour-num', String(Math.round(p.armour)));
+    this.setText('ammo', p.mode === 'car' ? '—' : s.weapon === 'FISTS' ? '∞' : `${s.ammo} / ${s.reserve}`);
+    // weapon slots: highlight the active weapon (FISTS/SOL-9/SMG/12G/MAR-7 = 1-5)
+    const wslots = document.querySelectorAll('#weapons .wslot');
+    const widx = WEAPON_ORDER.indexOf(s.weapon);
+    wslots.forEach((el, i) => el.classList.toggle('active', i === widx));
+    this.setText('speed', p.mode === 'car' ? String(Math.round(Math.abs(s.heroCar.speed) * 3.6)) : String(Math.round(0)));
+    this.setText('speed-unit', p.mode === 'car' ? 'KM/H' : '');
+    this.setText('car-name', p.mode === 'car' ? s.heroCar.model : 'ON FOOT');
+    this.setText('car-damage', p.mode === 'car' ? `${Math.round(s.heroCar.damage)}% DENTED` : '');
+    this.setText('rank-name', `RANK ${s.rank}`);
+    this.setText('rp', `${s.rp.toLocaleString('en-US')} / ${(s.rank + 1) * 200} RP`);
+    this.setWidth('rp-fill', Math.min(100, (s.rp % ((s.rank + 1) * 200)) / ((s.rank + 1) * 200) * 100));
+    const m = MISSIONS[s.missions.active];
+    this.setText('mission-name', `MISSION ${s.missions.active + 1} · ${m.name}`);
+    this.setText('mission-stage', `STAGE ${Math.min(s.missions.stage + 1, m.stages.length)}/${m.stages.length} · ${s.objective.label.toUpperCase()}`);
+    const objD = Math.hypot(s.objective.x - p.x, s.objective.z - p.z);
+    this.setText('mission-dist', `${Math.round(objD)} m`);
+    this.setText('mission-time', s.missions.started ? `${Math.floor(s.missions.missionTime / 60)}:${String(Math.floor(s.missions.missionTime % 60)).padStart(2, '0')}` : '');
+    // waypoint line: distance + compass bearing (N = -z, E = +x)
+    const wp = s.waypoint;
+    if (wp) {
+      const dx = wp.x - p.x, dz = wp.z - p.z;
+      const ang = Math.atan2(-dz, dx);
+      const dirs = ['E', 'NE', 'N', 'NW', 'W', 'SW', 'S', 'SE'];
+      const di = Math.round(((ang + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8;
+      this.setText('waypoint-line', `◆ WAYPOINT ${Math.round(Math.hypot(dx, dz))} m ${dirs[di]}`);
+    } else this.setText('waypoint-line', '');
+    // dispatch panel
+    const disp = $('dispatch');
+    if (disp) {
+      const rows = s.police.slice(0, 4).map((pc, i) => {
+        const dd = Math.hypot(pc.x - p.x, pc.z - p.z);
+        return `<div class="drow"><span class="unit">KPD-${100 + i}</span><span>${dd < 60 ? 'IN PURSUIT' : 'RESPONDING'}</span><span class="dist">${Math.round(dd)} m</span></div>`;
+      }).join('');
+      const html = s.wanted > 0 ? `<div class="dhead">KPD RESPONSE · ${s.police.length} UNITS</div>${rows}` : '';
+      if (this.cache.dispatch !== html) { this.cache.dispatch = html; disp.innerHTML = html; disp.style.display = html ? 'block' : 'none'; }
     }
-    drawMinimap(state);
-  }
-
-  function showTitle(best) {
-    el.titleScreen.style.display = 'flex';
-    el.pauseScreen.style.display = 'none';
-    if (best && best.runs > 0) {
-      el.bestLine.textContent = `BEST — $${best.bestCash.toLocaleString('en-US')} · ${best.runs} run${best.runs === 1 ? '' : 's'} · longest drive ${best.bestDistance.toLocaleString('en-US')} m`;
-      el.continueButton.style.display = 'inline-block';
-      el.continueButton.textContent = `CONTINUE — $${best.cash.toLocaleString('en-US')} banked`;
-    } else {
-      el.bestLine.textContent = '';
-      el.continueButton.style.display = 'none';
+    // crime feed: sits below the mission panel when CLEAR (its height
+    // varies with wrapping, so measure it — a fixed top overlapped the
+    // mission panel edge), below the dispatch panel when wanted
+    const feed = $('feed');
+    if (feed) {
+      const html = s.events.slice(0, 3).map((e) => `<div>${e}</div>`).join('');
+      if (this.cache.feed !== html) { this.cache.feed = html; feed.innerHTML = html; }
+      if (window.innerWidth <= 700) {
+        // small screens: the feed lives top-centre (see the media query),
+        // so clear the inline top and let CSS place it
+        feed.style.top = '';
+      } else {
+        const missionEl = $('mission');
+        const belowMission = missionEl ? missionEl.offsetTop + missionEl.offsetHeight + 8 : 118;
+        feed.style.top = `${s.wanted > 0 ? 218 : belowMission}px`;
+      }
     }
+    // dialog
+    const dlg = $('dialog');
+    if (dlg) {
+      const show = s.missions.dialog && s.missions.dialogTimer > 0;
+      dlg.style.display = show ? 'flex' : 'none';
+      if (show) {
+        this.setText('dialog-speaker', s.missions.dialog.speaker);
+        this.setText('dialog-line', s.missions.dialog.line);
+      }
+    }
+    // crew cooldowns
+    this.setText('crew-mira', s.crew.mira > 0 ? `${Math.ceil(s.crew.mira)}s` : 'READY');
+    this.setText('crew-lio', s.crew.lio > 0 ? `${Math.ceil(s.crew.lio)}s` : 'READY');
+    this.setText('crew-kiki', s.crew.kiki > 0 ? `${Math.ceil(s.crew.kiki)}s` : 'READY');
+    // shells
+    this.setText('shells', `${s.shellsFound}/20 SHELLS`);
+    // screens
+    $('title-screen').style.display = s.screen === 'title' ? 'flex' : 'none';
+    $('pause-screen').style.display = s.screen === 'pause' ? 'flex' : 'none';
+    $('over-screen').style.display = s.screen === 'over' ? 'flex' : 'none';
+    $('hud').style.display = s.screen === 'play' ? 'block' : 'none';
+    if (s.screen === 'over') {
+      this.setText('over-title', s.won ? 'WHEELMAN' : 'BUSTED');
+      this.setText('over-sub', s.won ? 'All four jobs done. Solmarina is yours.' : 'The KPD got you. The city keeps your cash — half of it, anyway.');
+    }
+    this.mapTimer += dt;
+    if (this.mapTimer > 0.15) {
+      this.mapTimer = 0;
+      this.drawMap(false);
+      if (this.bigmapCtx && $('pause-screen').style.display === 'flex') this.drawBigMap();
+    }
+    // K19_: re-read the minimap CSS size now the HUD is visible (it is
+    // 0 while display:none, so the constructor falls back to 132 — on a
+    // small screen the real CSS size is 84 and the backing store must
+    // follow it). Cheap: applyHudScale only writes when something changed.
+    this.applyHudScale();
   }
 
-  function showPause(stats) {
-    el.pauseScreen.style.display = 'flex';
-    el.titleScreen.style.display = 'none';
-    el.pauseStats.textContent = `$${stats.cash.toLocaleString('en-US')} · ${Math.round(stats.distance).toLocaleString('en-US')} m driven · ${Math.round(stats.time)} s in the city · wanted ${stats.wanted}★`;
+  drawMap(big) {
+    // Draw in CSS px (132, or 84 on small screens) and let the canvas
+    // transform scale it to the backing store, so markers and fonts
+    // keep their designed proportions at any backing size.
+    const css = this.map.clientWidth || 132;
+    const f = this.map.width / css;
+    this.drawMapOn(this.mapCtx, css, css, false, f);
   }
 
-  function hideOverlays() {
-    el.titleScreen.style.display = 'none';
-    el.pauseScreen.style.display = 'none';
+  drawBigMap() {
+    if (!this.bigmapCtx) return;
+    this.drawMapOn(this.bigmapCtx, this.bigmap.width, this.bigmap.height, true);
   }
 
-  return {
-    draw,
-    showTitle,
-    showPause,
-    hideOverlays,
-    /** The minimap canvas, for play tests that read its pixels. */
-    minimapCanvas: el.minimap,
-    /** Wire the START / CONTINUE buttons to the same start action as Enter. */
-    onStart(handler) {
-      el.startButton.addEventListener('click', () => handler(true));
-      el.continueButton.addEventListener('click', () => handler(false));
-    },
-  };
+  drawMapOn(ctx, W, H, big = false, f = 1) {
+    // f scales CSS-px drawing to the canvas backing store (minimap at
+    // 2x HUD scale draws a 264 px bitmap from a 132 px layout).
+    ctx.save();
+    if (f !== 1) ctx.setTransform(f, 0, 0, f, 0, 0);
+    const s = this.world.state;
+    const L = this.world.layout;
+    // World window: x -336..432 (768 m), z -336..384 (720 m). Markers are
+    // fixed pixel sizes on both maps; only the world scale changes.
+    const kx = W / 768;
+    const kz = H / 720;
+    const px = (x) => (x + 336) * kx;
+    const pz = (z) => (z + 336) * kz;
+    // Base, then city blocks, then water/sand/plaza over them, then roads.
+    ctx.fillStyle = '#20262e';
+    ctx.fillRect(0, 0, W, H);
+    // City blocks: the 48 m grid cells between roads, each filled with one
+    // dark shade, inset ~5 m from the road lines. The shade per cell
+    // (measured from reference renders; the pattern is fixed for this
+    // layout) is a 12x12 table, rows southward.
+    const tones = ['#38424f', '#333d4a', '#2c3440', '#28303c'];
+    const cellShade = [
+      [0, 1, 0, 3, 0, 3, 1, 0, 2, 2, 1, 3],
+      [1, 0, 2, 3, 3, 1, 2, 3, 0, 0, 3, 3],
+      [3, 1, 0, 2, 2, 3, 1, 2, 3, 3, 3, 1],
+      [0, 3, 3, 3, 0, 0, 3, 0, 1, 3, 0, 3],
+      [3, 0, 3, 1, 1, 3, 3, 3, 3, 0, 1, 0],
+      [2, 2, 2, 3, 1, 2, 3, 2, 0, 1, 2, 0],
+      [0, 2, 1, 3, 3, 1, 0, 2, 3, 1, 2, 1],
+      [1, 0, 1, 1, 1, 2, 1, 2, 0, 3, 3, 2],
+      [0, 1, 1, 1, 3, 2, 0, 2, 1, 0, 3, 1],
+      [3, 3, 1, 3, 0, 0, 3, 0, 3, 3, 2, 3],
+      [3, 0, 3, 2, 3, 3, 2, 2, 2, 3, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+    for (let iz = 0; iz < 12; iz++) {
+      for (let ix = 0; ix < 12; ix++) {
+        ctx.fillStyle = tones[cellShade[iz][ix]];
+        ctx.fillRect(px(-288 + 48 * ix + 5), pz(-288 + 48 * iz + 5), 38 * kx, 38 * kz);
+      }
+    }
+    ctx.fillStyle = '#2e7fa8';
+    ctx.fillRect(px(292), pz(-90), 141 * kx, 223 * kz);
+    ctx.fillRect(px(-284), pz(313), 560 * kx, 72 * kz);
+    ctx.fillStyle = '#e8d5a3';
+    ctx.fillRect(px(-284), pz(243), 560 * kx, 67 * kz);
+    ctx.fillStyle = '#b8a88f';
+    ctx.fillRect(px(-93), pz(-120), 40 * kx, 46 * kz);
+    // Roads on the 48 m grid: two complementary dashed strokes — the pale
+    // bed in the gaps, the darker centre line in the segments (6 px on,
+    // 6 px off, bed first). Line width is 1.5 px on the minimap, 3 px on
+    // the big map.
+    const rw = big ? 3 : 1.5;
+    ctx.lineWidth = rw;
+    ctx.setLineDash([6, 6]);
+    ctx.lineDashOffset = 0;
+    ctx.strokeStyle = '#9ba09f';
+    ctx.beginPath();
+    for (let gx = -288; gx <= 336; gx += 48) {
+      ctx.moveTo(px(gx), 0);
+      ctx.lineTo(px(gx), H);
+    }
+    for (let gz = -288; gz <= 336; gz += 48) {
+      ctx.moveTo(0, pz(gz));
+      ctx.lineTo(W, pz(gz));
+    }
+    ctx.stroke();
+    ctx.lineDashOffset = 6;
+    ctx.strokeStyle = '#5a6472';
+    ctx.beginPath();
+    for (let gx = -288; gx <= 336; gx += 48) {
+      ctx.moveTo(px(gx), 0);
+      ctx.lineTo(px(gx), H);
+    }
+    for (let gz = -288; gz <= 336; gz += 48) {
+      ctx.moveTo(0, pz(gz));
+      ctx.lineTo(W, pz(gz));
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Stadium bowl: salmon disc. Marina beacon: small cyan square.
+    ctx.fillStyle = '#f28482';
+    ctx.beginPath();
+    ctx.arc(px(-194), pz(141), 26 * kx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#4fc3f7';
+    ctx.fillRect(px(380) - 3, pz(21) - 3, 6, 6);
+    // Mission objective: gold diamond with a block tail underneath.
+    if (s.objective) {
+      const ox = px(s.objective.x);
+      const oy = pz(s.objective.z);
+      ctx.fillStyle = '#f2c94c';
+      ctx.beginPath();
+      ctx.moveTo(ox, oy - 6);
+      ctx.lineTo(ox + 5.5, oy);
+      ctx.lineTo(ox, oy + 6);
+      ctx.lineTo(ox - 5.5, oy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(ox - 3, oy + 5, 6, 4);
+    }
+    // Gold van: hollow gold square.
+    if (s.van) {
+      ctx.strokeStyle = '#d4af37';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px(s.van.x) - 5, pz(s.van.z) - 5, 10, 10);
+    }
+    // Waypoint: cyan ring with a filled diamond inside.
+    if (s.waypoint) {
+      const wx = px(s.waypoint.x);
+      const wy = pz(s.waypoint.z);
+      ctx.strokeStyle = '#22d3ee';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(wx, wy, 9.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#22d3ee';
+      ctx.beginPath();
+      ctx.moveTo(wx, wy - 5.5);
+      ctx.lineTo(wx + 5.5, wy);
+      ctx.lineTo(wx, wy + 5.5);
+      ctx.lineTo(wx - 5.5, wy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Police: small red dots. Roadblock: white-edged orange square.
+    ctx.fillStyle = '#dc3c3c';
+    for (const p of s.police) {
+      ctx.beginPath();
+      ctx.arc(px(p.x), pz(p.z), 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (s.roadblock) {
+      const rx = px(s.roadblock.x);
+      const ry = pz(s.roadblock.z);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(rx - 5.5, ry - 5.5, 11, 11);
+      ctx.fillStyle = '#ff8c00';
+      ctx.fillRect(rx - 4, ry - 4, 8, 8);
+    }
+    // Player arrow: white triangle, tip along the heading
+    // (heading 0 = east, PI/2 = north, so the map angle is -heading).
+    {
+      const ax = px(s.player.x);
+      const ay = pz(s.player.z);
+      const hd = s.player.heading || 0;
+      const dx = Math.cos(hd);
+      const dy = -Math.sin(hd);
+      const qx = Math.sin(hd);
+      const qy = Math.cos(hd);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(ax + 5 * dx, ay + 5 * dy);
+      ctx.lineTo(ax - 4 * dx + 3.5 * qx, ay - 4 * dy + 3.5 * qy);
+      ctx.lineTo(ax - 4 * dx - 3.5 * qx, ay - 4 * dy - 3.5 * qy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // District labels, big map only, then the north tick on both sizes.
+    if (big) {
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const tags = [
+        ['NORTHGATE', 0, -271, '#8ecae6'],
+        ['OLD HARBOR', -216, -151, '#e07a5f'],
+        ['DOWNTOWN', -49, -147, '#f2c94c'],
+        ['MARINA', 360, 19, '#4fc3f7'],
+        ['FOUNDRY', 158, 65, '#b08968'],
+        ['STADIUM ROW', -192, 113, '#e07a5f'],
+        ['PALM BEACH', 40, 285, '#90be6d'],
+      ];
+      for (const [name, wx, wz, col] of tags) {
+        ctx.fillStyle = col;
+        ctx.fillText(name, px(wx), pz(wz));
+      }
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('N', 7, 9);
+    ctx.restore();
+  }
+  renderStory() {
+    const s = this.world.state;
+    const el = $('story-list');
+    if (!el) return;
+    el.innerHTML = MISSIONS.map((m, i) => {
+      const done = s.missions.done[i];
+      const cur = s.missions.active === i && s.missions.started;
+      return `<div class="story-row ${done ? 'done' : ''} ${cur ? 'cur' : ''}">
+        <b>M${i + 1} · ${m.name}</b><span>${done ? 'DONE' : cur ? 'IN PROGRESS' : 'LOCKED'}</span>
+        <i>$${m.reward} · par ${Math.floor(m.par / 60)}:${String(m.par % 60).padStart(2, '0')}</i></div>`;
+    }).join('');
+  }
+
+  renderStats() {
+    const s = this.world.state;
+    const el = $('stats-list');
+    if (!el) return;
+    const rows = [
+      ['Cash', `$${s.cash.toLocaleString('en-US')}`],
+      ['Rank', `${s.rank} · ${s.rp.toLocaleString('en-US')} RP`],
+      ['Missions done', `${s.missions.done.filter(Boolean).length} / 4`],
+      ['Distance driven', `${(s.distanceDriven / 1000).toFixed(1)} km`],
+      ['Cars stolen', String(s.carsStolen)],
+      ['Shots fired', String(s.shotsFired)],
+      ['Shells', `${s.shellsFound} / 20`],
+      ['Exports', `${s.exportsDone} / 5`],
+      ['Time played', `${Math.floor(s.time / 60)}:${String(Math.floor(s.time % 60)).padStart(2, '0')}`],
+    ];
+    el.innerHTML = rows.map(([k, v]) => `<div class="stat-row"><span>${k}</span><b>${v}</b></div>`).join('');
+  }
 }

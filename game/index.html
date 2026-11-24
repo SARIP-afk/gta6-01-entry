@@ -3,83 +3,260 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#1b1f2a">
-<meta name="description" content="Solmarina — an open-world drive: Rio, a courier-turned-wheelman, drives and walks a sun-soaked coastal city. Phase 2: HUD, minimap and the cover chase.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10' fill='%23ffb46b'/%3E%3Crect x='4' y='22' width='24' height='4' fill='%232e7fa8'/%3E%3C/svg%3E">
-<title>Solmarina — an open-world drive</title>
+<title>Solmarina — Open-World Action-Adventure</title>
+<link rel="icon" href="data:,">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1f2a; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #10141c;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f5f0e6; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  #hud { position: fixed; inset: 0; pointer-events: none; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.65); }
-  #hud .corner { position: absolute; }
-  #hud-title { top: 16px; left: 20px; font-size: 26px; font-weight: 800; letter-spacing: 2px; }
-  #hud-cash { top: 48px; left: 20px; font-size: 20px; font-weight: 700; color: #f2c94c; }
-  #hud-banner { top: 14px; left: 50%; transform: translateX(-50%); font-size: 18px; font-weight: 800; letter-spacing: 1px; background: #f2c94c; color: #1b1f2a; text-shadow: none; padding: 8px 18px; border-radius: 8px; white-space: nowrap; }
-  #hud-stars { top: 14px; right: 20px; font-size: 28px; letter-spacing: 4px; line-height: 1; }
-  #hud-stars .star { color: rgba(255,255,255,0.28); }
-  #hud-clock { top: 52px; right: 20px; font-size: 18px; font-weight: 700; text-align: right; }
-  #hud-speed { bottom: 16px; right: 20px; font-size: 34px; font-weight: 800; text-align: right; }
-  #hud-mode { bottom: 58px; right: 20px; font-size: 16px; font-weight: 600; text-align: right; color: #ffe9a8; }
-  #minimap { position: absolute; bottom: 16px; left: 20px; width: 180px; height: 180px; border: 2px solid rgba(255,255,255,0.65); border-radius: 8px; background: rgba(0,0,0,0.35); }
-  #hud-health { position: absolute; bottom: 204px; left: 20px; width: 180px; font-size: 13px; font-weight: 700; letter-spacing: 1px; }
-  #hud-health .bar { margin-top: 4px; height: 10px; background: rgba(0,0,0,0.55); border-radius: 5px; overflow: hidden; }
-  #hud-health-fill { display: block; height: 100%; width: 100%; background: #7ac74f; border-radius: 5px; }
-  #hud-hint { bottom: 16px; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 600; background: rgba(0,0,0,.45); padding: 8px 16px; border-radius: 8px; white-space: nowrap; }
-  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
-  .overlay .panel { background: rgba(20, 16, 10, .55); padding: 36px 48px; border-radius: 16px; text-align: center; }
-  .overlay h1 { margin: 0 0 8px; font-size: 56px; letter-spacing: 6px; }
-  .overlay p { margin: 8px 0; font-size: 18px; }
-  .overlay .tagline { color: #ffd9a0; font-style: italic; }
-  .overlay .prompt { color: #f2c94c; font-weight: 700; font-size: 20px; margin-top: 20px; }
-  .overlay .best { color: #ffe9a8; font-size: 16px; font-weight: 600; }
-  .overlay .buttons { margin-top: 22px; display: flex; gap: 12px; justify-content: center; }
-  .hud-btn { pointer-events: auto; cursor: pointer; font-family: inherit; font-size: 20px; font-weight: 800; letter-spacing: 2px; padding: 12px 28px; border-radius: 10px; border: none; }
-  .hud-btn.primary { background: #f2c94c; color: #1b1f2a; }
-  .hud-btn.ghost { background: transparent; color: #ffe9a8; border: 2px solid #ffe9a8; }
+  .panel { background: rgba(12, 16, 24, 0.82); border: 1px solid rgba(242, 201, 76, 0.35);
+    border-radius: 8px; padding: 8px 10px; backdrop-filter: blur(2px); }
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; font-size: 13px; }
+  /* K19_ HUD scale (Builder B, ronde #14): the HUD is designed at
+     1280x720. On larger viewports the whole HUD is scaled up so the
+     mission panel, speed, minimap and cash keep the reference
+     proportions (at 2560x1440 the fixed-px HUD looked half-size).
+     Scale s = max(1, min(vw/1280, vh/720)), set by hud.js as --hud-s
+     on #hud; the wrapper is a 1280x720 box (or the viewport when
+     smaller, so the <=700px compact layout still anchors to the real
+     viewport edges) scaled from the top-left. At 1280x720 and below
+     s = 1: pixel-identical to before, playtest coordinates unchanged. */
+  #hud-scale { position: absolute; top: 0; left: 0; width: min(1280px, 100vw); height: min(720px, 100vh);
+    transform: scale(var(--hud-s, 1)); transform-origin: top left; }
+  #hud .panel, #hud #minimap { pointer-events: auto; }
+  /* top-left: mission */
+  #mission { position: absolute; top: 12px; left: 12px; width: 300px; border-top: 3px solid #f2c94c; }
+  #mission-name { color: #f2c94c; font-weight: 800; letter-spacing: 0.06em; font-size: 13px; }
+  #mission-stage { font-weight: 700; font-size: 15px; margin-top: 2px; }
+  #mission-dist { color: #8ecae6; font-weight: 700; }
+  #mission-time { color: #f5f0e6; opacity: 0.8; }
+  #dispatch { position: absolute; top: 108px; left: 12px; width: 300px; font-size: 12px; display: none; }
+  .dhead { color: #ff6b5e; font-weight: 800; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .drow { display: flex; justify-content: space-between; padding: 1px 0; }
+  .drow .unit { color: #8ecae6; font-weight: 700; }
+  .drow .dist { color: #f5f0e6; opacity: 0.8; }
+  #feed { position: absolute; top: 115px; left: 12px; width: 300px; font-size: 12px; color: #ffb347; }
+  /* top-right: cash / clock / wanted */
+  #top-right { position: absolute; top: 12px; right: 12px; text-align: right; }
+  #clock { font-size: 15px; font-weight: 700; color: #f5f0e6; text-shadow: 0 1px 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9); }
+  #cash { font-size: 30px; font-weight: 900; color: #7ee0a3; line-height: 1; text-shadow: 0 2px 8px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.9); }
+  #stars { font-size: 20px; letter-spacing: 2px; text-shadow: 0 1px 4px rgba(0,0,0,0.9); }
+  #wanted-label { color: #ff6b5e; font-weight: 700; font-size: 12px; text-shadow: 0 1px 4px rgba(0,0,0,0.9); }
+  #rank { margin-top: 6px; font-size: 12px; }
+  #rank b { color: #f2c94c; }
+  .bar { height: 6px; background: rgba(255,255,255,0.15); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .bar > div { height: 100%; background: #f2c94c; }
+  /* right: weapons + crew */
+  #weapons { position: absolute; top: 196px; right: 12px; width: 210px; }
+  .wslot { display: flex; justify-content: space-between; padding: 5px 6px; margin: 3px 0;
+    background: rgba(255,255,255,0.06); border-radius: 5px; border: 1px solid rgba(255,255,255,0.08); }
+  .wslot.active { border-color: #f2c94c; background: rgba(242,201,76,0.14); }
+  .wslot b { color: #f2c94c; }
+  #crew { position: absolute; top: 388px; right: 12px; width: 210px; }
+  .crew-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .crew-row:last-child { border-bottom: 0; }
+  .crew-row .key { display: inline-block; background: #f2c94c; color: #111; font-weight: 800;
+    border-radius: 3px; padding: 0 5px; margin-right: 6px; font-size: 11px; }
+  .crew-row .st { color: #7ee0a3; font-weight: 700; font-size: 12px; }
+  /* bottom-left: district + minimap + vitals */
+  #bl { position: absolute; left: 12px; bottom: 12px; }
+  #district { margin-bottom: 6px; }
+  #district b { color: #f2c94c; font-size: 15px; }
+  #district span { opacity: 0.85; font-size: 12px; }
+  #minimap { width: 132px; height: 132px; border: 2px solid #f2c94c; border-radius: 8px; background: #20262e; cursor: pointer; }
+  #vitals { margin-top: 6px; width: 220px; font-size: 12px; }
+  .vrow { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .vrow .lbl { width: 52px; font-weight: 700; }
+  .vrow .bar { flex: 1; margin: 0; }
+  #health-fill { background: #4ade80; } #armour-fill { background: #60a5fa; }
+  /* bottom-right: speed + car */
+  #br { position: absolute; right: 12px; bottom: 12px; text-align: right; }
+  #speed { font-size: 44px; font-weight: 900; line-height: 0.9; text-shadow: 0 2px 8px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.9); }
+  #speed-unit { font-size: 13px; font-weight: 700; color: #8ecae6; }
+  #car-name { font-weight: 800; color: #f2c94c; }
+  #car-damage { font-size: 12px; color: #ffb347; }
+  #radio { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+  /* bottom-centre: dialog */
+  #dialog { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: none; width: 520px; max-width: 70vw; align-items: flex-start; gap: 10px; }
+  #dialog .face { width: 44px; height: 44px; border-radius: 6px; background: linear-gradient(135deg, #e07a5f, #4fc3f7);
+    flex: none; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 900; color: #111; }
+  #dialog-speaker { color: #4fc3f7; font-weight: 800; font-size: 12px; letter-spacing: 0.05em; }
+  #dialog-line { font-size: 14px; margin-top: 2px; }
+  /* screens */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(8, 10, 16, 0.72); z-index: 10; }
+  .screen .card { width: 560px; max-width: 92vw; max-height: 88vh; overflow: auto; }
+  .screen h1 { margin: 0; font-size: 44px; letter-spacing: 0.08em; color: #f2c94c; }
+  .screen h1 span { color: #4fc3f7; }
+  .screen .tag { color: #f5f0e6; opacity: 0.85; margin: 6px 0 14px; }
+  .btn { display: inline-block; background: #f2c94c; color: #111; border: 0; border-radius: 6px;
+    padding: 10px 18px; font-weight: 800; font-size: 14px; cursor: pointer; margin: 4px 6px 4px 0; }
+  .btn.ghost { background: rgba(255,255,255,0.12); color: #f5f0e6; }
+  .btn:hover { filter: brightness(1.1); }
+  .tabs { display: flex; gap: 6px; margin: 10px 0; }
+  .tabs button { background: rgba(255,255,255,0.1); color: #f5f0e6; border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 5px; padding: 6px 12px; cursor: pointer; font-weight: 700; }
+  .tabs button.active { background: #f2c94c; color: #111; }
+  .story-row, .stat-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 2px;
+    border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 13px; }
+  .story-row.done b { color: #7ee0a3; } .story-row.cur b { color: #f2c94c; }
+  .story-row i { opacity: 0.7; font-style: normal; }
+  .controls { font-size: 13px; line-height: 1.7; opacity: 0.9; }
+  .controls b { color: #f2c94c; }
+  /* ---- small screens (640x360): compact the HUD so nothing overlaps ----
+     The 1280x720 layout is verified non-overlapping; at 360 px tall the
+     same absolute positions collide (dialog over vitals, speed over the
+     weapon panel), so the small layout re-flows: crew becomes a top-centre
+     strip, dispatch/feed move to the top-centre column, panels shrink. */
+  @media (max-width: 700px) {
+    #hud { font-size: 11px; }
+    #mission { top: 8px; left: 8px; width: 164px; padding: 6px 8px; }
+    #mission-name { font-size: 11px; }
+    #mission-stage { font-size: 12px; }
+    #dispatch { top: 116px; left: 50%; transform: translateX(-50%); width: 220px; font-size: 11px; }
+    #feed { top: 54px; left: 50%; transform: translateX(-50%); width: 200px; text-align: center; font-size: 11px; }
+    #top-right { top: 8px; right: 8px; }
+    #clock { font-size: 12px; }
+    #cash { font-size: 20px; }
+    #stars { font-size: 15px; }
+    #wanted-label { font-size: 10px; }
+    #rank { font-size: 10px; padding: 4px 6px; margin-top: 4px; }
+    #weapons { top: 142px; right: 8px; width: 160px; padding: 5px 6px; }
+    .wslot { padding: 2px 5px; margin: 2px 0; font-size: 11px; }
+    #crew { top: 8px; left: 50%; right: auto; transform: translateX(-50%); width: auto; display: flex; gap: 6px; padding: 4px 6px; }
+    .crew-row { border-bottom: 0; padding: 0; font-size: 10px; }
+    .crew-row .st { display: none; }
+    .crew-row .crew-name { display: none; }
+    #bl { left: 8px; bottom: 8px; }
+    #district-panel { padding: 6px 8px; width: 170px; }
+    #district b { font-size: 12px; }
+    #district span { font-size: 10px; }
+    #minimap { width: 84px; height: 84px; }
+    #vitals { width: 150px; font-size: 11px; margin-top: 4px; }
+    #br { right: 8px; bottom: 8px; }
+    #speed { font-size: 28px; }
+    #radio { display: none; }
+    #dialog { width: 238px; bottom: 8px; }
+    #dialog-line { font-size: 12px; }
+  }
+  #title-screen { display: flex; }
 </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="status" aria-live="polite"></div>
+
+<div id="hud">
+<div id="hud-scale">
+  <div id="mission" class="panel">
+    <div id="mission-name">MISSION 1 · FIRST DROP</div>
+    <div id="mission-stage">STAGE 1/2 · PICK UP THE PACKAGE DOWNTOWN</div>
+    <div><span id="mission-dist">0 m</span> · <span id="mission-time"></span></div>
+    <div id="waypoint-line" style="color:#22d3ee;font-weight:700"></div>
+  </div>
+  <div id="dispatch" class="panel"></div>
+  <div id="feed" class="panel" style="background:transparent;border:0;padding:0"></div>
+  <div id="top-right">
+    <div id="clock" class="panel" style="display:inline-block">17:30</div>
+    <div id="cash">$7,270</div>
+    <div id="stars">☆☆☆☆☆</div>
+    <div id="wanted-label"></div>
+    <div id="rank" class="panel"><b id="rank-name">RANK 9</b> · <span id="rp">1,675 / 2,000 RP</span>
+      <div class="bar"><div id="rp-fill" style="width:80%"></div></div></div>
+  </div>
+  <div id="weapons" class="panel">
+    <div class="wslot active"><span><b>1</b> FISTS</span><span>∞</span></div>
+    <div class="wslot"><span><b>2</b> SOL-9</span><span id="ammo">48 / 90</span></div>
+    <div class="wslot"><span><b>3</b> SMG</span><span>—</span></div>
+    <div class="wslot"><span><b>4</b> 12G</span><span>—</span></div>
+    <div class="wslot"><span><b>5</b> MAR-7</span><span>—</span></div>
+  </div>
+  <div id="crew" class="panel">
+    <div class="crew-row"><span><span class="key">Z</span>SWAP PLATES <span class="crew-name">· Mira</span></span><span class="st" id="crew-mira">READY</span></div>
+    <div class="crew-row"><span><span class="key">X</span>QUICK FIX <span class="crew-name">· Lio</span></span><span class="st" id="crew-lio">READY</span></div>
+    <div class="crew-row"><span><span class="key">C</span>EYES OUT <span class="crew-name">· Kiki</span></span><span class="st" id="crew-kiki">READY</span></div>
+  </div>
+  <div id="bl">
+    <div id="district-panel" class="panel"><b id="district">DOWNTOWN</b><br><span id="district-tag">Glass towers and the night market</span>
+      <div class="bar"><div id="standing-fill" style="width:58%;background:#7ee0a3"></div></div>
+      <span id="standing">NEUTRAL · 58</span></div>
+    <canvas id="minimap" width="132" height="132"></canvas>
+    <div id="vitals" class="panel">
+      <div class="vrow"><span class="lbl">HEALTH</span><div class="bar"><div id="health-fill" style="width:95%"></div></div><span id="health-num">95</span></div>
+      <div class="vrow"><span class="lbl">ARMOUR</span><div class="bar"><div id="armour-fill" style="width:27%"></div></div><span id="armour-num">27</span></div>
+      <div class="vrow"><span class="lbl" style="color:#ffd700">SHELLS</span><span id="shells">0/20</span></div>
+    </div>
+  </div>
+  <div id="br">
+    <div id="speed">0</div>
+    <div id="speed-unit">KM/H</div>
+    <div id="car-name">SOLMAR GT</div>
+    <div id="car-damage"></div>
+    <div id="radio">♪ <span id="station-name">SOL 98.1 · COAST FM</span> · T to change</div>
+  </div>
+  <div id="dialog" class="panel">
+    <div class="face">D</div>
+    <div><div id="dialog-speaker">DANTE</div><div id="dialog-line"></div></div>
+  </div>
+</div>
+</div>
+
+<div id="title-screen" class="screen">
+  <div class="card panel">
+    <h1>SOL<span>MARINA</span></h1>
+    <div class="tag">A courier. A debt. A city that never slows down. Four jobs for DANTE — and the whole of Solmarina answering back.</div>
+    <div class="controls">
+      <b>WASD</b> drive / walk · <b>Shift</b> run / boost · <b>Space</b> brake · <b>E</b> enter &amp; exit cars ·
+      <b>Mouse</b> aim, <b>click</b> shoot · <b>R</b> reload · <b>1–5</b> weapons · <b>H</b> horn · <b>V</b> volume ·
+      <b>T</b> radio · <b>Z/X/C</b> crew · <b>M</b> map · <b>P</b> pause
+    </div>
+    <p style="font-size:13px;opacity:0.9">Quality: <button class="btn ghost" data-quality="low">LOW</button>
+      <button class="btn ghost" data-quality="med">MED</button>
+      <button class="btn ghost" data-quality="high">HIGH</button></p>
+    <button class="btn" id="btn-start">START ENGINE</button>
+    <button class="btn ghost" id="btn-continue">CONTINUE</button>
+    <p style="font-size:12px;opacity:0.7">Save slots: <button class="btn ghost" data-load="1">LOAD 1</button>
+      <button class="btn ghost" data-load="2">LOAD 2</button>
+      <button class="btn ghost" data-load="3">LOAD 3</button></p>
+  </div>
+</div>
+
+<div id="pause-screen" class="screen">
+  <div class="card panel">
+    <h1 style="font-size:28px">PAUSED</h1>
+    <div class="tabs">
+      <button data-tab="map" class="active">MAP</button>
+      <button data-tab="story">STORY</button>
+      <button data-tab="stats">STATS</button>
+      <button data-tab="save">SAVE</button>
+    </div>
+    <div class="tabpage" id="tab-map"><p style="font-size:13px;opacity:0.85">Click the map to set a waypoint (click the same spot again to clear it). The waypoint shows on the minimap, in the HUD and as a cyan marker in the world. Click the minimap to fast-travel (debug).</p>
+      <canvas id="bigmap" width="480" height="450" style="width:100%;max-width:480px;border:2px solid #f2c94c;border-radius:8px;background:#20262e;cursor:crosshair"></canvas></div>
+    <div class="tabpage" id="tab-story" style="display:none"><div id="story-list"></div></div>
+    <div class="tabpage" id="tab-stats" style="display:none"><div id="stats-list"></div></div>
+    <div class="tabpage" id="tab-save" style="display:none">
+      <p><button class="btn" data-save="1">SAVE 1</button><button class="btn" data-save="2">SAVE 2</button><button class="btn" data-save="3">SAVE 3</button></p>
+      <p style="font-size:12px;opacity:0.7">Saves cash, rank, shells, mission progress and position.</p>
+    </div>
+    <button class="btn" id="btn-resume">RESUME</button>
+    <button class="btn ghost" id="btn-quit-title">QUIT TO TITLE</button>
+  </div>
+</div>
+
+<div id="over-screen" class="screen">
+  <div class="card panel">
+    <h1 id="over-title" style="font-size:32px">BUSTED</h1>
+    <div class="tag" id="over-sub"></div>
+    <button class="btn" id="btn-restart">TRY AGAIN</button>
+    <button class="btn ghost" id="btn-quit-title2">QUIT TO TITLE</button>
+  </div>
+</div>
+
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.min.js" } }
 </script>
-</head>
-<body>
-<canvas id="game" aria-label="Solmarina: drive Rio's car through the city, get out and walk with E"></canvas>
-<div id="hud" aria-hidden="true">
-  <div class="corner" id="hud-title">SOLMARINA</div>
-  <div class="corner" id="hud-cash">Rio · $0</div>
-  <div class="corner" id="hud-banner">REACH THE MARINA PIER</div>
-  <div class="corner" id="hud-stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span></div>
-  <div class="corner" id="hud-clock">17:40</div>
-  <div class="corner" id="hud-speed">0 km/h</div>
-  <div class="corner" id="hud-mode">Driving</div>
-  <div class="corner" id="hud-health">HEALTH <span id="hud-health-text">100</span><div class="bar"><span id="hud-health-fill"></span></div></div>
-  <canvas id="minimap" width="180" height="180"></canvas>
-  <div class="corner" id="hud-hint">WASD drive · Space handbrake · E exit car · P pause</div>
-</div>
-<div class="overlay" id="title-screen">
-  <div class="panel">
-    <h1>SOLMARINA</h1>
-    <p class="tagline">A courier. A debt. A city that never slows down.</p>
-    <p>Rio needs wheels, cash and a way out. The city is yours.</p>
-    <p>WASD drive &amp; walk · E enter / exit car · Space handbrake · Shift run · P pause</p>
-    <p class="best" id="best-line"></p>
-    <div class="buttons">
-      <button class="hud-btn primary" id="start-button" type="button">START</button>
-      <button class="hud-btn ghost" id="continue-button" type="button" style="display: none">CONTINUE</button>
-    </div>
-    <p class="prompt">Press Enter to start</p>
-  </div>
-</div>
-<div class="overlay" id="pause-screen" style="display: none">
-  <div class="panel">
-    <h1>Paused</h1>
-    <p>The city will wait for you.</p>
-    <p id="pause-stats"></p>
-    <p class="prompt">Press P to resume</p>
-  </div>
-</div>
-<p id="status" role="status" aria-live="polite"></p>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
